@@ -153,6 +153,39 @@ At every commit, append a session entry to BOTH `CHANGELOG.md` and `SESSION-LOG.
 
 **Never delete history from either file.** Append-only. If a decision was wrong, write a new entry explaining the reversal — don't rewrite the old one.
 
+### 6.1 Push Cadence — Local And Remote Are Always In Sync
+
+Every local commit is pushed to `origin/main` immediately after the local commit lands. No commit sits unpushed except briefly during a deliberate multi-commit landing sequence.
+
+**Current remote**: `https://github.com/AustinMunday/Attestrum.git` (private). If the founder later creates an `Attestrum` GitHub org and transfers the repo there, `git remote set-url origin https://github.com/Attestrum/Attestrum.git` flips the local pointer; refs and history survive the transfer.
+
+**Workflow per commit, in order:**
+
+1. Run pre-commit gates (§7).
+2. `git add <specific paths>` (never `-A` or `.`).
+3. `git commit -m '...'` (with CHANGELOG + SESSION-LOG entries staged in the same commit per §6).
+4. `git push origin <current-branch>` (today this is always `main`).
+
+The push is part of the commit ritual, not a separate ceremony. After the local commit lands, push immediately.
+
+**Why push every time:**
+
+- The remote is the canonical backup against local disk loss.
+- CI on push:main (the `ci.yml` fmt/clippy/test/cargo-deny job, the `determinism.yml` 4-target byte-identity matrix, the `cosign-interop.yml` Sigstore round-trip) validates against the actual GHA environment, not the local dev box. Local-green ≠ CI-green; the only way to know is to push and watch.
+- Solo-developer workflows that batch pushes lose the GHA validation feedback loop and silently accumulate environment-drift bugs that surface as a cascade at the next push.
+- Future external collaborators (and future-self) see canonical history without a delayed-push surprise.
+
+**Acceptable batched-push cases** (rare):
+
+- A deliberate multi-commit landing sequence where commit B depends semantically on commit A and you want both to land at the remote together (e.g., E4.5's commit A = code + commit B = `last_verified` SHA bump that references A's SHA). Push all commits in the sequence with one `git push`, not per-commit.
+- A fix-forward immediately following a commit you just realised was wrong. Hold the push briefly while you draft the fix-forward commit; push both together.
+
+**Never acceptable:**
+
+- Sitting on a green local commit indefinitely "to test more locally first." If the pre-commit gates passed, push.
+- `git push --force` to `main` — overwrites the remote canonical history. Only with explicit founder approval and a written-down recovery plan.
+- `git push --no-verify` to skip server-side hooks (if any get added later).
+
 ---
 
 ## 7. Build And Test Discipline
@@ -315,7 +348,7 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 | Starting a new feature | Enter plan mode. Read `BUILD-PLAN.md`, `PATH-A-BRIEF.md`, this file. Confirm scope. |
 | Before any code change | Mermaid diagram first under `docs/diagrams/<area>/`. Frontmatter required. |
 | Before any commit | Run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo run -p diagram-linter -- check --strict`. |
-| After every commit | Append session entry to `CHANGELOG.md` AND `SESSION-LOG.md`. |
+| After every commit | Append session entry to `CHANGELOG.md` AND `SESSION-LOG.md` (in the commit itself, per §6). Then `git push origin main` immediately (per §6.1) — local and remote stay in sync, every commit. |
 | Touching a protected system | Surface to founder. Get explicit approval in commit message footer. |
 | Adding a dependency | Surface name, version, license, reason. Wait for approval. Update `docs/license-inventory.md`. |
 | UI surface change | Run Playwright MCP QA before declaring done. |
@@ -324,4 +357,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-24. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9.*
+*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push to `github.com/AustinMunday/Attestrum`.*
