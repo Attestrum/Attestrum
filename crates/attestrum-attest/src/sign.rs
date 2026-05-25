@@ -90,27 +90,22 @@ pub fn sign(req: SignRequest<'_>) -> Result<SignedAttestation, AttestrumAttestEr
     let id_token = IdentityToken::try_from(req.oidc_id_token.as_str())
         .map_err(|e| AttestrumAttestError::SigstoreIdentityToken(e.to_string()))?;
 
-    // 3. Open a blocking signer session. Generates the ephemeral keypair
-    //    internally and exchanges the id_token + CSR for a Fulcio cert.
-    let session = ctx
-        .blocking_signer(id_token)
-        .map_err(|e| AttestrumAttestError::SigstoreSession(e.to_string()))?;
+    // 3. Sign the canonical in-toto Statement JSON bytes by wrapping them
+    //    in a DSSE envelope, signing the envelope's PAE bytes with the
+    //    ephemeral private key, and submitting a Rekor v1 `dsse@0.0.1`
+    //    transparency-log entry. Returns a Sigstore Bundle v0.3 with
+    //    `Content::DsseEnvelope`. The session is opened internally by
+    //    `dsse_sign::sign_dsse` (blocking signer wrapping the fork-side
+    //    `SigningSession::sign_dsse` API). Per the contract at
+    //    docs/diagrams/sprint-4/sign-flow.md.
+    let bundle = crate::dsse_sign::sign_dsse(
+        &ctx,
+        id_token,
+        "application/vnd.in-toto+json",
+        req.statement_payload,
+    )?;
 
-    // 4. Sign the canonical Statement JSON bytes. sigstore-rs 0.14.0's
-    //    SigningSession::sign produces Bundle v0.2 + MessageSignature
-    //    over SHA-256(input) — wrong primitive for in-toto attestations.
-    //    See docs/diagrams/sprint-4/sign-flow.md (source_of_truth:
-    //    diagram) for the DSSE-aware replacement Session 2 builds at
-    //    crates/attestrum-attest/src/dsse_sign.rs.
-    let artifact = session
-        .sign(req.statement_payload)
-        .map_err(|e| AttestrumAttestError::SigstoreSign(e.to_string()))?;
-
-    // 5. Convert the SigningArtifact into a Bundle (Sigstore Bundle v0.3
-    //    protobuf-JSON representation).
-    let bundle = artifact.to_bundle();
-
-    // 6. Serialize the Bundle to JSON. Bundle v0.3 specifies ProtoJSON
+    // 4. Serialize the Bundle to JSON. Bundle v0.3 specifies ProtoJSON
     //    encoding (lowerCamelCase field names, base64-encoded bytes, int64
     //    fields as strings). sigstore-rs's Serialize impl produces this.
     //    Sprint 4 E3.6 swapped `serde_json::to_vec_pretty` for
@@ -123,7 +118,7 @@ pub fn sign(req: SignRequest<'_>) -> Result<SignedAttestation, AttestrumAttestEr
     //    require it; verifiers tolerate either form.
     let bundle_json = crate::json::deterministic_json_vec(&bundle)?;
 
-    // 7. Ensure parent dir exists + write atomically.
+    // 5. Ensure parent dir exists + write atomically.
     if let Some(parent) = req.bundle_output_path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
@@ -131,7 +126,7 @@ pub fn sign(req: SignRequest<'_>) -> Result<SignedAttestation, AttestrumAttestEr
     }
     fs::write(req.bundle_output_path, &bundle_json).map_err(AttestrumAttestError::from)?;
 
-    // 8. Sprint 4 E4: extract the real identity-pair from the just-written
+    // 6. Sprint 4 E4: extract the real identity-pair from the just-written
     //    bundle's leaf cert so SignedAttestation surfaces accurate values
     //    instead of E3.5's `"sigstore-bundle-v0.3"` placeholder. We
     //    re-parse the bundle JSON we just serialised — single read source

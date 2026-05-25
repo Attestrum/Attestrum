@@ -2,6 +2,17 @@
 
 Working log per CLAUDE.md §6. Append-only. Same per-commit entries as `CHANGELOG.md` plus the raw session-by-session record (including dead ends, deferred work, and decisions that didn't make the changelog).
 
+## [2026-05-25] — refactor(attest-sign): route through dsse_sign for DSSE-wrapped Bundle v0.3
+
+- **Files changed**: 4 — see matching CHANGELOG entry for full file-by-file description.
+- **Diagrams touched**: `docs/diagrams/sprint-4/sign-flow.md` — see CHANGELOG entry for the full delta. The diagram-vs-implementation drift introduced by the Session 1 contract bug (PAE over base64-wrapped payload + Rekor v2 references) is resolved in this commit; `source_of_truth: diagram` stays in place until Session 4's CI flip.
+- **Summary**: Production sign path emits Bundle v0.3 + DSSE + Rekor v1 `dsse@0.0.1` as of this commit. Five gates green. Diagram contract is now byte-faithful to the implementation.
+- **Findings**: See CHANGELOG entry. Additional session-log-only observations: (f) Renumbering the comments in `sign.rs` (steps 6→4, 7→5, 8→6) made the diff slightly noisier but keeps the step list contiguous — an alternative would be to leave gaps (steps 4, 6, 7, 8) but that creates documentation-decay surface; contiguous numbering is the more maintainable shape. (g) The diagram's "Removed vs prior wrong-shape diagram" bullet ordering preserves the historical narrative (it documents what changed from the broken v0.2-Hashedrekord state, not the current state) — the wording was kept past-tense intentionally so future readers tracing the X→Y migration can see the journey.
+- **Decision (Session-level)**: Diagram `source_of_truth` left as `diagram` until Session 4 confirms cosign-interop CI is green. The diagram now matches implementation byte-for-byte, but `source_of_truth: code` would force `code` to be authoritative — which prematurely commits to "this implementation IS the contract" before the cosign verifier has actually accepted the artifact. Session 4 verifies + flips to `code` once green.
+- **Decision (Session-level)**: Comments rewritten one-shot rather than incrementally edited. The original Session 1 update at lines 99-104 of sign.rs documented the wrong-shape behavior with a forward-reference to "the DSSE-aware replacement Session 2 builds at dsse_sign.rs". Session 2B-iii's call-site replacement makes that forward-reference past-tense; the simplest expression is to delete the whole old comment block and write a fresh accurate one. Five lines describing what the code does now, no historical breadcrumbs (those live in git history + this session log + the diagram's "Removed vs prior wrong-shape diagram" section).
+- **Open questions**: See CHANGELOG entry, items (1) + (2). Both are forward-looking; neither blocks Session 2 completion.
+- **Tokens used**: ~160K.
+
 ## [2026-05-25] — feat(dsse-sign): new module wrapping fork's SigningSession::sign_dsse
 
 - **Files changed**: 7 — `crates/attestrum-attest/src/dsse_sign.rs` (NEW, ~140 lines), `crates/attestrum-attest/src/lib.rs` (mod + error variant), `crates/attestrum-cli/src/commands/sign.rs` (match arm), `crates/attestrum-attest/tests/api_surface.rs` (SOURCES), `crates/attestrum-attest/tests/api-surface.golden.txt` (3 new lines), `CHANGELOG.md`, `SESSION-LOG.md`. See the matching CHANGELOG entry for full file-by-file description.
