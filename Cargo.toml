@@ -108,3 +108,28 @@ regex = "1"
 base64 = "0.22"
 # Reserved for later sprints (kept commented so additions are explicit per CLAUDE.md §8):
 # jiff   = "0.2"
+
+# Pre-Sprint-5 (2026-05-25): sigstore-rs 0.14.0 hard-requires `Claims.email`
+# (src/oauth/token.rs:31), which breaks every workload-identity OIDC flow
+# (GitHub Actions, GitLab CI, GCP service accounts, etc.) because those
+# tokens carry no `email` claim. The serde error gets swallowed by
+# sigstore-rs's `.or(Err(...))?` wrapper and surfaces as the misleading
+# "Malformed JWT: claims JSON malformed". Confirmed on the upstream `main`
+# branch too — no version bump or downgrade in the 0.12.x / 0.13.x / 0.14.x
+# line fixes it.
+#
+# Patch: Attestrum/sigstore-rs fork makes `email: Option<String>` and
+# adjusts the CSR subject construction to pass an empty bytes for absent
+# emails. Fulcio derives the cert's actual identity from the OIDC token's
+# claims directly (sub/iss), not the CSR subject, so the empty value is
+# informational only — verified against cosign's Go reference behavior.
+#
+# Upstream PR pending; pin to be removed once it merges. Tracked in
+# docs/license-inventory.md "Actually-used" table.
+#
+# This is the SECOND approved git-pinned dep in the workspace (the first
+# is `hf-hub` per PATH-A-BRIEF Part 2.3). Both follow the same exception
+# pattern under CLAUDE.md §8 — git-pin requires founder approval (granted
+# 2026-05-25 for Sprint 5 Q1 cosign-interop fix).
+[patch.crates-io]
+sigstore = { git = "https://github.com/Attestrum/sigstore-rs.git", rev = "ade5422143560cd795aae4ce59c593fe58090336" }
