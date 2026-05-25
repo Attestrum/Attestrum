@@ -2,6 +2,17 @@
 
 Working log per CLAUDE.md §6. Append-only. Same per-commit entries as `CHANGELOG.md` plus the raw session-by-session record (including dead ends, deferred work, and decisions that didn't make the changelog).
 
+## [2026-05-25] — docs(CLAUDE): add §7 TODO for three known CI failures (triage later)
+
+- **Files changed**: 3 — `CLAUDE.md` (§7 TODO paragraph + footer note), `CHANGELOG.md`, `SESSION-LOG.md`.
+- **Diagrams touched**: none.
+- **Summary**: Tiny note added to CLAUDE.md §7 capturing three known CI failures on `b59a899` so they don't fall off the radar while Sprint 5 spins up. Founder elected to defer the triage and proceed with Sprint 5 kickoff via the handoff at `/Users/austinmunday/.claude/plans/sprint-5-handoff-2026-05-25.md`. The §7 TODO references the last-observed SHA + a `gh run list` staleness check so the next agent can see whether the failures still apply.
+- **Findings**: (1) Parent SHA = `b59a899`. (2) Pre-commit gates all green: fmt ✓, clippy ✓, **test 323/0/2** ✓, diagram-linter strict **93/0** ✓. (3) Three failures recap: ci.yml cargo-deny advisories FAILED; determinism.yml musl-only `read_only_parent_propagates_io_error` test bug; cosign-interop sigstore-rs rejects GHA OIDC token as Malformed JWT. None regressions from today. (4) The cosign-interop one is the most urgent of the three because Sprint 5 E11.5 mirrors E4.5's cosign-interop pattern; same JWT parse will fail. Sprint 5 agent should plan to triage when they reach E11.5 (or before).
+- **Open questions**: (1) Sprint 5 fresh-agent kickoff using the handoff doc + kickoff prompt delivered earlier this session. (2) CI triage when convenient.
+- **Tokens used**: ~unknown
+
+---
+
 ## [2026-05-25] — docs(license): add LICENSE-APACHE + LICENSE-MIT for Hyper Beam Media LLC copyright
 
 - **Files changed**: 5 — `LICENSE-APACHE` (NEW, Apache 2.0 standard text with `Copyright 2026 Hyper Beam Media LLC` in the appendix), `LICENSE-MIT` (NEW, MIT standard text with `Copyright (c) 2026 Hyper Beam Media LLC`), `CLAUDE.md` (§11 copyright-holder line added; footer note expanded), `CHANGELOG.md`, `SESSION-LOG.md`.

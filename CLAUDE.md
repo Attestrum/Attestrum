@@ -211,6 +211,8 @@ If any of those fail, fix it before committing. Never disable a failing test to 
 
 If a test passes on your machine but fails in CI's determinism matrix, the test is finding a real bug. Fix the bug, don't relax the test.
 
+**TODO — known CI failures to triage (last observed at HEAD `b59a899` on 2026-05-25):** three workflows red on `main`, none regressions from local-green commits — surfaced by first runs against the GHA environment. (1) `ci.yml` audit job: `cargo-deny advisories FAILED` (transitive RUSTSEC advisory; license/bans/sources all pass). (2) `determinism.yml`: `read_only_parent_propagates_io_error` in `crates/attestrum-cas/tests/store.rs:226` fails ONLY on the `linux-x86_64-musl` Alpine target — different filesystem-permission semantics in the Alpine container; pre-existing test bug. (3) `cosign-interop.yml`: sigstore-rs rejects the GHA-issued OIDC token with `Malformed JWT: claims JSON malformed` (test reaches the sign step but the JWT round-trip fails — likely `jq -r '.value'` extraction or `$GITHUB_ENV` write mangles the token). Triage in a future session; the cosign-interop one specifically blocks Sprint 5 E11.5 (the proof-bundle cosign-interop mirror of E4.5). Check `gh run list -R Attestrum/Attestrum` for current state before assuming this note is still accurate.
+
 ---
 
 ## 8. Dependency Discipline
@@ -357,4 +359,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push (originally to `github.com/AustinMunday/Attestrum`; transferred same day to `github.com/Attestrum/Attestrum` org owned by Hyper Beam Media LLC). §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files.*
+*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push (originally to `github.com/AustinMunday/Attestrum`; transferred same day to `github.com/Attestrum/Attestrum` org owned by Hyper Beam Media LLC). §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files. §7 "Known CI failures" TODO added 2026-05-25 (3 unrelated CI reds on first canonical-URL run; check `gh run list` before assuming stale).*

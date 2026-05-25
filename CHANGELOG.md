@@ -2,6 +2,17 @@
 
 All notable changes to Attestrum. Format per CLAUDE.md §6 (session-entry convention). Release-narrative consolidation happens at each version tag.
 
+## [2026-05-25] — docs(CLAUDE): add §7 TODO for three known CI failures (triage later)
+
+- **Files changed**: 3 — `CLAUDE.md` (§7 TODO paragraph added at the end of the determinism subsection; footer last-updated note expanded), `CHANGELOG.md`, `SESSION-LOG.md`.
+- **Diagrams touched**: none.
+- **Summary**: First CI cycle against the canonical `Attestrum/Attestrum` URL surfaced three failures on `b59a899`, none from today's code work: (1) `ci.yml audit` — `cargo-deny advisories FAILED` on a transitive RUSTSEC advisory; (2) `determinism.yml` — `read_only_parent_propagates_io_error` fails ONLY on `linux-x86_64-musl` Alpine (filesystem-permission semantics differ); (3) `cosign-interop` — sigstore-rs rejects GHA-issued OIDC token with `Malformed JWT: claims JSON malformed`. Founder elected to defer triage and kick off Sprint 5 with the CI-red state visible to the new agent (already in the Sprint 5 handoff's KEY THINGS TO KNOW). Tiny CLAUDE.md note added so the failures don't fall off the radar — explicit TODO in §7 with last-observed SHA + grep-friendly pointer to `gh run list -R Attestrum/Attestrum` for staleness check.
+- **Findings**: (1) Parent SHA = `b59a899` (LICENSE commit). (2) Pre-commit gates all green: fmt ✓, clippy ✓, **test 323/0/2** ✓, diagram-linter strict **93/0** ✓. (3) The cosign-interop failure specifically blocks Sprint 5 E11.5 (the proof-bundle cosign-interop mirror of E4.5). When the Sprint 5 agent reaches E11.5, the §7 TODO will need to be fixed first or E11.5 will hit the same JWT parsing wall.
+- **Open questions**: (1) Sprint 5 kickoff in a fresh agent session using the handoff at `/Users/austinmunday/.claude/plans/sprint-5-handoff-2026-05-25.md`. (2) CI triage deferred — when convenient OR when E11.5 forces it.
+- **Tokens used**: ~unknown
+
+---
+
 ## [2026-05-25] — docs(license): add LICENSE-APACHE + LICENSE-MIT for Hyper Beam Media LLC copyright
 
 - **Files changed**: 5 — `LICENSE-APACHE` (NEW, standard Apache 2.0 license text with `Copyright 2026 Hyper Beam Media LLC` in the appendix), `LICENSE-MIT` (NEW, standard MIT text with `Copyright (c) 2026 Hyper Beam Media LLC`), `CLAUDE.md` (§11 "What This Project Is" copyright-holder line added; footer last-updated note expanded), `CHANGELOG.md`, `SESSION-LOG.md`.
