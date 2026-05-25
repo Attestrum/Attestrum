@@ -22,7 +22,7 @@ members = [
 edition      = "2021"
 rust-version = "1.88"
 license      = "Apache-2.0 OR MIT"
-repository   = "https://github.com/attestrum/attestrum"
+repository   = "https://github.com/Attestrum/Attestrum"
 
 [workspace.dependencies]
 # Pre-approved deps per docs/license-inventory.md. Add a row to the in-use

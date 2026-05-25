@@ -1068,7 +1068,7 @@ Secondary: a 1GB subset of **FineWeb-Edu** (`https://huggingface.co/datasets/Hug
 
 ```bash
 # 1. Set up
-git clone https://github.com/attestrum/attestrum
+git clone https://github.com/Attestrum/Attestrum
 cd attestrum/examples/common-pile-mini
 ./fetch.sh                          # downloads pinned 1GB subset
 
@@ -1094,7 +1094,7 @@ attestrum takedown --doc <blake3-of-known-doc> --reason "demo"
 
 # 7. Verify (what an auditor runs)
 attestrum verify .attestrum/out/manifest.sigstore.json \
-  --identity 'https://github.com/attestrum/attestrum/.github/workflows/build.yml@refs/tags/v0.1.0' \
+  --identity 'https://github.com/Attestrum/Attestrum/.github/workflows/build.yml@refs/tags/v0.1.0' \
   --issuer 'https://token.actions.githubusercontent.com'
 ```
 

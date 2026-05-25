@@ -557,9 +557,9 @@ These are the spine of the whole pipeline. Walk these arrows to trace the build 
 
 | File | Path | What |
 |---|---|---|
-| This file | `/Users/austinmunday/Documents/Claude/attestrum/ANNEX-EVERYTHING.md` | The everything map (source) |
+| This file | `/Users/austinmunday/Documents/Claude/Attestrum/ANNEX-EVERYTHING.md` | The everything map (source) |
 | Desktop copy | `~/Desktop/attestrum-everything.md` | Identical copy |
 | Desktop PNG | `~/Desktop/attestrum-everything.png` | Rendered at scale=3 — open in Preview, fit-window, click around |
-| Companion: meta-map | `/Users/austinmunday/Documents/Claude/attestrum/DIAGRAMS-OVERVIEW.md` | Earlier "diagrams as nodes" view (27 boxes, not 140) |
-| Source diagrams | `/Users/austinmunday/Documents/Claude/attestrum/docs/diagrams/{overview,sprint-1,sprint-2,sprint-3,attestations}/*.md` | The 27 per-area contracts |
+| Companion: meta-map | `/Users/austinmunday/Documents/Claude/Attestrum/DIAGRAMS-OVERVIEW.md` | Earlier "diagrams as nodes" view (27 boxes, not 140) |
+| Source diagrams | `/Users/austinmunday/Documents/Claude/Attestrum/docs/diagrams/{overview,sprint-1,sprint-2,sprint-3,attestations}/*.md` | The 27 per-area contracts |
 | Live dashboard | `http://127.0.0.1:8766/` (main) + `/diagrams` (catalog) | Live stats + per-diagram rendered view |
