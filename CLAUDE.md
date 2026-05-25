@@ -197,9 +197,12 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run -p diagram-linter -- check --strict
+cargo deny check sources licenses
 ```
 
 If any of those fail, fix it before committing. Never disable a failing test to get a green light. Never `#[allow(...)]` a clippy lint without a comment explaining the specific case. Never skip the linter "just this once."
+
+**Why `cargo deny check sources licenses` is in the local pre-commit set (added 2026-05-25 after Sprint 5 S5-D1 E1 through E4 + the deny.toml fix-forward + the parallel `difficulty.md` self-audit's §4.2.7 finding all surfaced the same gap):** the `sources` check catches `[patch.crates-io]` / git-pin additions whose URL isn't in `deny.toml`'s `allow-git` list (regression seen at `60a78559` → `25e9d7e` fix-forward), and the `licenses` check catches transitive deps whose SPDX license isn't in `deny.toml`'s `allow` list (regressions seen when first-using `image` → `ravif` → `rav1e` → `libfuzzer-sys` (NCSA, E2) and `iscc-lib` → `xxhash-rust` (BSL-1.0, E4)). Both checks run sub-second locally; both are policed by CI's `audit` job. Local pre-check stops the regression at commit time rather than after a wasted push. `cargo deny check bans` is omitted from the pre-commit set because it's a "ban-list" gate that the workspace doesn't currently populate — re-add here once any `[bans].deny` entries land. `cargo deny check advisories` is deliberately CI-only — it's slow (queries the RUSTSEC index) and currently red on two carry-forward transitive advisories (RUSTSEC-2024-0436 paste-unmaintained + RUSTSEC-2023-0071 Marvin Attack); see the TODO box below for the carry-forward triage state.
 
 **Determinism.** This project depends on byte-identical builds across Linux x86, Linux ARM, macOS, and Linux musl. Sources of non-determinism are bugs:
 
@@ -349,7 +352,7 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 |---|---|
 | Starting a new feature | Enter plan mode. Read `BUILD-PLAN.md`, `PATH-A-BRIEF.md`, this file. Confirm scope. |
 | Before any code change | Mermaid diagram first under `docs/diagrams/<area>/`. Frontmatter required. |
-| Before any commit | Run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo run -p diagram-linter -- check --strict`. |
+| Before any commit | Run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo run -p diagram-linter -- check --strict`, `cargo deny check sources licenses`. |
 | After every commit | Append session entry to `CHANGELOG.md` AND `SESSION-LOG.md` (in the commit itself, per §6). Then `git push origin main` immediately (per §6.1) — local and remote stay in sync, every commit. |
 | Touching a protected system | Surface to founder. Get explicit approval in commit message footer. |
 | Adding a dependency | Surface name, version, license, reason. Wait for approval. Update `docs/license-inventory.md`. |
@@ -359,4 +362,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push (originally to `github.com/AustinMunday/Attestrum`; transferred same day to `github.com/Attestrum/Attestrum` org owned by Hyper Beam Media LLC). §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files. §7 "Known CI failures" TODO added 2026-05-25 (3 unrelated CI reds on first canonical-URL run; check `gh run list` before assuming stale).*
+*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push (originally to `github.com/AustinMunday/Attestrum`; transferred same day to `github.com/Attestrum/Attestrum` org owned by Hyper Beam Media LLC). §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files. §7 "Known CI failures" TODO added 2026-05-25 (3 unrelated CI reds on first canonical-URL run; check `gh run list` before assuming stale). §7 fifth pre-commit gate `cargo deny check sources licenses` added 2026-05-25 post-Sprint-5 S5-D1 E4 (sister-issue surfaced 5x: Sprint-5 deny fix-forward, S5-D1 E1/E2/E3/E4 session entries + the parallel `difficulty.md` self-audit §4.2.7 finding; capturing the carry-forward debt before S5-D1 E5).*
