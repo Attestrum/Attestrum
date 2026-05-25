@@ -14,24 +14,39 @@
 //! input) and SHA-256 (Sigstore / in-toto interop) digests of the normalized
 //! bytes.
 //!
-//! Sprint 5 E2 (this commit) adds the image branch: [`fingerprint_image`]
+//! Sprint 5 E2 adds the image branch: [`fingerprint_image`]
 //! decodes via the `image` crate, computes a DCT-based 64-bit pHash via
 //! `image_hasher` (`HasherConfig::new().hash_size(8, 8).preproc_dct()`), a
 //! 64-bit blockhash via the `blockhash` crate (blockhash.io spec), and the
 //! BLAKE3 + SHA-256 over the RAW input bytes — distinct from text's
 //! over-normalized-bytes semantics because image exact-match means "same
-//! encoded file" not "same decoded pixels". Subsequent commits in S5-D1 add
-//! MinHash + SimHash (E3) and ISCC composition (E4); the API freeze +
-//! cross-target determinism gate lands at E5.
+//! encoded file" not "same decoded pixels".
+//!
+//! Sprint 5 E3 (this commit) adds two near-duplicate-detection hashes to
+//! the text branch: MinHash (128 BLAKE3-keyed permutations over 5-gram
+//! word shingles) and SimHash (64-bit, BLAKE3-keyed, uniform-weighted).
+//! Both run over the already-PROTECTED-normalized text produced by
+//! [`normalize_text`] and are populated unconditionally by
+//! [`fingerprint_text`]; downstream `attestrum-prove` (Sprint 5 E9)
+//! consumes them via `MatchEvidence::MinHash`. Implementation lives under
+//! `src/text/{mod,minhash,simhash}.rs` (`pub(crate)`; no external dep —
+//! hand-rolled per PATH-A-BRIEF Part 2.1 line 522). Subsequent commits in
+//! S5-D1 add ISCC composition (E4); the API freeze + cross-target
+//! determinism gate lands at E5.
 //!
 //! # PROTECTED
 //!
 //! Per CLAUDE.md §4: once any inclusion proof is emitted citing the
 //! `attestrum.com/fingerprint/v0.1` schema URI, the text-normalization
-//! pipeline is immutable. Changing [`normalize_text`] in any future commit
-//! invalidates every previously-emitted inclusion proof and requires both a
-//! `Protected-system-change:` commit-message footer AND a schema URI bump
-//! from `…/fingerprint/v0.1` → `…/fingerprint/v0.2` with a migration packet.
+//! pipeline AND the MinHash / SimHash algorithm parameters are immutable.
+//! Changing [`normalize_text`] in any future commit invalidates every
+//! previously-emitted inclusion proof; so does changing the MinHash
+//! shingle size, permutation count, or BLAKE3 key-derivation scheme, or
+//! the SimHash weighting / accumulator shape. Any such change requires
+//! both a `Protected-system-change:` commit-message footer AND a schema
+//! URI bump from `…/fingerprint/v0.1` → `…/fingerprint/v0.2` with a
+//! migration packet. The MinHash + SimHash parameter lock landed in the
+//! Sprint 5 E3 commit (founder-approved 2026-05-25).
 //!
 //! # Modality reuse
 //!
@@ -48,6 +63,12 @@ use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
 pub use attestrum_core::Modality;
+
+// Sprint 5 E3: PROTECTED MinHash + SimHash implementations.
+// Private to the crate — the public surface change is the two new fields
+// on `TextFingerprint`; the compute helpers themselves are implementation
+// detail consumed only by `fingerprint_text` below.
+mod text;
 
 /// JSON-LD `$id` of the [`FingerprintBundle`] schema. **Frozen at v0.1 as of
 /// Sprint 5 E1** — bumping this URI is part of a PROTECTED-system-change
@@ -101,10 +122,20 @@ pub struct FingerprintBundle {
     pub generated_at: String,
 }
 
-/// Text-specific fingerprint details. Sprint 5 E1 ships
-/// `original_byte_len` + `nfc_char_count` for diagnostic display of the
-/// pre-normalization input; E3 adds `minhash` + `simhash` for near-
-/// duplicate detection.
+/// Text-specific fingerprint details.
+///
+/// Diagnostic fields (`original_byte_len`, `nfc_char_count`) describe the
+/// pre-normalization input. The `minhash` Vec (128 BLAKE3-keyed 5-gram-
+/// shingle min-hashes) and the `simhash` u64 (64-bit, BLAKE3-keyed,
+/// uniform-weighted) are near-duplicate-detection hashes computed over
+/// the PROTECTED-normalized text. Both algorithm parameter sets are
+/// locked as of Sprint 5 E3 — see crate-level PROTECTED block.
+///
+/// Caller-side downstream code computes:
+///
+/// - **Jaccard similarity** from `minhash` as
+///   `a.minhash.iter().zip(b.minhash.iter()).filter(|(x, y)| x == y).count() as f64 / 128.0`.
+/// - **Hamming distance** from `simhash` as `(a.simhash ^ b.simhash).count_ones()`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextFingerprint {
@@ -116,6 +147,16 @@ pub struct TextFingerprint {
     /// before lowercase + whitespace collapse. Diagnostic only; the hash
     /// input length is `FingerprintBundle.byte_len`.
     pub nfc_char_count: u64,
+    /// 128 BLAKE3-keyed MinHash values over 5-gram word shingles of the
+    /// PROTECTED-normalized text. Length is always exactly 128. Empty
+    /// input yields `vec![u64::MAX; 128]`. PROTECTED — see crate-level
+    /// PROTECTED block for the locked algorithm parameters.
+    pub minhash: Vec<u64>,
+    /// 64-bit BLAKE3-keyed SimHash with uniform weights over 5-gram word
+    /// shingles of the PROTECTED-normalized text. Empty input yields `0`.
+    /// PROTECTED — see crate-level PROTECTED block for the locked
+    /// algorithm parameters.
+    pub simhash: u64,
 }
 
 /// Image-specific fingerprint details. Sprint 5 E2 ships two 64-bit
@@ -249,6 +290,13 @@ pub fn fingerprint_text(
         h.finalize()
     };
 
+    // Sprint 5 E3: PROTECTED MinHash 128 + SimHash 64 over the
+    // already-PROTECTED-normalized text. Populated unconditionally — no
+    // opts flag for skipping. See `text::minhash` / `text::simhash` for
+    // the locked algorithm parameters.
+    let minhash = text::minhash::compute(&normalized);
+    let simhash = text::simhash::compute(&normalized);
+
     let generated_at = jiff::Timestamp::from_second(opts.source_date_epoch)
         .map_err(|_| AttestrumFingerprintError::InvalidTimestamp(opts.source_date_epoch))?
         .to_string();
@@ -262,6 +310,8 @@ pub fn fingerprint_text(
         text: Some(TextFingerprint {
             original_byte_len,
             nfc_char_count,
+            minhash,
+            simhash,
         }),
         image: None,
         generated_at,
@@ -437,6 +487,12 @@ mod tests {
         let text = bundle.text.as_ref().expect("text branch must be populated");
         assert_eq!(text.original_byte_len, "hello world".len() as u64);
         assert_eq!(text.nfc_char_count, 11);
+        // E3: MinHash 128 + SimHash 64 populated unconditionally.
+        assert_eq!(
+            text.minhash.len(),
+            128,
+            "TextFingerprint.minhash must be exactly 128 entries"
+        );
         // Both digests are hex-64 lowercase.
         assert_eq!(bundle.blake3.len(), 64);
         assert_eq!(bundle.sha256.len(), 64);
@@ -595,6 +651,96 @@ mod tests {
         // system level — `Modality` in this crate IS `attestrum_core::Modality`.
         fn assert_same_type<T>(_a: T, _b: T) {}
         assert_same_type(Modality::Text, attestrum_core::Modality::Text);
+    }
+
+    // ========================================================================
+    // E3: text near-duplicate hashes (MinHash + SimHash) — end-to-end via
+    // fingerprint_text. Submodule-level unit tests live in
+    // `src/text/minhash.rs` + `src/text/simhash.rs`; these tests verify the
+    // wire-up + cross-cutting invariants (NFC + whitespace equivalence,
+    // serde shape).
+    // ========================================================================
+
+    #[test]
+    fn fingerprint_text_populates_minhash_and_simhash_unconditionally() {
+        // Non-trivial input (>5 tokens) exercises the full shingle path.
+        let bundle = fingerprint_text(
+            b"the quick brown fox jumps over the lazy dog in the meadow",
+            &opts(),
+        )
+        .unwrap();
+        let text = bundle.text.as_ref().expect("text branch must be populated");
+        assert_eq!(
+            text.minhash.len(),
+            128,
+            "minhash must be exactly 128 entries"
+        );
+        // Cryptographic-hash output is overwhelmingly unlikely to be 0 for a
+        // multi-shingle input — assert_ne is a meaningful sanity check that
+        // the SimHash is actually populated (not left at its accumulator
+        // default).
+        assert_ne!(
+            text.simhash, 0,
+            "simhash must populate to a non-zero value for non-trivial input"
+        );
+    }
+
+    #[test]
+    fn fingerprint_text_nfc_equivalent_inputs_produce_identical_minhash_simhash() {
+        // Load-bearing: confirms MinHash + SimHash ride on top of the
+        // PROTECTED NFC normalization correctly. Byte-different but
+        // Unicode-equivalent inputs MUST collapse to identical near-
+        // duplicate hashes (otherwise the inclusion-proof verification
+        // surface fragments across NFC / NFD-emitting publishers).
+        let precomposed = fingerprint_text("café au lait".as_bytes(), &opts()).unwrap();
+        let decomposed = fingerprint_text("cafe\u{0301} au lait".as_bytes(), &opts()).unwrap();
+        let p_text = precomposed.text.as_ref().unwrap();
+        let d_text = decomposed.text.as_ref().unwrap();
+        assert_eq!(p_text.minhash, d_text.minhash);
+        assert_eq!(p_text.simhash, d_text.simhash);
+    }
+
+    #[test]
+    fn fingerprint_text_whitespace_variations_produce_identical_minhash_simhash() {
+        // Same logic as the NFC test, for whitespace-collapse equivalence.
+        let a = fingerprint_text(b"the quick brown fox jumps over the lazy dog", &opts()).unwrap();
+        let b = fingerprint_text(
+            b"  the   quick\tbrown\nfox  jumps\tover  the   lazy   dog  ",
+            &opts(),
+        )
+        .unwrap();
+        let a_text = a.text.as_ref().unwrap();
+        let b_text = b.text.as_ref().unwrap();
+        assert_eq!(a_text.minhash, b_text.minhash);
+        assert_eq!(a_text.simhash, b_text.simhash);
+    }
+
+    #[test]
+    fn fingerprint_text_bundle_serializes_minhash_and_simhash_as_camelcase() {
+        let bundle = fingerprint_text(b"hello world from the e3 commit", &opts()).unwrap();
+        let json = serde_json::to_string(&bundle).unwrap();
+        // Field names: minhash + simhash are already lowercase camelCase
+        // (no internal capitals) so serde's rename_all="camelCase" leaves
+        // them as-is.
+        assert!(
+            json.contains("\"minhash\""),
+            "serialized JSON must carry minhash key; got {json}"
+        );
+        assert!(
+            json.contains("\"simhash\""),
+            "serialized JSON must carry simhash key; got {json}"
+        );
+        // Round-trip preserves both fields' values exactly (Vec<u64> + u64
+        // serde derives are lossless).
+        let back: FingerprintBundle = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            bundle.text.as_ref().unwrap().minhash,
+            back.text.as_ref().unwrap().minhash
+        );
+        assert_eq!(
+            bundle.text.as_ref().unwrap().simhash,
+            back.text.as_ref().unwrap().simhash
+        );
     }
 
     // ========================================================================
