@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   cosign-interop:
-    name: cosign v3+ verify-blob-attestation interop
+    name: cosign v2.5+ verify-blob-attestation interop
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -55,25 +55,32 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-cosign-interop-
 
-      # Tactical decision D — belt + suspenders pin. `@v3` is the action
-      # major-version pin; the explicit `cosign version --json` grep
-      # immediately after exits 1 if the installer ever returns a non-v3
-      # binary (catches installer regressions and stricter drift than the
-      # action pin alone). Tighten the case match below to `v3.0.*` (or a
-      # specific minor) if minor-version drift becomes a concern.
+      # Tactical decision D — belt + suspenders pin. `@v3` is the
+      # SIGSTORE/COSIGN-INSTALLER ACTION's major-version pin (NOT the cosign
+      # binary version — distinct concept). At 2026-05-25 the latest cosign
+      # binary the action installs is v2.5.2; cosign has not shipped a v3.x
+      # binary yet (the parked-plan brief assumed v3 existed; first-CI-run
+      # caught the assumption). The `--new-bundle-format` flag the test
+      # consumes landed in cosign v2.3.0, so v2.5.2 is fully supported. The
+      # explicit `cosign version --json` grep below catches binary-version
+      # drift outside the v2.x or future v3.x lines.
       - name: Install cosign (sigstore/cosign-installer@v3)
         uses: sigstore/cosign-installer@v3
 
-      - name: Verify installed cosign is v3.x
+      - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
         run: |
           set -euo pipefail
           version_json="$(cosign version --json)"
           echo "$version_json"
-          git_version="$(echo "$version_json" | jq -r '.GitVersion')"
+          # `cosign version --json` emits camelCase keys (`gitVersion`, not
+          # `GitVersion` — the parked-plan brief had the wrong case).
+          git_version="$(echo "$version_json" | jq -r '.gitVersion')"
           case "$git_version" in
-            v3.*) echo "cosign $git_version: OK (v3.x line)";;
+            v2.[5-9].*|v2.[1-9][0-9].*|v3.*)
+              echo "cosign $git_version: OK (>= v2.5 or any v3.x)"
+              ;;
             *)
-              echo "::error::sigstore/cosign-installer@v3 returned non-v3.x cosign: $git_version" >&2
+              echo "::error::cosign binary is below v2.5 or unrecognised: $git_version (test requires --new-bundle-format which landed in v2.3.0; pinning >= v2.5 for safety margin)" >&2
               exit 1
               ;;
           esac
