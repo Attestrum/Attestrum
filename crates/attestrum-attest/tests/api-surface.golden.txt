@@ -2,6 +2,8 @@ src/canonicalize.rs: const STRIP_PATHS
 src/canonicalize.rs: const STRIP_SENTINEL
 src/canonicalize.rs: enum PathSegment
 src/canonicalize.rs: fn canonicalize_for_compare
+src/dsse_sign.rs: fn compute_pae
+src/dsse_sign.rs: fn sign_dsse
 src/identity.rs: fn extract_identity
 src/identity.rs: struct ExtractedIdentity
 src/json.rs: fn deterministic_json
@@ -13,6 +15,7 @@ src/lib.rs: const NON_INCLUSION_PROOF_PREDICATE_TYPE
 src/lib.rs: const TRAINING_CORPUS_PREDICATE_TYPE
 src/lib.rs: enum AttestrumAttestError
 src/lib.rs: mod canonicalize
+src/lib.rs: mod dsse_sign
 src/lib.rs: mod identity
 src/lib.rs: mod json
 src/lib.rs: mod predicate

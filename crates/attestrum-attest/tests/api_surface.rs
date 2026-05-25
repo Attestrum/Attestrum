@@ -32,6 +32,7 @@ const SOURCES: &[&str] = &[
     "src/canonicalize.rs",
     "src/json.rs",
     "src/sign.rs",
+    "src/dsse_sign.rs",
     "src/identity.rs",
     "src/verify.rs",
 ];

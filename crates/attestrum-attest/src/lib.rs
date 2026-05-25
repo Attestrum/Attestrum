@@ -21,6 +21,7 @@
 //! (now `source_of_truth: code` — this file is authoritative).
 
 pub mod canonicalize;
+pub mod dsse_sign;
 pub mod identity;
 pub mod json;
 pub mod predicate;
@@ -136,6 +137,16 @@ pub enum AttestrumAttestError {
     /// rejection or transient network error during transparency-log entry.
     #[error("sigstore sign failed: {0}")]
     SigstoreSign(String),
+
+    /// `dsse_sign::sign_dsse()` failed — typically Rekor v1 `dsse@0.0.1`
+    /// submission rejection, transient network error during the
+    /// transparency-log entry, ECDSA-P256 signing failure, or DSSE
+    /// envelope serialization failure on the fork side. Distinct from
+    /// [`Self::SigstoreSign`] (which is the v0.2 + `MessageSignature`
+    /// code path) so error logs can distinguish which sign primitive
+    /// failed during the X→Y hybrid rollout window.
+    #[error("dsse sign failed: {0}")]
+    DsseSign(String),
 
     /// `sigstore::bundle::verify::blocking::Verifier::verify()` failed —
     /// cryptographic verification rejected the bundle (cert chain bad,

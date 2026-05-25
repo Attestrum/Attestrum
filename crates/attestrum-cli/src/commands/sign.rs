@@ -268,11 +268,13 @@ pub fn run(args: Args) -> u8 {
                     state = sign_transition(state, SignEvent::SigningContextOk);
                     state = sign_transition(state, SignEvent::SignIdentityError);
                 }
-                E::SigstoreSign(_) => {
+                E::SigstoreSign(_) | E::DsseSign(_) => {
                     // Rekor / DSSE failure mid-sign — surface as network
                     // (most common cause: Rekor 5xx). Sigstore-rs doesn't
                     // separate Rekor-network from sign-crypto failures
-                    // in this variant.
+                    // in either variant. SigstoreSign is the legacy
+                    // Bundle-v0.2 + MessageSignature path; DsseSign is
+                    // the X→Y hybrid Bundle-v0.3 + DSSE path.
                     state = sign_transition(state, SignEvent::SigningContextOk);
                     state = sign_transition(state, SignEvent::SignNetworkError);
                 }
