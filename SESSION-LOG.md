@@ -2,6 +2,15 @@
 
 Working log per CLAUDE.md §6. Append-only. Same per-commit entries as `CHANGELOG.md` plus the raw session-by-session record (including dead ends, deferred work, and decisions that didn't make the changelog).
 
+## [2026-05-25] — docs(verify-confirmation): Session 3 — verify-side stays as-is for X→Y hybrid; W1-W6 PASS
+
+- **Files changed**: 3 — `attestrum-session-3-verify-confirmation-2026-05-25.md`, `CHANGELOG.md`, `SESSION-LOG.md`. See CHANGELOG for the section-by-section description.
+- **Diagrams touched**: none.
+- **Summary**: Closes Session 3 with all six W1-W6 verification checks PASS. The X→Y hybrid sign-side rewrite + Session 2A.2's fork-side completeness fix together produce a working `attest_sign` → `attest_verify` round-trip on the public-good Sigstore endpoints. The cosign-step delta (cosign 2.5.2 rejecting Bundle v0.3 + dsse-content with `"dsse/0.0.1 != hashedrekord/0.0.1"`) is downstream of `attest_verify` and is fully scoped to Session 4.
+- **Findings**: See CHANGELOG entry. Additional session-log-only observations: (k) The cosign-error string `"kind and version mismatch: dsse/0.0.1 != hashedrekord/0.0.1"` is informative — it confirms the bundle's tlog kindVersion reads as `dsse/0.0.1` (Session 3 W3 sub-check) while ALSO confirming cosign's expectation defaults to `hashedrekord/0.0.1` for the bundle path it's taking. This shape mismatch is almost certainly the cosign-version gap (2.5.2 vs 3.x) — `sigstore/cosign-installer@v3` defaults to the latest 2.x release; the `cosign-release: 'v3.0.0'` parameter would force 3.x. Session 4 verifies. (l) The W6 freshness margin (`ff7f41c 2026-05-25` at HEAD-minus-4) is comfortable but not infinite — once Session 4 lands the cosign-installer bump + the `source_of_truth: code` flip, the `last_verified` field bumps to the Session 4 commit's SHA. (m) The integration test at `crates/attestrum-attest/tests/cosign_interop.rs` lines 130-181 has a useful property under outcome (b): the panic message at line 177 includes `stdout` + `stderr` from cosign, which let us read the error chain in the GHA log without needing to download the bundle artifact. The verification report cites that error chain directly as evidence; no separate bundle-dump step was needed.
+- **Open questions**: See CHANGELOG entry.
+- **Tokens used**: ~25k for this commit (the report + entries); ~95k cumulative for Session 3.
+
 ## [2026-05-25] — chore(deps): bump sigstore-rs fork to b4ea971 for Body::dsse variant (Session 2A.2)
 
 - **Files changed**: 4 — `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `SESSION-LOG.md`. See CHANGELOG for the line-level description.
