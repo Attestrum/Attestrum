@@ -1,0 +1,28 @@
+[package]
+name = "attestrum-manifest"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+attestrum-core = { path = "../attestrum-core", version = "0.0.1" }
+arrow      = { workspace = true }
+parquet    = { workspace = true }
+serde      = { workspace = true }
+# Sprint 4 E3.6 determinism hardening: declared but not imported. parquet's
+# `zstd` feature is the actual codec consumer; this entry is here purely to
+# give cargo's resolver an exact-version constraint (`=0.13.3` in the
+# workspace dep table) so a `cargo update` cannot silently bump the bundled
+# C zstd-sys version and break the cross-target byte-identity gate for
+# `manifest.parquet`. See determinism audit 2026-05-24.
+zstd       = { workspace = true }
+
+[dev-dependencies]
+# Integration tests in tests/ are compiled as separate binaries and do NOT
+# auto-inherit the crate's regular deps. Restated here so tests/parquet_roundtrip.rs
+# can use the arrow + parquet APIs directly for footer / KeyValue assertions.
+arrow      = { workspace = true }
+parquet    = { workspace = true }
+serde_json = { workspace = true }

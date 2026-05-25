@@ -1,0 +1,47 @@
+# Curated list of AI-training-relevant user agents (per BUILD-PLAN §2.1, May 2026).
+# One canonical user-agent name per line. Comments start with `#`.
+# When an operator ships a new tracked AI bot, append a line + bump
+# `last_verified` on `docs/diagrams/sprint-1/robots-txt-state.md`.
+
+# OpenAI
+GPTBot
+ChatGPT-User
+OAI-SearchBot
+
+# Google
+Google-Extended
+
+# Anthropic
+ClaudeBot
+anthropic-ai
+Claude-Web
+
+# Common Crawl
+CCBot
+
+# Perplexity
+PerplexityBot
+Perplexity-User
+
+# Apple
+Applebot-Extended
+
+# ByteDance
+Bytespider
+
+# Meta
+FacebookBot
+Meta-ExternalAgent
+
+# Amazon
+Amazonbot
+
+# Cohere
+cohere-ai
+cohere-training-data-crawler
+
+# Other tracked crawlers
+Diffbot
+ImagesiftBot
+Omgilibot
+YouBot

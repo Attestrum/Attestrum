@@ -1,0 +1,249 @@
+{
+  "$defs": {
+    "CorpusRef": {
+      "description": "Reference to the corpus a proof attests against. The `attestation_digest`\nis the digest of the corpus's signed in-toto Statement (the bundle's DSSE\npayload), algorithm-qualified per the E1.5 cross-check finding that raw\nhex without algorithm is ambiguous for verifiers.",
+      "properties": {
+        "attestationDigest": {
+          "$ref": "#/$defs/DigestMap"
+        },
+        "manifestUri": {
+          "type": "string"
+        },
+        "merkleRoot": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifestUri",
+        "merkleRoot",
+        "attestationDigest"
+      ],
+      "type": "object"
+    },
+    "DigestMap": {
+      "description": "Algorithm-qualified digest carrying BOTH BLAKE3 (Attestrum-native) and SHA-256\n(Sigstore/in-toto interop) per BUILD-PLAN §3.4. Both required. Hex is\nlowercase 64-char.",
+      "properties": {
+        "blake3": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blake3",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "IsccEvidence": {
+      "properties": {
+        "compositeDistance": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "compositeDistance"
+      ],
+      "type": "object"
+    },
+    "MatchEvidence": {
+      "description": "Per-mode evidence for an inclusion match. Exact-hash variants carry no\nevidence struct (the match itself is the proof); fuzzy variants carry\nmode-specific parameters.\n\nSerialized with the variant discriminator at field `matchMode`:\n\n```json\n{ \"matchMode\": \"exact-blake3\" }\n{ \"matchMode\": \"iscc\", \"compositeDistance\": 3 }\n{ \"matchMode\": \"perceptual\", \"hammingDistance\": 4, \"threshold\": 6 }\n{ \"matchMode\": \"minhash\", \"jaccard\": 920000, \"ngramSize\": 5 }\n```\n\n**E3.6 v0.3 schema bump**: `jaccard` is `u32` parts-per-million (PPM) in\n`0..=1_000_000` mapping `0.0..=1.0` similarity — was `f32` at v0.1. See\n`docs/migration/v0.2-to-v0.3-attestrum-rebrand.md`.",
+      "oneOf": [
+        {
+          "properties": {
+            "matchMode": {
+              "const": "exact-blake3",
+              "type": "string"
+            }
+          },
+          "required": [
+            "matchMode"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "matchMode": {
+              "const": "exact-sha256",
+              "type": "string"
+            }
+          },
+          "required": [
+            "matchMode"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/IsccEvidence",
+          "properties": {
+            "matchMode": {
+              "const": "iscc",
+              "type": "string"
+            }
+          },
+          "required": [
+            "matchMode"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/PerceptualEvidence",
+          "properties": {
+            "matchMode": {
+              "const": "perceptual",
+              "type": "string"
+            }
+          },
+          "required": [
+            "matchMode"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/MinHashEvidence",
+          "properties": {
+            "matchMode": {
+              "const": "min-hash",
+              "type": "string"
+            }
+          },
+          "required": [
+            "matchMode"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "MinHashEvidence": {
+      "properties": {
+        "jaccard": {
+          "description": "Jaccard similarity as parts per million; 0..=1_000_000 maps 0.0..=1.0.\nE3.6 v0.3 bump: was `f32` at v0.1, changed for cross-target byte\ndeterminism (float JSON serialization is platform-nondeterministic).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ngramSize": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "jaccard",
+        "ngramSize"
+      ],
+      "type": "object"
+    },
+    "PerceptualEvidence": {
+      "properties": {
+        "hammingDistance": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threshold": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hammingDistance",
+        "threshold"
+      ],
+      "type": "object"
+    },
+    "Subject": {
+      "description": "in-toto v1 Subject — `name` plus algorithm-qualified digest map. Used by\nthe wrapping Statement's `subject[]` and embedded in\n`InclusionProofPredicate::matched_subject`.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/DigestMap"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "digest"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://attestrum.com/attestation/inclusion-proof/v0.3.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`https://attestrum.com/attestation/inclusion-proof/v0.3` predicate payload.\nFrozen shape locked at E1.5 cross-check; `build()` constructor lands in\nSprint 5 alongside `attestrum prove`.",
+  "properties": {
+    "auditPath": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "corpus": {
+      "$ref": "#/$defs/CorpusRef"
+    },
+    "hashAlgorithm": {
+      "type": "string"
+    },
+    "leafCount": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "leafHash": {
+      "type": "string"
+    },
+    "leafIndex": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "matchEvidence": {
+      "$ref": "#/$defs/MatchEvidence"
+    },
+    "matchedSubject": {
+      "$ref": "#/$defs/Subject"
+    },
+    "proofGeneratedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proofGeneratorIdentity": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proofType": {
+      "description": "Discriminator. Must be `\"inclusion\"`. Validated via [`Self::validate`].",
+      "type": "string"
+    },
+    "queryFingerprint": true,
+    "treeSize": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "proofType",
+    "corpus",
+    "queryFingerprint",
+    "matchEvidence",
+    "treeSize",
+    "leafCount",
+    "leafHash",
+    "hashAlgorithm",
+    "auditPath",
+    "leafIndex",
+    "matchedSubject"
+  ],
+  "title": "Attestrum Inclusion Proof v0.3",
+  "type": "object"
+}

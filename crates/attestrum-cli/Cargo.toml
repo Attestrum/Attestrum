@@ -1,0 +1,62 @@
+[package]
+name = "attestrum-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Rename the binary from the cargo default ("attestrum-cli") to "attestrum" so the
+# user runs `attestrum build`, matching BUILD-PLAN §8.1.
+[[bin]]
+name = "attestrum"
+path = "src/main.rs"
+
+[dependencies]
+attestrum-core         = { path = "../attestrum-core",     version = "0.0.1" }
+attestrum-cas          = { path = "../attestrum-cas",      version = "0.1.0" }
+attestrum-manifest     = { path = "../attestrum-manifest", version = "0.1.0" }
+attestrum-merkle       = { path = "../attestrum-merkle",   version = "0.1.0" }
+attestrum-pipeline     = { path = "../attestrum-pipeline", version = "0.1.0" }
+# Sprint 4 E3.5: attestrum-attest provides the in-toto Statement wrapper,
+# TrainingCorpusPredicate type, deterministic_json helper, and the
+# attestrum_attest::sign() entry point the `attestrum sign` subcommand drives.
+attestrum-attest       = { path = "../attestrum-attest",   version = "0.0.1" }
+# Sprint 3 E7: blake3 hashing for `attestrum plan`'s shard_id assignment.
+# Sprint 4 E3.5 also uses it for the manifest.parquet digest fed into the
+# in-toto Statement's subject + the predicate's manifest.digest_set.
+# Already in workspace deps + in-use via attestrum-cas.
+blake3             = { workspace = true }
+# Sprint 4 E3.5: SHA-256 of the manifest.parquet file bytes for the
+# DigestMap.sha256 field of the in-toto subject + manifest.digest_set
+# (BLAKE3 is Attestrum-native; SHA-256 is the in-toto / Sigstore interop
+# requirement per BUILD-PLAN §3.4).
+sha2               = { workspace = true }
+clap               = { workspace = true }
+serde              = { workspace = true }
+# Sprint 4 E3.5: serde_json::to_value for converting TrainingCorpusPredicate
+# into the serde_json::Value carried by InTotoStatement.predicate. Already
+# in workspace deps + in-use via attestrum-attest.
+serde_json         = { workspace = true }
+thiserror          = { workspace = true }
+toml               = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+# Integration tests under tests/ are compiled as separate binaries and do NOT
+# auto-inherit the crate's regular deps. attestrum-manifest is restated so the
+# source_date_epoch test can read the sealed manifest back and assert on
+# per-entry fetched_at values.
+attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }
+# Sprint 3 E6 dev-deps:
+#   - proptest closes the SECOND `stateDiagram-v2` proptest obligation per
+#     CLAUDE.md §7.1 (first was Sprint 2 E2 for `signal-decision.md`); already
+#     pre-approved as a dev-dep per the inventory.
+#   - arrow + parquet are used by `tests/inspect_proptest.rs` to hand-craft a
+#     Parquet file with a deliberately-bumped `attestrum.manifest.schema_version`
+#     KeyValue, so `manifest_with_unknown_schema_version_exits_8` can drive
+#     the Exit8 schema-mismatch path. Both already in-use via attestrum-manifest.
+arrow          = { workspace = true }
+parquet        = { workspace = true }
+proptest       = "1"

@@ -1,0 +1,318 @@
+{
+  "$defs": {
+    "DeterminismFields": {
+      "properties": {
+        "manifestSchemaVersion": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "string"
+        },
+        "targetTriple": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "targetTriple",
+        "seed",
+        "manifestSchemaVersion"
+      ],
+      "type": "object"
+    },
+    "DigestMap": {
+      "description": "Algorithm-qualified digest carrying BOTH BLAKE3 (Attestrum-native) and SHA-256\n(Sigstore/in-toto interop) per BUILD-PLAN §3.4. Both required. Hex is\nlowercase 64-char.",
+      "properties": {
+        "blake3": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blake3",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "LicenseInventoryEntry": {
+      "properties": {
+        "byteCount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rowCount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "spdxId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "spdxId",
+        "byteCount"
+      ],
+      "type": "object"
+    },
+    "LicensingPosture": {
+      "description": "Per PATH-A-BRIEF §3.1: `\"allOpenLicensed\" | \"mixedLicensed\" | \"allLicensed\" | \"undisclosed\"`.",
+      "enum": [
+        "allOpenLicensed",
+        "mixedLicensed",
+        "allLicensed",
+        "undisclosed"
+      ],
+      "type": "string"
+    },
+    "ManifestRef": {
+      "properties": {
+        "byteCount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "digestSet": {
+          "$ref": "#/$defs/DigestMap"
+        },
+        "rowCount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri",
+        "digestSet",
+        "rowCount",
+        "byteCount"
+      ],
+      "type": "object"
+    },
+    "PublicationIntent": {
+      "description": "Per PATH-A-BRIEF §3.1: `\"huggingface-hub\" | \"zenodo\" | \"github-release\" | \"eu-ai-office\" | \"private\"`.",
+      "enum": [
+        "hugging-face-hub",
+        "zenodo",
+        "git-hub-release",
+        "eu-ai-office",
+        "private"
+      ],
+      "type": "string"
+    },
+    "RulesetMode": {
+      "description": "Per PATH-A-BRIEF §3.1: `\"strict\" | \"audit-only\" | \"permissive\"`.",
+      "enum": [
+        "strict",
+        "audit-only",
+        "permissive"
+      ],
+      "type": "string"
+    },
+    "SignalCoverage": {
+      "description": "All nine signal-coverage ratios as parts-per-million (PPM), each in\n`0..=1_000_000` representing `0.0..=1.0` coverage. `Option<u32>` here so\na signal that was never evaluated stays absent rather than appearing as\n`0` (which means \"evaluated and zero coverage\").\n\n**E3.6 v0.3 schema bump**: changed from `Option<f32>` to `Option<u32>` PPM\nfor cross-target byte determinism — float JSON serialization is platform-\nnondeterministic (rounding, denormal handling, NaN bits). See\n`docs/migration/v0.2-to-v0.3-attestrum-rebrand.md`. Verifier-side: read the\ninteger value, divide by `1_000_000.0`, format for human display.",
+      "properties": {
+        "aiTxt": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "aipref": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "c2pa": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cloudflare": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "iptcPlus": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "liccium": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "robotsTxt": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rsl": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tdmRep": {
+          "description": "Parts per million; 0..=1_000_000 maps 0.0..=1.0.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://attestrum.com/attestation/training-corpus/v0.3.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`https://attestrum.com/attestation/training-corpus/v0.3` predicate payload.\nBuilt by `attestrum sign` from a sealed manifest.",
+  "properties": {
+    "attestrumVersion": {
+      "type": "string"
+    },
+    "builderVersion": {
+      "type": "string"
+    },
+    "builtAt": {
+      "type": "string"
+    },
+    "datasetHomepage": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "determinism": {
+      "$ref": "#/$defs/DeterminismFields"
+    },
+    "licenseInventory": {
+      "items": {
+        "$ref": "#/$defs/LicenseInventoryEntry"
+      },
+      "type": "array"
+    },
+    "licensingPosture": {
+      "$ref": "#/$defs/LicensingPosture"
+    },
+    "manifest": {
+      "$ref": "#/$defs/ManifestRef"
+    },
+    "merkleAlgorithm": {
+      "type": "string"
+    },
+    "merkleRoot": {
+      "type": "string"
+    },
+    "modelName": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "publicationIntent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PublicationIntent"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rulesetId": {
+      "type": "string"
+    },
+    "rulesetMode": {
+      "$ref": "#/$defs/RulesetMode"
+    },
+    "rulesetVersion": {
+      "type": "string"
+    },
+    "signalCoverage": {
+      "$ref": "#/$defs/SignalCoverage"
+    },
+    "takedownContact": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "totalCompute": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "trainingCost": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "attestrumVersion",
+    "builderVersion",
+    "builtAt",
+    "determinism",
+    "manifest",
+    "merkleRoot",
+    "merkleAlgorithm",
+    "rulesetMode",
+    "rulesetId",
+    "rulesetVersion",
+    "signalCoverage",
+    "licensingPosture",
+    "licenseInventory"
+  ],
+  "title": "Attestrum Training Corpus Attestation v0.3",
+  "type": "object"
+}

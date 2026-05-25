@@ -1,0 +1,3 @@
+# Workspace-wide cargo config. Per-target settings can go in [target."cfg(...)"].
+# Determinism + reproducibility defaults land in Sprint 2 alongside the determinism
+# CI matrix (BUILD-PLAN §6.5). Keep this file minimal at bootstrap.

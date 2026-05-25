@@ -1,0 +1,25 @@
+[package]
+name = "attestrum-cas"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+attestrum-core = { path = "../attestrum-core", version = "0.0.1" }
+blake3     = { workspace = true }
+sha2       = { workspace = true }
+
+[dev-dependencies]
+# Integration tests under `tests/` are compiled as separate binaries and
+# do not auto-inherit the crate's regular deps. blake3 + attestrum-core are
+# already regular deps; restating here lets `tests/store.rs` call
+# `blake3::hash` and `attestrum_core::hex::encode_32` directly when verifying
+# CAS path layout against an independently-computed expected path.
+# attestrum-merkle is dev-only (Sprint 2 E9 demo example + determinism test);
+# attestrum-cas does NOT depend on attestrum-merkle in production — the
+# pipeline wires them together at a higher layer (Sprint 3).
+attestrum-core   = { path = "../attestrum-core",   version = "0.0.1" }
+attestrum-merkle = { path = "../attestrum-merkle", version = "0.1.0" }
+blake3       = { workspace = true }

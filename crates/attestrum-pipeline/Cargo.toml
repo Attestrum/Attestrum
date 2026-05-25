@@ -1,0 +1,26 @@
+[package]
+name = "attestrum-pipeline"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+attestrum-core     = { path = "../attestrum-core",     version = "0.0.1" }
+attestrum-cas      = { path = "../attestrum-cas",      version = "0.1.0" }
+attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }
+attestrum-merkle   = { path = "../attestrum-merkle",   version = "0.1.0" }
+rayon          = { workspace = true }
+thiserror      = { workspace = true }
+
+[dev-dependencies]
+# Integration tests in tests/ are compiled as separate binaries and do NOT
+# auto-inherit the crate's regular deps. Restated here so the test files can
+# call blake3::hash and attestrum_core::hex::encode_32 directly when verifying
+# CAS paths, and so they can use the manifest reader for round-trip checks.
+attestrum-core     = { path = "../attestrum-core",     version = "0.0.1" }
+attestrum-cas      = { path = "../attestrum-cas",      version = "0.1.0" }
+attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }
+attestrum-merkle   = { path = "../attestrum-merkle",   version = "0.1.0" }
+blake3         = { workspace = true }

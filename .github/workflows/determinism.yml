@@ -1,0 +1,304 @@
+name: determinism
+
+# Sprint 2 commit E3 — scaffolding only. Per BUILD-PLAN §6.5 + PATH-A-BRIEF
+# §7.3 expanded determinism gate, the workspace MUST produce byte-identical
+# output (Merkle root, manifest.parquet, attestations after stripping the
+# OIDC timestamp) across four targets:
+#
+#   - ubuntu-24.04          glibc x86_64
+#   - ubuntu-24.04-arm      glibc aarch64
+#   - macos-14              Apple Silicon (darwin aarch64)
+#   - alpine:3.20 container musl x86_64
+#
+# E3 laid the matrix infrastructure (each target checks out + installs
+# rustc 1.88.0 + runs `cargo test --workspace`). Sprint 2 E9 wired the
+# Merkle-root byte-identity assertion: each target additionally runs
+# the `sprint-2-corpus` example (1000 deterministic in-memory documents
+# → BLAKE3 → sort → RFC 6962 Merkle root → single line of 64 lowercase
+# hex chars + `\n`), captures stdout to `merkle-root-<label>.txt`, and
+# uploads it as a job artifact. A `compare` job downloads all four
+# artifacts and `cmp`s them pairwise; any byte difference is a
+# determinism regression and fails the build.
+#
+# Sprint 3 E8 (this commit) extends the matrix with a second example,
+# `sprint-3-corpus` from `attestrum-pipeline`, that runs the FULL build
+# pipeline (hash + CAS-put + manifest write + Merkle root) over the
+# same 1000-doc in-memory corpus. Each target now ALSO produces a
+# `manifest.parquet` artifact alongside a `merkle-root-pipeline-<label>.txt`.
+# The `compare` job gains:
+#   - pairwise `cmp` of `manifest.parquet` across the four targets
+#     (the load-bearing Sprint 3 E8 assertion — locks byte-identity of
+#     the PROTECTED Parquet writer + schema across all platforms);
+#   - pairwise `cmp` of `merkle-root-pipeline-<label>.txt` across all
+#     four targets, AND verifies the pipeline root equals the
+#     `merkle-root-<label>.txt` root from the Sprint 2 example
+#     (cross-check that both pipelines compute the same root from the
+#     same digest list).
+#
+# Trigger cadence: on push + PR to main (catches drift immediately) and
+# nightly at 02:30 UTC (catches non-determinism that surfaces only between
+# CI environment refreshes). The nightly schedule is the canonical cadence
+# from PATH-A-BRIEF §7.3.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "30 2 * * *"
+
+# Cancel in-flight runs on the same branch when a new push lands. Nightly
+# runs are not cancelled by other nightly runs (different ref).
+concurrency:
+  group: determinism-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runs-on }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: "linux-x86_64-glibc"
+            runs-on: ubuntu-24.04
+            container: ""
+            target: x86_64-unknown-linux-gnu
+          - label: "linux-aarch64-glibc"
+            runs-on: ubuntu-24.04-arm
+            container: ""
+            target: aarch64-unknown-linux-gnu
+          - label: "macos-aarch64-darwin"
+            runs-on: macos-14
+            container: ""
+            target: aarch64-apple-darwin
+          - label: "linux-x86_64-musl"
+            runs-on: ubuntu-24.04
+            container: "alpine:3.20"
+            target: x86_64-unknown-linux-musl
+
+    steps:
+      - name: Install Alpine build prerequisites
+        if: matrix.container == 'alpine:3.20'
+        run: |
+          apk add --no-cache \
+            bash \
+            build-base \
+            ca-certificates \
+            curl \
+            git \
+            musl-dev \
+            openssl-dev \
+            pkgconfig
+
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.88.0 (Alpine container)
+        if: matrix.container == 'alpine:3.20'
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain 1.88.0 --profile minimal \
+                       --component rustfmt,clippy --target ${{ matrix.target }}
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Rust 1.88.0 (non-Alpine)
+        if: matrix.container != 'alpine:3.20'
+        uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.label }}-cargo-determinism-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.label }}-cargo-determinism-
+
+      - name: cargo test --workspace
+        run: cargo test --workspace --target ${{ matrix.target }}
+
+      # E9: compute the canonical Sprint 2 corpus Merkle root on this
+      # target and capture it for the compare job. The example writes
+      # exactly 65 bytes (64 hex chars + `\n`) to stdout — no log
+      # noise, no clocks, no env-dependent state. Redirect via the
+      # shell so we control the captured bytes exactly.
+      - name: Compute Sprint 2 corpus Merkle root
+        run: |
+          cargo run --release --quiet -p attestrum-cas \
+            --target ${{ matrix.target }} \
+            --example sprint-2-corpus \
+            > merkle-root-${{ matrix.label }}.txt
+
+      - name: Echo captured root for log readability
+        run: cat merkle-root-${{ matrix.label }}.txt
+
+      - name: Upload root artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: merkle-root-${{ matrix.label }}
+          path: merkle-root-${{ matrix.label }}.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      # E8: run the full attestrum-pipeline build over the canonical
+      # 1000-doc corpus, capturing both the resulting manifest.parquet
+      # bytes AND the Merkle root. Uses ContentSource::Bytes so no
+      # external fixture files are required — every target synthesises
+      # the same corpus in-memory. The example writes the manifest to
+      # the path passed as positional arg 1 and emits the 65-byte
+      # Merkle root line to stdout (same format as `sprint-2-corpus`).
+      - name: Compute Sprint 3 pipeline manifest + Merkle root
+        run: |
+          cargo run --release --quiet -p attestrum-pipeline \
+            --target ${{ matrix.target }} \
+            --example sprint-3-corpus \
+            -- manifest-${{ matrix.label }}.parquet \
+            > merkle-root-pipeline-${{ matrix.label }}.txt
+
+      - name: Echo Sprint 3 captured pipeline root for log readability
+        run: cat merkle-root-pipeline-${{ matrix.label }}.txt
+
+      - name: Upload Sprint 3 pipeline artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint3-${{ matrix.label }}
+          path: |
+            manifest-${{ matrix.label }}.parquet
+            merkle-root-pipeline-${{ matrix.label }}.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  compare:
+    name: cross-target byte-identity
+    runs-on: ubuntu-24.04
+    needs: matrix
+    steps:
+      - name: Download per-target Sprint 2 root artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: roots
+          pattern: merkle-root-*
+          merge-multiple: true
+
+      - name: List captured roots
+        run: |
+          ls -la roots/
+          echo "---"
+          for f in roots/merkle-root-*.txt; do
+            printf '%s  %s\n' "$(cat "$f")" "$(basename "$f")"
+          done
+
+      - name: Pairwise cmp Sprint 2 roots; fail on any divergence
+        run: |
+          set -euo pipefail
+          files=(roots/merkle-root-*.txt)
+          if [ ${#files[@]} -lt 2 ]; then
+            echo "::error::expected >= 2 per-target sprint-2 root artifacts, got ${#files[@]}"
+            exit 1
+          fi
+          baseline="${files[0]}"
+          echo "Baseline: $baseline"
+          cat "$baseline"
+          for f in "${files[@]}"; do
+            if ! cmp -s "$baseline" "$f"; then
+              echo "::error::DETERMINISM FAILURE: $(basename "$f") differs from $(basename "$baseline")"
+              echo "--- $(basename "$baseline") ---"
+              cat "$baseline"
+              echo "--- $(basename "$f") ---"
+              cat "$f"
+              exit 1
+            fi
+          done
+          echo "OK — all ${#files[@]} targets produced a byte-identical Sprint 2 corpus root:"
+          cat "$baseline"
+
+      # E8: download the sprint3-<label> artifact bundles (each
+      # containing a manifest.parquet + a merkle-root-pipeline-*.txt)
+      # and cmp pairwise across the four targets. Also cross-check
+      # that the pipeline Merkle root matches the sprint-2 example
+      # root from the previous step (both pipelines compute the same
+      # root over the same digest list).
+      - name: Download Sprint 3 pipeline artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: sprint3
+          pattern: sprint3-*
+          merge-multiple: true
+
+      - name: List Sprint 3 artifacts
+        run: |
+          ls -la sprint3/
+          echo "---"
+          for f in sprint3/merkle-root-pipeline-*.txt; do
+            printf '%s  %s\n' "$(cat "$f")" "$(basename "$f")"
+          done
+
+      - name: Pairwise cmp Sprint 3 manifest.parquet; fail on any divergence
+        run: |
+          set -euo pipefail
+          files=(sprint3/manifest-*.parquet)
+          if [ ${#files[@]} -lt 2 ]; then
+            echo "::error::expected >= 2 per-target sprint-3 manifest artifacts, got ${#files[@]}"
+            exit 1
+          fi
+          baseline="${files[0]}"
+          echo "Baseline: $baseline ($(wc -c < "$baseline") bytes)"
+          for f in "${files[@]}"; do
+            if ! cmp -s "$baseline" "$f"; then
+              echo "::error::DETERMINISM FAILURE: $(basename "$f") differs from $(basename "$baseline")"
+              ls -la "$baseline" "$f"
+              exit 1
+            fi
+          done
+          echo "OK — all ${#files[@]} targets produced byte-identical manifest.parquet bytes ($(wc -c < "$baseline") bytes each)"
+
+      - name: Pairwise cmp Sprint 3 pipeline roots; fail on any divergence
+        run: |
+          set -euo pipefail
+          files=(sprint3/merkle-root-pipeline-*.txt)
+          if [ ${#files[@]} -lt 2 ]; then
+            echo "::error::expected >= 2 per-target sprint-3 pipeline-root artifacts, got ${#files[@]}"
+            exit 1
+          fi
+          baseline="${files[0]}"
+          echo "Baseline: $baseline"
+          cat "$baseline"
+          for f in "${files[@]}"; do
+            if ! cmp -s "$baseline" "$f"; then
+              echo "::error::DETERMINISM FAILURE: $(basename "$f") differs from $(basename "$baseline")"
+              echo "--- $(basename "$baseline") ---"
+              cat "$baseline"
+              echo "--- $(basename "$f") ---"
+              cat "$f"
+              exit 1
+            fi
+          done
+          echo "OK — all ${#files[@]} targets produced a byte-identical Sprint 3 pipeline root:"
+          cat "$baseline"
+
+      - name: Cross-check Sprint 3 pipeline root equals Sprint 2 corpus root
+        run: |
+          set -euo pipefail
+          # Both examples consume the same 1000 document bodies (template
+          # `annex-sprint-2-doc-{i:04}`), so the Merkle root over the
+          # sorted digest list must match — Sprint 3's pipeline does
+          # extra work (CAS put, manifest write) but the root is purely
+          # a function of the sorted leaves.
+          sprint2_root=$(cat roots/merkle-root-linux-x86_64-glibc.txt 2>/dev/null \
+                       || cat roots/merkle-root-*.txt | head -n1)
+          sprint3_root=$(cat sprint3/merkle-root-pipeline-linux-x86_64-glibc.txt 2>/dev/null \
+                       || cat sprint3/merkle-root-pipeline-*.txt | head -n1)
+          if [ "$sprint2_root" != "$sprint3_root" ]; then
+            echo "::error::Sprint 2 and Sprint 3 pipelines computed different roots over the same corpus"
+            echo "  sprint-2-corpus root:        $sprint2_root"
+            echo "  sprint-3-corpus pipeline:    $sprint3_root"
+            exit 1
+          fi
+          echo "OK — sprint-2-corpus and sprint-3-corpus computed identical Merkle roots: $sprint2_root"

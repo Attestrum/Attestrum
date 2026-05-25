@@ -1,0 +1,175 @@
+{
+  "$defs": {
+    "BoundaryCase": {
+      "description": "Where the query falls in the sort order. Resolves the universal-both-\nneighbors-required brittleness flagged by the E1.5 cross-check.",
+      "enum": [
+        "interior",
+        "before-first",
+        "after-last"
+      ],
+      "type": "string"
+    },
+    "CorpusRef": {
+      "description": "Reference to the corpus a proof attests against. The `attestation_digest`\nis the digest of the corpus's signed in-toto Statement (the bundle's DSSE\npayload), algorithm-qualified per the E1.5 cross-check finding that raw\nhex without algorithm is ambiguous for verifiers.",
+      "properties": {
+        "attestationDigest": {
+          "$ref": "#/$defs/DigestMap"
+        },
+        "manifestUri": {
+          "type": "string"
+        },
+        "merkleRoot": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifestUri",
+        "merkleRoot",
+        "attestationDigest"
+      ],
+      "type": "object"
+    },
+    "DigestMap": {
+      "description": "Algorithm-qualified digest carrying BOTH BLAKE3 (Attestrum-native) and SHA-256\n(Sigstore/in-toto interop) per BUILD-PLAN §3.4. Both required. Hex is\nlowercase 64-char.",
+      "properties": {
+        "blake3": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blake3",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "Neighbor": {
+      "description": "A leaf adjacent to the query in the sorted order. Carries its own inclusion\nproof (`inclusion_proof_audit_path`) so the verifier can independently\nconfirm the neighbor is in the tree before checking adjacency.",
+      "properties": {
+        "inclusionProofAuditPath": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "leafHash": {
+          "type": "string"
+        },
+        "leafIndex": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "orderingKey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "leafHash",
+        "orderingKey",
+        "leafIndex",
+        "inclusionProofAuditPath"
+      ],
+      "type": "object"
+    },
+    "SortedAssertion": {
+      "description": "Structured sort-order assertion. Replaces the E1-era const-string\ncomparator that the verifier could not structurally check.",
+      "properties": {
+        "adjacencyInvariant": {
+          "description": "Const `\"leftIndex + 1 == rightIndex\"` at v0.1.",
+          "type": "string"
+        },
+        "duplicateLeafPolicy": {
+          "description": "Free-text describing how duplicate leaves (same hash, different\n`input_ordinal` in the manifest) are handled by this proof. Required\nper E1.5 cross-check finding that multiset behavior was undefined.",
+          "type": "string"
+        },
+        "ordering": {
+          "description": "Const `\"blake3-bytewise-ascending\"` at v0.1.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ordering",
+        "adjacencyInvariant",
+        "duplicateLeafPolicy"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://attestrum.com/attestation/non-inclusion-proof/v0.3.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`https://attestrum.com/attestation/non-inclusion-proof/v0.3` predicate\npayload. Sorted-Merkle adjacent-leaves technique with explicit boundary-\ncase handling per the E1.5 cross-check finding that requiring BOTH\nneighbors blocks first-leaf and last-leaf proofs.",
+  "properties": {
+    "boundaryCase": {
+      "$ref": "#/$defs/BoundaryCase"
+    },
+    "corpus": {
+      "$ref": "#/$defs/CorpusRef"
+    },
+    "hashAlgorithm": {
+      "type": "string"
+    },
+    "leftNeighbor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Neighbor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "proofGeneratedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proofGeneratorIdentity": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proofType": {
+      "description": "Discriminator. Must be `\"non-inclusion\"`. Validated via [`Self::validate`].",
+      "type": "string"
+    },
+    "queryFingerprint": true,
+    "queryKey": {
+      "type": "string"
+    },
+    "rightNeighbor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Neighbor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sortedAssertion": {
+      "$ref": "#/$defs/SortedAssertion"
+    },
+    "treeSize": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "proofType",
+    "corpus",
+    "queryFingerprint",
+    "treeSize",
+    "hashAlgorithm",
+    "queryKey",
+    "boundaryCase",
+    "sortedAssertion"
+  ],
+  "title": "Attestrum Non-Inclusion Proof v0.3",
+  "type": "object"
+}

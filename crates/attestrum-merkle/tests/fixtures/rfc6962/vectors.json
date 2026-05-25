@@ -1,0 +1,525 @@
+{
+  "description": "RFC 6962 + BLAKE3 golden vectors for attestrum-merkle (Sprint 2 E7 + E8).",
+  "leaf_prefix": "0x00",
+  "node_prefix": "0x01",
+  "hash_function": "BLAKE3",
+  "generator": "crates/attestrum-merkle/tests/fixtures/rfc6962/generate.py",
+  "cases": [
+    {
+      "name": "empty",
+      "leaves_hex": [],
+      "expected_root_hex": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      "comment": "RFC 6962 \u00a72.1: hash of empty list = BLAKE3 of empty input (af1349b9...)"
+    },
+    {
+      "name": "single_zero",
+      "leaves_hex": [
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "expected_root_hex": "232b17a92a13d46fdeeba07519406dcdad6d67b7399159364b5e26af0ab95bcf",
+      "comment": "single leaf of all-zero bytes; root = leaf_hash(leaves[0])",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": []
+        }
+      ]
+    },
+    {
+      "name": "single_ff",
+      "leaves_hex": [
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      ],
+      "expected_root_hex": "62855d350deab375577c8f5d98ead7e43e89745467c113b3fbd0ea8a636c4ee4",
+      "comment": "single leaf of all-0xFF bytes",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": []
+        }
+      ]
+    },
+    {
+      "name": "two_distinct",
+      "leaves_hex": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0101010101010101010101010101010101010101010101010101010101010101"
+      ],
+      "expected_root_hex": "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+      "comment": "balanced two-leaf tree; root = node_hash(leaf_hash(a), leaf_hash(b))",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "a2ddb4931d05ba6281549052c62d2780a2d3ac29514c0a77598283d61e861206"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "232b17a92a13d46fdeeba07519406dcdad6d67b7399159364b5e26af0ab95bcf"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "three_distinct",
+      "leaves_hex": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        "0202020202020202020202020202020202020202020202020202020202020202"
+      ],
+      "expected_root_hex": "3f97043de3a7a8fe71e55454f9f9dead4e44301744481419a20754c5a4f5ee38",
+      "comment": "three leaves \u2014 exercises RFC 6962 odd-count carry-up at level 1",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "a2ddb4931d05ba6281549052c62d2780a2d3ac29514c0a77598283d61e861206",
+            "ada21777220442b46d8e0b3fe5a5099502eca1cb91e919758c33a320bc9f2d88"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "232b17a92a13d46fdeeba07519406dcdad6d67b7399159364b5e26af0ab95bcf",
+            "ada21777220442b46d8e0b3fe5a5099502eca1cb91e919758c33a320bc9f2d88"
+          ]
+        },
+        {
+          "leaf_index": 2,
+          "expected_path_hex": [
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "four_distinct",
+      "leaves_hex": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        "0202020202020202020202020202020202020202020202020202020202020202",
+        "0303030303030303030303030303030303030303030303030303030303030303"
+      ],
+      "expected_root_hex": "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b",
+      "comment": "four leaves \u2014 fully balanced binary tree (no odd levels)",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "a2ddb4931d05ba6281549052c62d2780a2d3ac29514c0a77598283d61e861206",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "232b17a92a13d46fdeeba07519406dcdad6d67b7399159364b5e26af0ab95bcf",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d"
+          ]
+        },
+        {
+          "leaf_index": 2,
+          "expected_path_hex": [
+            "7e14f3d3c9ad356fc347f27541758e9af6fa7b71480d1933065abd0b649f3f8d",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5"
+          ]
+        },
+        {
+          "leaf_index": 3,
+          "expected_path_hex": [
+            "ada21777220442b46d8e0b3fe5a5099502eca1cb91e919758c33a320bc9f2d88",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "five_distinct",
+      "leaves_hex": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        "0202020202020202020202020202020202020202020202020202020202020202",
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        "0404040404040404040404040404040404040404040404040404040404040404"
+      ],
+      "expected_root_hex": "e6072121201b0f45dece141a4783b36b646b545bdde45368a59f50f52d4ecd55",
+      "comment": "five leaves \u2014 RFC 6962 splits at k=4; lone leaf carried to root",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "a2ddb4931d05ba6281549052c62d2780a2d3ac29514c0a77598283d61e861206",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d",
+            "ecb2bfa29ca32cd4afafa7021bf444ce0956ad6f04d024d0a4ce5afe6f229d10"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "232b17a92a13d46fdeeba07519406dcdad6d67b7399159364b5e26af0ab95bcf",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d",
+            "ecb2bfa29ca32cd4afafa7021bf444ce0956ad6f04d024d0a4ce5afe6f229d10"
+          ]
+        },
+        {
+          "leaf_index": 2,
+          "expected_path_hex": [
+            "7e14f3d3c9ad356fc347f27541758e9af6fa7b71480d1933065abd0b649f3f8d",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+            "ecb2bfa29ca32cd4afafa7021bf444ce0956ad6f04d024d0a4ce5afe6f229d10"
+          ]
+        },
+        {
+          "leaf_index": 3,
+          "expected_path_hex": [
+            "ada21777220442b46d8e0b3fe5a5099502eca1cb91e919758c33a320bc9f2d88",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+            "ecb2bfa29ca32cd4afafa7021bf444ce0956ad6f04d024d0a4ce5afe6f229d10"
+          ]
+        },
+        {
+          "leaf_index": 4,
+          "expected_path_hex": [
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "six_distinct",
+      "leaves_hex": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        "0202020202020202020202020202020202020202020202020202020202020202",
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        "0404040404040404040404040404040404040404040404040404040404040404",
+        "0505050505050505050505050505050505050505050505050505050505050505"
+      ],
+      "expected_root_hex": "a8cd6567f2d79ef21a12b24ab0f582df630d715b4b9e91ca990779775e0e2171",
+      "comment": "six leaves \u2014 odd at level 2 only",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "a2ddb4931d05ba6281549052c62d2780a2d3ac29514c0a77598283d61e861206",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d",
+            "d993d7ac6d208137a208b26a711fa8f4b441ab99a78f7c32f150995c2f4f5773"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "232b17a92a13d46fdeeba07519406dcdad6d67b7399159364b5e26af0ab95bcf",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d",
+            "d993d7ac6d208137a208b26a711fa8f4b441ab99a78f7c32f150995c2f4f5773"
+          ]
+        },
+        {
+          "leaf_index": 2,
+          "expected_path_hex": [
+            "7e14f3d3c9ad356fc347f27541758e9af6fa7b71480d1933065abd0b649f3f8d",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+            "d993d7ac6d208137a208b26a711fa8f4b441ab99a78f7c32f150995c2f4f5773"
+          ]
+        },
+        {
+          "leaf_index": 3,
+          "expected_path_hex": [
+            "ada21777220442b46d8e0b3fe5a5099502eca1cb91e919758c33a320bc9f2d88",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+            "d993d7ac6d208137a208b26a711fa8f4b441ab99a78f7c32f150995c2f4f5773"
+          ]
+        },
+        {
+          "leaf_index": 4,
+          "expected_path_hex": [
+            "cd05c3b84386766b0c620fdfdae01cb82142211737f768434303dcace44fd6b9",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b"
+          ]
+        },
+        {
+          "leaf_index": 5,
+          "expected_path_hex": [
+            "ecb2bfa29ca32cd4afafa7021bf444ce0956ad6f04d024d0a4ce5afe6f229d10",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "seven_distinct",
+      "leaves_hex": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        "0202020202020202020202020202020202020202020202020202020202020202",
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        "0404040404040404040404040404040404040404040404040404040404040404",
+        "0505050505050505050505050505050505050505050505050505050505050505",
+        "0606060606060606060606060606060606060606060606060606060606060606"
+      ],
+      "expected_root_hex": "86e6ed55103cc18ad02044adebbe358f7bbad2c542c086973de8a1813e3bb83e",
+      "comment": "seven leaves \u2014 odd at level 1 and level 2",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "a2ddb4931d05ba6281549052c62d2780a2d3ac29514c0a77598283d61e861206",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d",
+            "f02ce904154b86be4b9d50197ed65fb6feb317d8ea48141fc54285554c390dfa"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "232b17a92a13d46fdeeba07519406dcdad6d67b7399159364b5e26af0ab95bcf",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d",
+            "f02ce904154b86be4b9d50197ed65fb6feb317d8ea48141fc54285554c390dfa"
+          ]
+        },
+        {
+          "leaf_index": 2,
+          "expected_path_hex": [
+            "7e14f3d3c9ad356fc347f27541758e9af6fa7b71480d1933065abd0b649f3f8d",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+            "f02ce904154b86be4b9d50197ed65fb6feb317d8ea48141fc54285554c390dfa"
+          ]
+        },
+        {
+          "leaf_index": 3,
+          "expected_path_hex": [
+            "ada21777220442b46d8e0b3fe5a5099502eca1cb91e919758c33a320bc9f2d88",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+            "f02ce904154b86be4b9d50197ed65fb6feb317d8ea48141fc54285554c390dfa"
+          ]
+        },
+        {
+          "leaf_index": 4,
+          "expected_path_hex": [
+            "cd05c3b84386766b0c620fdfdae01cb82142211737f768434303dcace44fd6b9",
+            "0d604e0af588009fa5babdae6568deb547e996f0c3232dade6df0c5433163b07",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b"
+          ]
+        },
+        {
+          "leaf_index": 5,
+          "expected_path_hex": [
+            "ecb2bfa29ca32cd4afafa7021bf444ce0956ad6f04d024d0a4ce5afe6f229d10",
+            "0d604e0af588009fa5babdae6568deb547e996f0c3232dade6df0c5433163b07",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b"
+          ]
+        },
+        {
+          "leaf_index": 6,
+          "expected_path_hex": [
+            "d993d7ac6d208137a208b26a711fa8f4b441ab99a78f7c32f150995c2f4f5773",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "eleven_distinct",
+      "leaves_hex": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        "0202020202020202020202020202020202020202020202020202020202020202",
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        "0404040404040404040404040404040404040404040404040404040404040404",
+        "0505050505050505050505050505050505050505050505050505050505050505",
+        "0606060606060606060606060606060606060606060606060606060606060606",
+        "0707070707070707070707070707070707070707070707070707070707070707",
+        "0808080808080808080808080808080808080808080808080808080808080808",
+        "0909090909090909090909090909090909090909090909090909090909090909",
+        "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
+      ],
+      "expected_root_hex": "50a3f79e454bc3d2564ca70efb0e1f74e759c5fe5b41ed4f58051b74ee0a1132",
+      "comment": "eleven leaves \u2014 non-power-of-2, odd-count carry at multiple levels",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "a2ddb4931d05ba6281549052c62d2780a2d3ac29514c0a77598283d61e861206",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d",
+            "2bae21b97395a47cc28012770ab24d3388e966a493cb58a7359052f7f2e94931",
+            "8c97d8e4737021dc48f589e0de9c856fe7b649074d44e7783fc33e067e34627d"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "232b17a92a13d46fdeeba07519406dcdad6d67b7399159364b5e26af0ab95bcf",
+            "c747007bb034f2e8f17688207accd745d7e5e4c12edddf7ddd331ef68f711b0d",
+            "2bae21b97395a47cc28012770ab24d3388e966a493cb58a7359052f7f2e94931",
+            "8c97d8e4737021dc48f589e0de9c856fe7b649074d44e7783fc33e067e34627d"
+          ]
+        },
+        {
+          "leaf_index": 2,
+          "expected_path_hex": [
+            "7e14f3d3c9ad356fc347f27541758e9af6fa7b71480d1933065abd0b649f3f8d",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+            "2bae21b97395a47cc28012770ab24d3388e966a493cb58a7359052f7f2e94931",
+            "8c97d8e4737021dc48f589e0de9c856fe7b649074d44e7783fc33e067e34627d"
+          ]
+        },
+        {
+          "leaf_index": 3,
+          "expected_path_hex": [
+            "ada21777220442b46d8e0b3fe5a5099502eca1cb91e919758c33a320bc9f2d88",
+            "601ae0d333efaf511cc72652be96836dc134955fc1c681ff185f99b5a12b2ae5",
+            "2bae21b97395a47cc28012770ab24d3388e966a493cb58a7359052f7f2e94931",
+            "8c97d8e4737021dc48f589e0de9c856fe7b649074d44e7783fc33e067e34627d"
+          ]
+        },
+        {
+          "leaf_index": 4,
+          "expected_path_hex": [
+            "cd05c3b84386766b0c620fdfdae01cb82142211737f768434303dcace44fd6b9",
+            "17739784ebb7d2244247f14c84924479bc853b82316e8986ba97e254e8adee67",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b",
+            "8c97d8e4737021dc48f589e0de9c856fe7b649074d44e7783fc33e067e34627d"
+          ]
+        },
+        {
+          "leaf_index": 5,
+          "expected_path_hex": [
+            "ecb2bfa29ca32cd4afafa7021bf444ce0956ad6f04d024d0a4ce5afe6f229d10",
+            "17739784ebb7d2244247f14c84924479bc853b82316e8986ba97e254e8adee67",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b",
+            "8c97d8e4737021dc48f589e0de9c856fe7b649074d44e7783fc33e067e34627d"
+          ]
+        },
+        {
+          "leaf_index": 6,
+          "expected_path_hex": [
+            "be140f474bd96aa92071af85305040b37e7646fa3700ebbaa9ae21c9ff2297c6",
+            "d993d7ac6d208137a208b26a711fa8f4b441ab99a78f7c32f150995c2f4f5773",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b",
+            "8c97d8e4737021dc48f589e0de9c856fe7b649074d44e7783fc33e067e34627d"
+          ]
+        },
+        {
+          "leaf_index": 7,
+          "expected_path_hex": [
+            "0d604e0af588009fa5babdae6568deb547e996f0c3232dade6df0c5433163b07",
+            "d993d7ac6d208137a208b26a711fa8f4b441ab99a78f7c32f150995c2f4f5773",
+            "0429a1b33a4380638861ac320355688368261d8ed7ff2acb4b9701a8480b9e4b",
+            "8c97d8e4737021dc48f589e0de9c856fe7b649074d44e7783fc33e067e34627d"
+          ]
+        },
+        {
+          "leaf_index": 8,
+          "expected_path_hex": [
+            "4a34f4aeddbd166f31afc719f3ad482c79fba1896434cb83bfc32f6c23c49340",
+            "715d9f8d164e2812d6a17fa99e3f2cef58a43633182b1bede7a9163c3d865219",
+            "d02f2e47c40dae9ee4408bea7af7b740ede960abf340d954e910250c1aa994cb"
+          ]
+        },
+        {
+          "leaf_index": 9,
+          "expected_path_hex": [
+            "5880d0265105b0dcd2f5271a4c2d1fb247999245a76ec91e6cc41f091a932738",
+            "715d9f8d164e2812d6a17fa99e3f2cef58a43633182b1bede7a9163c3d865219",
+            "d02f2e47c40dae9ee4408bea7af7b740ede960abf340d954e910250c1aa994cb"
+          ]
+        },
+        {
+          "leaf_index": 10,
+          "expected_path_hex": [
+            "9e3addb3e30754182bc16556d38705b2e86881c0a4608b1678e66c3114cd01a1",
+            "d02f2e47c40dae9ee4408bea7af7b740ede960abf340d954e910250c1aa994cb"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "multiset_duplicate_pair",
+      "leaves_hex": [
+        "dededededededededededededededededededededededededededededededede",
+        "dededededededededededededededededededededededededededededededede"
+      ],
+      "expected_root_hex": "2080fbd76de468717a7614b92f2131ac40c977885e25a4ceb766634887e534d3",
+      "comment": "multiset policy: two identical leaves yield a defined root distinct from single-leaf root",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "c1f15b496d9e7d31e44b0f9b91eb28999dfb13cc771a0a8d997126a15b256a9e"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "c1f15b496d9e7d31e44b0f9b91eb28999dfb13cc771a0a8d997126a15b256a9e"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "multiset_triplicate",
+      "leaves_hex": [
+        "dededededededededededededededededededededededededededededededede",
+        "dededededededededededededededededededededededededededededededede",
+        "dededededededededededededededededededededededededededededededede"
+      ],
+      "expected_root_hex": "6ceebbea8e80e034c53f202d6943027eead4ea2b7622c3dc6ff3ddc475ead683",
+      "comment": "multiset: three identical leaves \u2014 odd-count rule applies as for distinct leaves",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "c1f15b496d9e7d31e44b0f9b91eb28999dfb13cc771a0a8d997126a15b256a9e",
+            "c1f15b496d9e7d31e44b0f9b91eb28999dfb13cc771a0a8d997126a15b256a9e"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "c1f15b496d9e7d31e44b0f9b91eb28999dfb13cc771a0a8d997126a15b256a9e",
+            "c1f15b496d9e7d31e44b0f9b91eb28999dfb13cc771a0a8d997126a15b256a9e"
+          ]
+        },
+        {
+          "leaf_index": 2,
+          "expected_path_hex": [
+            "2080fbd76de468717a7614b92f2131ac40c977885e25a4ceb766634887e534d3"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "multiset_pair_with_distinct",
+      "leaves_hex": [
+        "dededededededededededededededededededededededededededededededede",
+        "dededededededededededededededededededededededededededededededede",
+        "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+      ],
+      "expected_root_hex": "fc6d1fd1bf1a3c0410579150c66bee88508366549df9068919ad0a53371a0362",
+      "comment": "multiset: two identical leaves followed by a distinct one",
+      "audit_paths": [
+        {
+          "leaf_index": 0,
+          "expected_path_hex": [
+            "c1f15b496d9e7d31e44b0f9b91eb28999dfb13cc771a0a8d997126a15b256a9e",
+            "fde225050a5d134740a2ba4c9f26126569ccff7891b170d436be5dc4ae9ea869"
+          ]
+        },
+        {
+          "leaf_index": 1,
+          "expected_path_hex": [
+            "c1f15b496d9e7d31e44b0f9b91eb28999dfb13cc771a0a8d997126a15b256a9e",
+            "fde225050a5d134740a2ba4c9f26126569ccff7891b170d436be5dc4ae9ea869"
+          ]
+        },
+        {
+          "leaf_index": 2,
+          "expected_path_hex": [
+            "2080fbd76de468717a7614b92f2131ac40c977885e25a4ceb766634887e534d3"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+[package]
+name = "attestrum-merkle"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+blake3 = { workspace = true }
+
+[dev-dependencies]
+# Vector parsing for tests/rfc6962.rs (loads tests/fixtures/rfc6962/vectors.json).
+attestrum-core = { path = "../attestrum-core", version = "0.0.1" }
+serde      = { workspace = true }
+serde_json = { workspace = true }

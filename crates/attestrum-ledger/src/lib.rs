@@ -1,0 +1,1 @@
+//! `attestrum-ledger` — crate stub. Real implementation lands in a later Sprint 1 commit (attestrum-core, attestrum-signals) or a later sprint (everything else). See PATH-A-BRIEF.md Part 1.10 + 2.x for the public contract.

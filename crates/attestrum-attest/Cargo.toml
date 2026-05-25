@@ -1,0 +1,21 @@
+[package]
+name = "attestrum-attest"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+attestrum-core = { path = "../attestrum-core", version = "0.0.1" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+schemars   = { workspace = true }
+sigstore   = { workspace = true }
+# Sprint 4 E4: cert parsing for the identity extractor + regex for
+# cosign-compatible identity-policy matching + base64 for decoding
+# bundle.verificationMaterial.certificate.rawBytes.
+x509-cert  = { workspace = true }
+regex      = { workspace = true }
+base64     = { workspace = true }

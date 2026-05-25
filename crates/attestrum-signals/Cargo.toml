@@ -1,0 +1,19 @@
+[package]
+name = "attestrum-signals"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+attestrum-core = { path = "../attestrum-core", version = "0.0.1" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# Property testing for `crates/attestrum-signals/tests/decision_proptest.rs`.
+# Enumerates (signal-set × ruleset) combinations against the state machine
+# in docs/diagrams/overview/signal-decision.md per CLAUDE.md §7.1 obligation
+# for stateDiagram-v2 diagrams. Founder-approved via Sprint 2 E2 plan.
+proptest = "1"

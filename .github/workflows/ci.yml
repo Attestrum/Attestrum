@@ -1,0 +1,122 @@
+name: ci
+
+# Sprint 1 commit E11 + Sprint 2 commit E1. Jobs:
+#   - diagrams: installs Node + mmdc 10.9.1, runs diagram-linter --strict
+#               against docs/diagrams.
+#   - test:     fmt --check, clippy -D warnings, test --workspace.
+#   - audit:    cargo-deny check — license allow-list (CLAUDE.md §8),
+#               RUSTSEC advisories, source registry allow-list.
+#
+# Determinism matrix (Linux x86 + ARM + macOS + musl) per BUILD-PLAN §6.5
+# is a separate workflow (.github/workflows/determinism.yml) landing in
+# Sprint 2 commit E3.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-flight runs on the same branch when a new push lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagrams:
+    name: diagrams (mermaid + linter)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # diagram-linter Check 3 (freshness) needs git history
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install mermaid-cli (pinned 10.9.1)
+        run: npm install -g @mermaid-js/mermaid-cli@10.9.1
+
+      - name: Verify mmdc version
+        run: |
+          version=$(mmdc --version)
+          if [ "$version" != "10.9.1" ]; then
+            echo "mmdc version mismatch: expected 10.9.1, got $version" >&2
+            exit 1
+          fi
+
+      - name: Setup Rust 1.88.0
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-diagrams-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-diagrams-
+
+      - name: Run diagram-linter
+        run: cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams
+
+  test:
+    name: test (fmt + clippy + test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.88.0
+        uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  audit:
+    name: audit (cargo-deny)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.88.0
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
+
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features

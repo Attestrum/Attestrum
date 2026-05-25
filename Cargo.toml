@@ -1,0 +1,110 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/attestrum-core",
+    "crates/attestrum-signals",
+    "crates/attestrum-cas",
+    "crates/attestrum-merkle",
+    "crates/attestrum-manifest",
+    "crates/attestrum-fingerprint",
+    "crates/attestrum-ledger",
+    "crates/attestrum-pipeline",
+    "crates/attestrum-attest",
+    "crates/attestrum-emit",
+    "crates/attestrum-prove",
+    "crates/attestrum-publish",
+    "crates/attestrum-fingerprint-registry",
+    "crates/attestrum-cli",
+    "tools/diagram-linter",
+]
+
+[workspace.package]
+edition      = "2021"
+rust-version = "1.88"
+license      = "Apache-2.0 OR MIT"
+repository   = "https://github.com/attestrum/attestrum"
+
+[workspace.dependencies]
+# Pre-approved deps per docs/license-inventory.md. Add a row to the in-use
+# table when a crate first lands.
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror  = "1"
+blake3     = "1.5"
+sha2       = "0.10"
+# Sprint 3 E3: Apache Arrow + Parquet for the deterministic manifest writer.
+# default-features = false drops CSV/JSON/IPC/async features we don't need.
+# parquet's `arrow` feature enables the Arrow ↔ Parquet bridge; `zstd` is the
+# only compression codec we ship (PROTECTED, ZSTD level 3 per cross-check).
+#
+# BUILD-PLAN §6.2 pinned at 52.x; bumped to 55.x because 52.2.0 + current
+# chrono 0.4.44 have a trait-disambiguation compile error on `quarter()`
+# (fixed in arrow 53+). License unchanged (Apache-2.0). Verified with
+# cargo deny check before commit.
+arrow      = { version = "55", default-features = false }
+parquet    = { version = "55", default-features = false, features = ["arrow", "zstd"] }
+# Sprint 4 E3.6: explicit hard-pin on the zstd crate (and transitively the
+# bundled `zstd-sys` C library version `1.5.6`) so a future `cargo update`
+# cannot silently bump the compression codec and break cross-target
+# byte-identity for `manifest.parquet`. parquet's `zstd` feature is what
+# enables the codec; this dep entry exists purely to constrain the resolver
+# — attestrum-manifest declares it as a direct dep but never imports it in code.
+# The `=` is an exact-version pin (not `^`), so `cargo update` is a no-op
+# for this crate until the pin is explicitly bumped. zstd-sys version is
+# encoded in zstd-sys's crate metadata: 2.0.12+zstd.1.5.6.
+zstd       = { version = "=0.13.3", default-features = false }
+# Sprint 3 E4: Rayon for the pipeline's work-stealing parallel hash + CAS-put
+# stage. Design-implied by BUILD-PLAN §4 ("Single machine: Rayon work-stealing
+# pool") and the `sprint-3/rayon-pipeline.md` diagram; formally approved
+# 2026-05-24 because the §6.2 crate table predated the dep audit. License is
+# MIT OR Apache-2.0 (allow-listed).
+rayon      = "1"
+# Sprint 3 E5: attestrum-cli surface (attestrum build subcommand). All four pre-approved
+# per BUILD-PLAN §6.2. `toml` was in §6.2 but missing from
+# docs/license-inventory.md's pre-approved table — same docs-sync gap as rayon
+# in E4; surfaced as a documented row in the inventory rather than a fresh
+# approval. clap is the canonical Rust CLI framework; tracing + tracing-subscriber
+# are BUILD-PLAN §6.2's logging stack; toml is BUILD-PLAN §8.3's config format.
+clap                = { version = "4", features = ["derive"] }
+tracing             = "0.1"
+tracing-subscriber  = { version = "0.3", features = ["env-filter", "fmt"] }
+toml                = "0.8"
+# Sprint 4 E2.5: schemars derives JSON Schema 2020-12 from the three attestrum-attest
+# predicate Rust types and emits them to docs/schemas/*.schema.json. Apache-2.0
+# OR MIT (allow-listed per CLAUDE.md §8 + BUILD-PLAN §6.2 by reference — the
+# schemars crate is the canonical JSON-Schema-derivation crate for #[derive].
+# 1.x line emits 2020-12 (matches PATH-A-BRIEF §3 schemas' $schema field);
+# 0.8 emits draft 7 which doesn't match.
+schemars            = "1"
+# Sprint 4 E3: sigstore Rust crate (RustCrypto org, sigstore-rs upstream).
+# Pre-approved per BUILD-PLAN §6.2 + PATH-A-BRIEF Part 2. Apache-2.0.
+# Features pinned: bundle (= sign + verify), fulcio (OIDC + CSR -> ephemeral
+# cert), rekor (tlog submit + verify), sigstore-trust-root (TUF). Together
+# these cover the Bundle v0.3 sign + verify end-to-end flow per
+# docs/diagrams/sprint-4/{sign-flow,verify-flow}.md.
+# default-features = false drops `cosign` (OCI registry) + `mock-client` (test
+# infrastructure) + `cached-client` (we own our own cache) + `oauth` (we use
+# id_token flow with workload identity in CI, interactive for dev).
+# rustls-tls preferred over native-tls for cross-platform determinism.
+sigstore = { version = "0.14", default-features = false, features = ["bundle", "fulcio", "rekor", "sigstore-trust-root", "rustls-tls"] }
+# Sprint 4 E4: x509-cert parses the Sigstore Bundle's leaf certificate's
+# SAN + Fulcio OIDC-issuer extension (OID 1.3.6.1.4.1.57264.1.8 v1,
+# fallback 1.3.6.1.4.1.57264.1.1 legacy) to extract the (cert_identity,
+# cert_oidc_issuer) tuple. Apache-2.0 OR MIT (allow-listed per CLAUDE.md
+# §8). Already in Cargo.lock transitively via sigstore-rs's verifier;
+# E4 promotes it to direct so attestrum_attest::identity can parse certs
+# without going through sigstore-rs's pub(crate) CheckedBundle internals.
+x509-cert = "0.2"
+# Sprint 4 E4: regex for cosign-compatible --certificate-identity +
+# --certificate-oidc-issuer regex matching (sigstore-rs's
+# bundle::verify::policy::Identity is literal-string-only). MIT OR
+# Apache-2.0 (allow-listed). Already in Cargo.lock transitively via
+# tracing-subscriber's env-filter feature; E4 promotes to direct.
+regex = "1"
+# Sprint 4 E4: base64 (standard alphabet) for decoding the bundle's
+# certificate.rawBytes (base64-DER) into bytes for x509-cert parsing.
+# MIT OR Apache-2.0 (allow-listed). Already in Cargo.lock transitively
+# via several deps; E4 promotes to direct.
+base64 = "0.22"
+# Reserved for later sprints (kept commented so additions are explicit per CLAUDE.md §8):
+# jiff   = "0.2"

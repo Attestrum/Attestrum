@@ -1,0 +1,111 @@
+# deny.toml — cargo-deny configuration for the Attestrum workspace.
+#
+# Enforces the rules in CLAUDE.md §8 and BUILD-PLAN §6.2 across every commit:
+#
+#   1. License allow-list (Apache-2.0, MIT, BSD-2/3-Clause, MPL-2.0,
+#      Unlicense, CC0-1.0, Unicode-3.0 for transitive Unicode-Consortium
+#      data tables only). Any new SPDX ID requires founder approval per
+#      CLAUDE.md §8 — do not silently expand this list.
+#   2. RUSTSEC advisory checks: vulnerabilities + unsound + unmaintained
+#      are denied by default in cargo-deny 0.17+ (the explicit per-category
+#      knobs were removed in EmbarkStudios/cargo-deny#611). Yanked crates
+#      are explicitly denied. To allow a specific advisory ID, add it to
+#      `[advisories].ignore` with a comment justifying the exception.
+#   3. Source allow-list: only the standard crates.io registry. No unknown
+#      git registries, no git-pinned deps (CLAUDE.md §8). The single
+#      explicitly approved git pin — `hf-hub` per PATH-A-BRIEF Part 2.3,
+#      Sprint 6 — will be added to `allow-git` when that work lands.
+#
+# Run locally (rustc 1.85+):
+#   cargo install --locked cargo-deny --version "^0.18"
+#   cargo deny check --all-features
+#
+# Note on version pinning: cargo-deny 0.19+ requires rustc 1.88+, which we
+# don't have yet (workspace is pinned to 1.85.0 via rust-toolchain.toml).
+# 0.18.x is the current sweet spot — handles CVSS 4.0 advisory entries from
+# the modern RUSTSEC DB and runs on 1.85+. Sprint 2 E1 originally landed on
+# 0.17 (which can't parse CVSS 4.0) when the workspace was on 1.84.0; Sprint
+# 2 E2's toolchain bump to 1.85.0 unblocked 0.18.x and the full advisory
+# check-list. If 0.17 is still locally installed from E1, upgrade:
+#   cargo install --locked --force cargo-deny --version "^0.18"
+#
+# Run in CI: see .github/workflows/ci.yml → audit job
+#   The EmbarkStudios/cargo-deny-action@v2 action downloads its own
+#   pre-built cargo-deny binary (latest 0.19.x) that handles CVSS 4.0,
+#   so CI runs `cargo deny check --all-features` (all four checks).
+
+[graph]
+all-features = true
+
+[output]
+feature-depth = 1
+
+[advisories]
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Strict CLAUDE.md §8 allow-list. Apache-2.0 WITH LLVM-exception is the
+# stdlib/LLVM-derived variant of Apache-2.0 — semantically equivalent and
+# kept on the list to avoid breaking the build on toolchain-adjacent crates.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "Unlicense",
+    "CC0-1.0",
+    # Unicode-3.0 is the Unicode Consortium's data-table license used by
+    # `unicode-ident` (transitive via serde_derive). It's OSI-approved and
+    # permits commercial use, modification, and redistribution; attribution
+    # is the only practical obligation. Added per CLAUDE.md §8 amendment
+    # (Sprint 2 E1) — see CLAUDE.md §8's transitive-dep license note.
+    "Unicode-3.0",
+    # ISC + MIT-0 added at Sprint 4 E3 as transitive-only exceptions for
+    # `aws-lc-rs` + `aws-lc-sys` (AWS's C-impl of cryptographic primitives
+    # used by rustls, transitively pulled in by sigstore 0.14 → reqwest →
+    # rustls). Both are OSI-approved permissive licenses:
+    #   ISC ≈ BSD-2-Clause in effect (used by OpenBSD, Postfix, etc.);
+    #   MIT-0 = MIT without the attribution clause (strictly MORE permissive
+    #          than allow-listed MIT).
+    # Same transitive-only exception pattern as Unicode-3.0 — direct deps
+    # remain restricted to the CLAUDE.md §8 list. Founder-approved at E3
+    # in lieu of switching from rustls to native-tls (which would drag in
+    # system OpenSSL with its own cross-platform variance).
+    "ISC",
+    "MIT-0",
+    # Zlib added at Sprint 4 E3 as transitive-only exception for `foldhash`
+    # (pulled in by `hashbrown` v0.15+ default-features via newer
+    # tokio/sigstore tree). OSI-approved permissive license; functionally
+    # similar to BSD-2-Clause + a "do not misrepresent origin" clause.
+    "Zlib",
+    # CDLA-Permissive-2.0 added at Sprint 4 E3 as transitive-only exception
+    # for `webpki-root-certs` (the Mozilla root CA bundle, pulled in by
+    # sigstore → rustls-platform-verifier → webpki-roots). Linux Foundation's
+    # Community Data License Agreement Permissive 2.0: permits commercial
+    # use + modification + redistribution; attribution only obligation.
+    # OSI-approved; widely used for distributed data sets like root-CA
+    # bundles.
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+# Initially empty. Add specific (crate, version) entries here if an advisory
+# database lag means we need to block a known-bad version before it lands in
+# RUSTSEC. Surface additions to the founder first.
+deny = []
+# Intentionally empty. If a dep has a legitimate multi-version situation,
+# surface it in a CHANGELOG entry before adding here.
+skip = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

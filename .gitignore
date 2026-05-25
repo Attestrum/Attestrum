@@ -1,0 +1,31 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# macOS
+.DS_Store
+
+# Attestrum working directory (created by `attestrum build` / `attestrum init`)
+.attestrum/
+
+# Editor + tooling caches
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local-only env files (never check in secrets)
+.env
+.env.local
+
+# Python venvs (in case cross-check tooling lands locally)
+/venv/
+/.venv/
+
+# Claude Code per-project local state (scheduled-task lockfiles, etc.)
+.claude/
+
+# Locally-rendered PNG diagrams (see CLAUDE.md §2 + tools/render-diagrams.sh).
+# Mermaid sources under docs/diagrams/ are authoritative; PNGs are derived
+# convenience artifacts (slides, partner emails, print) and never committed.
+/diagrams-png/
