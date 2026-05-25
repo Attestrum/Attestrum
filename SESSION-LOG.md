@@ -2,6 +2,15 @@
 
 Working log per CLAUDE.md §6. Append-only. Same per-commit entries as `CHANGELOG.md` plus the raw session-by-session record (including dead ends, deferred work, and decisions that didn't make the changelog).
 
+## [2026-05-25] — chore(deps): bump sigstore-rs fork to b4ea971 for Body::dsse variant (Session 2A.2)
+
+- **Files changed**: 4 — `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `SESSION-LOG.md`. See CHANGELOG for the line-level description.
+- **Diagrams touched**: none. The fix is below the abstraction level of `docs/diagrams/sprint-4/sign-flow.md`; `source_of_truth: diagram` + `last_verified: ff7f41c 2026-05-25` both stay.
+- **Summary**: Session 3 opened as a passive verification session against HEAD `8ae461a`, discovered during resume-protocol step 5 that the cosign-interop CI log shows `attest_sign` panicking inside sigstore-rs's `LogEntry::from_str` because Session 2A added only the request-side `ProposedEntry::Dsse` variant — not the matching response-side `Body::Dsse(DsseAllOf)` variant + sibling model files. Fork commit `b4ea971` closes the gap; this Attestrum-side commit consumes it.
+- **Findings**: See CHANGELOG entry. Additional session-log-only observations: (h) Resume-protocol checks 1-4 (HEAD, working tree clean, remote in sync, five-gate green) all PASSED against `8ae461a` before the discovery — the bug was invisible to the local pre-commit set because it manifests only against a live Rekor v1 endpoint (the panic site is `decode_body(...).expect()` called inside `LogEntry::from_str`, which is itself called inside `create_log_entry()` after Rekor returns a real `dsse`-kind response). The local five-gate set never exercises the round-trip; only `cosign-interop.yml`'s `--include-ignored` invocation does. This is a real gap in the determinism / pre-commit story — local-green doesn't catch fork-side request/response symmetry bugs unless an integration test exercises the live endpoint. Not in scope to fix the gap here (that's its own session). (i) Fork-clone hygiene: two local clones existed before this session — `/Users/austinmunday/Documents/Claude/attestrum-sigstore-rs/` (at e551bf9, used by Session 2) and `/Users/austinmunday/forks/sigstore-rs/` (at ade5422, with `upstream` remote configured — likely the intended Session 6 PR workbench). Session 2A.2 used the former since it was already at the right HEAD. The latter is now one Session-2A.2 commit behind; whoever opens Session 6 should `git fetch origin && git checkout b4ea971 -B …` first. (j) The plan file at `/Users/austinmunday/.claude/plans/attestrum-attest-sign-now-glowing-tome.md` documented the 10-star ladder review for this session (Session 6 PR collapse was the 10-star move; cut as out-of-scope) — the fork-side unit test included in Session 2A.2 is the 10x-value-for-2x-effort move because it pins the contract for Session 6's upstream PR.
+- **Open questions**: See CHANGELOG entry.
+- **Tokens used**: ~70k.
+
 ## [2026-05-25] — refactor(attest-sign): route through dsse_sign for DSSE-wrapped Bundle v0.3
 
 - **Files changed**: 4 — see matching CHANGELOG entry for full file-by-file description.
