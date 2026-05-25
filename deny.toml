@@ -47,7 +47,44 @@ feature-depth = 1
 
 [advisories]
 yanked = "deny"
-ignore = []
+# Per-advisory ignore list. Each entry is a RUSTSEC ID accepted on
+# documented threat-model grounds. Direct deps remain restricted to the
+# CLAUDE.md §8 list; this is the audit-side analogue of the [licenses]
+# transitive-only exception pattern above. Surface any new ignore to the
+# founder before adding — CLAUDE.md §8 governs the dep posture.
+ignore = [
+    # RUSTSEC-2024-0436: `paste` (proc-macro) marked unmaintained 2024-10-07.
+    # `paste` is a popular pure-syntactic proc-macro buried in deep
+    # transitive trees (arrow / parquet / sigstore-rs's downstream deps).
+    # As a proc-macro it ONLY runs at compile time — no runtime code path,
+    # no security/correctness risk to a deployed Attestrum binary. The
+    # maintained fork is `pastey`, but upstream migration is out of our
+    # control. Industry standard: ignore the advisory + monitor for an
+    # actual CVE (which would be a different RUSTSEC ID and would fire
+    # independently — `[advisories].ignore` is ID-scoped, not crate-scoped).
+    # Founder-approved 2026-05-25 (Sprint 5 carry-forward red triage (a)).
+    "RUSTSEC-2024-0436",
+    # RUSTSEC-2023-0071: Marvin Attack — RSA timing sidechannel. Affects
+    # the `rsa` crate; pulled in transitively via
+    # `sigstore` → `rustls` → `rsa`. The attack requires the attacker to
+    # observe many decryption timings against a victim holding a
+    # long-lived RSA private key.
+    #
+    # Attestrum's threat model: signing flow uses **ephemeral ed25519**
+    # keys issued by Fulcio per signing (Sigstore keyless flow); no
+    # long-lived RSA private keys are held by Attestrum or its users.
+    # The transitive `rsa` crate is reached only for verification of
+    # peer certificates (Fulcio's TLS chain, Rekor's TLS chain), which
+    # is public-key cryptography on the verify side — Marvin Attack
+    # does not apply to public-key verification. Practical attack
+    # surface in Attestrum's flow: near-zero.
+    #
+    # The `rsa` crate's constant-time fix is in progress upstream but
+    # unmerged; we accept the advisory on threat-model grounds rather
+    # than vendor-fork. Founder-approved 2026-05-25 (Sprint 5
+    # carry-forward red triage (a)).
+    "RUSTSEC-2023-0071",
+]
 
 [licenses]
 # Strict CLAUDE.md §8 allow-list. Apache-2.0 WITH LLVM-exception is the

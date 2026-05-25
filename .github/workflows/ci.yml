@@ -31,6 +31,18 @@ jobs:
         with:
           fetch-depth: 0  # diagram-linter Check 3 (freshness) needs git history
 
+      # Ubuntu 24.04 ships with `kernel.apparmor_restrict_unprivileged_userns=1`,
+      # which blocks Chromium's sandbox (unprivileged user namespaces). mmdc's
+      # Puppeteer launches Chromium with the default sandbox, so the diagram
+      # render step fails with "Failed to launch the browser process" on this
+      # runner image. Standard workaround documented under
+      # actions/runner-images#10015 — flip the sysctl OFF for the duration of
+      # this job. Safe in CI (ephemeral runner; no persistent attack surface).
+      - name: Disable AppArmor unprivileged user namespace restriction
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
