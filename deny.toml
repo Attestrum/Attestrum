@@ -11,10 +11,15 @@
 #      knobs were removed in EmbarkStudios/cargo-deny#611). Yanked crates
 #      are explicitly denied. To allow a specific advisory ID, add it to
 #      `[advisories].ignore` with a comment justifying the exception.
-#   3. Source allow-list: only the standard crates.io registry. No unknown
-#      git registries, no git-pinned deps (CLAUDE.md §8). The single
-#      explicitly approved git pin — `hf-hub` per PATH-A-BRIEF Part 2.3,
-#      Sprint 6 — will be added to `allow-git` when that work lands.
+#   3. Source allow-list: only the standard crates.io registry + the
+#      explicitly approved git pins per CLAUDE.md §8. Each git pin requires
+#      founder approval; the current approved pins:
+#        - `Attestrum/sigstore-rs` (Pre-Sprint-5, 2026-05-25) — email-
+#          optional patch for workload-identity OIDC tokens. Drop when the
+#          upstream PR merges and a sigstore-rs release > 0.14.0 carries
+#          the fix.
+#        - `hf-hub` per PATH-A-BRIEF Part 2.3 (Sprint 6) — will be added
+#          when that crate's upload API stabilizes.
 #
 # Run locally (rustc 1.85+):
 #   cargo install --locked cargo-deny --version "^0.18"
@@ -108,4 +113,19 @@ skip = []
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+# Approved git-pinned sources. Each entry corresponds to a `[patch.crates-io]`
+# override in workspace `Cargo.toml` AND a row in `docs/license-inventory.md`
+# under "Attestrum-owned forks of external repositories" (forks) or directly
+# in the in-use table (direct git pins like `hf-hub`'s pre-release upload API).
+#
+# Pre-Sprint-5 2026-05-25: `Attestrum/sigstore-rs` added as the FIRST entry —
+# our fork carries the `email: Option<String>` patch that makes sigstore-rs's
+# `IdentityToken::try_from` work for workload-identity OIDC tokens (GHA,
+# GitLab CI, etc.). Drop this entry once the upstream PR merges and a
+# sigstore-rs release > 0.14.0 carries the fix; the corresponding
+# `[patch.crates-io]` entry in workspace `Cargo.toml` goes away at the same
+# time. Founder-approved 2026-05-25 (Sprint 5 Q1 = fix cosign-interop now).
+#
+# `hf-hub` per PATH-A-BRIEF Part 2.3 (Sprint 6) — will be added here when
+# that crate's upload API stabilizes and we pin via git.
+allow-git = ["https://github.com/Attestrum/sigstore-rs"]
