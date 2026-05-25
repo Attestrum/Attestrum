@@ -273,7 +273,7 @@ Attestrum's UI surface is small (static `verify.html` + dataset card README), bu
 
 - A deterministic Rust CLI that takes a training corpus and emits a cryptographically verifiable provenance bundle.
 - Sigstore-signed, in-toto-attested, Merkle-rooted over BLAKE3.
-- Open-source under Apache-2.0 OR MIT (dual-license, contributor's choice).
+- Open-source under Apache-2.0 OR MIT (dual-license, contributor's choice). Copyright holder: **Hyper Beam Media LLC** (the founder's LLC; also owns the `Attestrum` GitHub org). `LICENSE-APACHE` + `LICENSE-MIT` at the repo root carry the canonical copyright lines; per-file SPDX headers are NOT used (keeps source files clean; the root LICENSE files are authoritative).
 - Aimed at the willing transparent middle: AI2, Pleias, EleutherAI, Black Forest Labs, Mozilla Data Collective, Hugging Face dataset publishers.
 - Built solo with Claude Code as the implementation harness.
 - A 90-day MVP under a six-sprint plan.
@@ -357,4 +357,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push (originally to `github.com/AustinMunday/Attestrum`; transferred same day to `github.com/Attestrum/Attestrum` org owned by Hyper Beam Media LLC).*
+*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push (originally to `github.com/AustinMunday/Attestrum`; transferred same day to `github.com/Attestrum/Attestrum` org owned by Hyper Beam Media LLC). §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files.*

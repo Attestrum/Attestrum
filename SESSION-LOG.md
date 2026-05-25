@@ -2,6 +2,17 @@
 
 Working log per CLAUDE.md §6. Append-only. Same per-commit entries as `CHANGELOG.md` plus the raw session-by-session record (including dead ends, deferred work, and decisions that didn't make the changelog).
 
+## [2026-05-25] — docs(license): add LICENSE-APACHE + LICENSE-MIT for Hyper Beam Media LLC copyright
+
+- **Files changed**: 5 — `LICENSE-APACHE` (NEW, Apache 2.0 standard text with `Copyright 2026 Hyper Beam Media LLC` in the appendix), `LICENSE-MIT` (NEW, MIT standard text with `Copyright (c) 2026 Hyper Beam Media LLC`), `CLAUDE.md` (§11 copyright-holder line added; footer note expanded), `CHANGELOG.md`, `SESSION-LOG.md`.
+- **Diagrams touched**: none.
+- **Summary**: Adds canonical LICENSE files for the dual `Apache-2.0 OR MIT` declaration that's been in `Cargo.toml workspace.package.license` since project init. Copyright holder: **Hyper Beam Media LLC** (founder's LLC; also owns the `Attestrum` GitHub org). Per-file SPDX headers intentionally NOT used — keeps source files clean; the two root LICENSE files are authoritative. CLAUDE.md §11 captures the copyright-holder convention for future sessions.
+- **Findings**: (1) Parent SHA = `d496186` (cosign fix). (2) Workspace previously had no LICENSE files at root despite `Cargo.toml workspace.package.license = "Apache-2.0 OR MIT"`. `cargo deny check` (in ci.yml's audit job) doesn't catch this because the workspace metadata declares a license without requiring a corresponding LICENSE file. Closing the gap. (3) Pre-commit gates all green: fmt ✓, clippy ✓, **test 323/0/2** ✓ (unchanged — no Rust source touched), diagram-linter strict **93/0** ✓. (4) **Note on copyright-line content**: `Copyright 2026 Hyper Beam Media LLC` (Apache appendix format) and `Copyright (c) 2026 Hyper Beam Media LLC` (MIT canonical form via SPDX template) — both intentional, not a typo for the missing `(c)` in the Apache file. (5) **Carried-forward tax/legal note from the LLC-decision conversation**: founder should confirm with accountant that the LLC's operating agreement covers IP-holding (disregarded-entity single-member LLC default is fine for asset title; S-corp / C-corp election cleaner). If the operating agreement vests IP in the founder personally, the copyright line should read `Austin Munday` instead. Surface to founder if accountant clarifies otherwise.
+- **Open questions**: (1) Watch next CI cycle for whether `cargo deny check` is happy with root LICENSE files (it doesn't validate file presence, but a future audit-config update might). (2) NOTICE file (Apache §4(d)) deferred — only relevant when we incorporate third-party attribution requirements (none yet). (3) `Cargo.toml workspace.package.repository` field already points at `Attestrum/Attestrum` after the rebrand — no further changes needed. (4) Sprint 5 kickoff still pending.
+- **Tokens used**: ~unknown
+
+---
+
 ## [2026-05-25] — fix(ci): cosign-interop v3-assumption bug — accept v2.5+ binary + fix jq key
 
 - **Files changed**: 5 — `.github/workflows/cosign-interop.yml` (jq selector `.GitVersion` → `.gitVersion` + version-gate case match expanded from `v3.*` only to `v2.[5-9].*|v2.[1-9][0-9].*|v3.*` + step name + comment block rewritten), `docs/diagrams/sprint-4/verify-flow.md` (body notes updated), `docs/license-inventory.md` (sigstore/cosign-installer row updated), `CHANGELOG.md`, `SESSION-LOG.md`.
