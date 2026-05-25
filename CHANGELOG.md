@@ -2,6 +2,17 @@
 
 All notable changes to Attestrum. Format per CLAUDE.md §6 (session-entry convention). Release-narrative consolidation happens at each version tag.
 
+## [2026-05-24] — chore(diagrams): bump verify-flow.md last_verified to E4.5 commit SHA
+
+- **Files changed**: 3 — `docs/diagrams/sprint-4/verify-flow.md` (frontmatter `last_verified: 3b3f17e 2026-05-24` → `2903cc6 2026-05-24`, the E4.5 commit's short SHA), `CHANGELOG.md`, `SESSION-LOG.md`.
+- **Diagrams touched**: 1 (frontmatter only; body unchanged from commit A).
+- **Summary**: Follow-up one-line commit deferred from E4.5's commit A (`2903cc6`). The parked-plan §Execution-sequence step 4 prescribed bumping the frontmatter SHA to E4.5's commit SHA after committing; `git commit --amend` was unworkable because amending rewrites the commit SHA, so the file would reference the dropped pre-amend SHA which isn't in `git log`. Two-step commit instead: commit A shipped the body flips with the frontmatter SHA at `3b3f17e` (still within the linter's freshness window as HEAD~1 at that moment); this commit B bumps the frontmatter SHA to commit A's `2903cc6` now that A has landed and its SHA is knowable. Linter Check 3 freshness oracle accepts `2903cc6` because it's HEAD~1 after this commit lands.
+- **Findings**: (1) Parent SHA = `2903cc6` (E4.5 commit A). (2) Pre-commit gates all green: fmt ✓, clippy ✓, **test 323/0/2** ✓ (unchanged from commit A), diagram-linter strict **93/0** ✓.
+- **Open questions**: (1) Sprint 4 fully closed. Sprint 5 scope to surface next per CLAUDE.md §15 — `attestrum-fingerprint` crate + `attestrum prove` subcommand + Croissant emit primary + Article 53 secondary emitter + inclusion / non-inclusion predicates wired through `attestrum-attest`. (2) Founder actions still pending: first public push to `github.com/Attestrum/Attestrum` (unblocks first GREEN cosign-interop CI run), claim `huggingface.co/Attestrum` org, deploy Netlify static site at `attestrum.com` serving v0.3 schemas, open in-toto vetted-catalog PR.
+- **Tokens used**: ~unknown
+
+---
+
 ## [2026-05-24] — E4.5: cosign v3+ interop test + dedicated CI workflow (Sprint 4 acceptance)
 
 - **Files changed**: 6 files — `crates/attestrum-attest/tests/cosign_interop.rs` (NEW, 196 lines, `#[ignore]`d integration test); `.github/workflows/cosign-interop.yml` (NEW, dedicated workflow); `crates/attestrum-attest/Cargo.toml` (`[dev-dependencies]` section added for the three path-deps `attestrum-core` + `attestrum-cas` + `attestrum-pipeline` the test consumes); `docs/diagrams/sprint-4/verify-flow.md` (body flips at L13 caption + L131 deferred-block bullet from "deferred to E4.5" → "shipped at E4.5"; frontmatter `last_verified` SHA bump deferred to a follow-up one-line commit since `git commit --amend` self-references and the linter freshness check resolves the file-referenced SHA against the actual git log); `docs/license-inventory.md` (new "GitHub Actions consumed" sub-section with one row for `sigstore/cosign-installer@v3`); `CHANGELOG.md`, `SESSION-LOG.md`.
