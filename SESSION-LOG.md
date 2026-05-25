@@ -2,6 +2,17 @@
 
 Working log per CLAUDE.md §6. Append-only. Same per-commit entries as `CHANGELOG.md` plus the raw session-by-session record (including dead ends, deferred work, and decisions that didn't make the changelog).
 
+## [2026-05-24] — chore(diagrams): restore source_of_truth: code with initial-commit SHA
+
+- **Files changed**: 20 diagrams under `docs/diagrams/` — `source_of_truth: diagram` (temporarily set in the Initial commit) restored to `source_of_truth: code`; `last_verified: bootstrap 2026-05-24` bumped to `last_verified: 3b3f17e 2026-05-24` (the initial commit's short SHA). The 20 affected files: `sprint-1/{ai-txt-rules,attestrum-core-types,ci-diagram-linter,robots-txt-state,tdmrep-resolution}.md`, `sprint-2/{cas-write-atomicity,hash-stream,merkle-construction}.md`, `sprint-3/{attestrum-build-cli,attestrum-inspect-lifecycle,cas-write-path,manifest-schema,rayon-pipeline,sharding}.md`, `sprint-4/{predicate-three-types,sign-flow,verify-flow}.md`, `overview/{cas-layout,crate-deps,signal-decision}.md`. CHANGELOG, SESSION-LOG.
+- **Diagrams touched**: 20 (frontmatter SoT + freshness only; bodies unchanged).
+- **Summary**: Resolves the chicken-and-egg between the diagram-linter's freshness check and the initial-commit landing. The linter rejects `bootstrap` for `source_of_truth: code` diagrams, and any real SHA we set wouldn't exist in attestrum/'s fresh `git log` until after the initial commit. The Initial commit (`3b3f17e`) therefore landed with 20 diagrams temporarily flipped to `source_of_truth: diagram` so `bootstrap 2026-05-24` was accepted. This commit, immediately after, restores the truthful `source_of_truth: code` value and sets `last_verified: 3b3f17e 2026-05-24` — well within the linter's 30-commit window (we're at the 2nd commit of the new repo).
+- **Findings**: (1) Parent SHA = `3b3f17e` (Initial commit). (2) Pre-commit gates all green: fmt ✓, clippy ✓, **test 323/0/1** ✓, diagram-linter strict 93/0 ✓. Test count identical to the Initial commit (no source files touched beyond diagram frontmatter). (3) The 9 `source_of_truth: diagram` and 1 `source_of_truth: spec` diagrams remain at `last_verified: bootstrap 2026-05-24` — both SoT classes can carry the bootstrap token indefinitely per the linter's design.
+- **Open questions**: (1) Migration is functionally complete. Founder actions outstanding: claim `github.com/attestrum` + `huggingface.co/attestrum` orgs; push the new repo; deploy Netlify static site at `attestrum.com` serving the v0.3 schemas; open the in-toto vetted-catalog PR. (2) Next session work: founder decides. Most likely candidates per `docs/audits/gtm-2026-05-24.md`: Priority 4 design-partner outreach OR Sprint 5 kickoff (`attestrum prove` fingerprinting pipeline).
+- **Tokens used**: ~unknown
+
+---
+
 ## [2026-05-24] — Initial commit: Attestrum project
 
 - **Files changed**: every file in the repo (initial commit). High-level inventory:

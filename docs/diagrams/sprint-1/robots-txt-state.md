@@ -1,8 +1,8 @@
 ---
 title: "robots.txt parser — per-document state machine"
 models: "crates/attestrum-signals/src/robots.rs, crates/attestrum-signals/src/lib.rs"
-source_of_truth: diagram
-last_verified: bootstrap 2026-05-24
+source_of_truth: code
+last_verified: 3b3f17e 2026-05-24
 diagram_type: stateDiagram-v2
 ---
 

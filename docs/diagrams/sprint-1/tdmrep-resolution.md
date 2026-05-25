@@ -1,8 +1,8 @@
 ---
 title: "TDMRep — surface precedence resolution"
 models: "crates/attestrum-signals/src/tdmrep.rs"
-source_of_truth: diagram
-last_verified: bootstrap 2026-05-24
+source_of_truth: code
+last_verified: 3b3f17e 2026-05-24
 diagram_type: sequenceDiagram
 ---
 

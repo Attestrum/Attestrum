@@ -1,8 +1,8 @@
 ---
 title: "attestrum sign flow — Sigstore Bundle v0.3 sign half with explicit Rust crate calls"
 models: "crates/attestrum-attest/src/sign.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-cli/src/commands/sign.rs, crates/attestrum-cli/src/lifecycle.rs, crates/attestrum-cli/tests/sign_flow_contract.rs, sign, statement, predicate, lifecycle, TRAINING_CORPUS_PREDICATE_TYPE"
-source_of_truth: diagram
-last_verified: bootstrap 2026-05-24
+source_of_truth: code
+last_verified: 3b3f17e 2026-05-24
 diagram_type: sequenceDiagram
 ---
 

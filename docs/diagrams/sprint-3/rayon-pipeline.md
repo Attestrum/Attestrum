@@ -1,8 +1,8 @@
 ---
 title: "attestrum-pipeline three-stage Rayon work-stealing build pipeline"
 models: "crates/attestrum-pipeline/src/lib.rs"
-source_of_truth: diagram
-last_verified: bootstrap 2026-05-24
+source_of_truth: code
+last_verified: 3b3f17e 2026-05-24
 diagram_type: flowchart
 ---
 
