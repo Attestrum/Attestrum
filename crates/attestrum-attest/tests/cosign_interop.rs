@@ -138,6 +138,24 @@ fn cosign_interop() {
         "bundle file should exist after sign returned Ok"
     );
 
+    // V1 diagnostic per attestrum-cosign-interop-decision-2026-05-25.md §5.
+    // Captures bundle.content variant + mediaType on CI before the verify
+    // step touches the bundle. Reverted in a follow-up commit once the chain
+    // is recorded in the verification report.
+    {
+        let bundle_str = std::fs::read_to_string(&bundle_path)
+            .expect("V1: re-read bundle.sigstore.json after sign");
+        let bundle_val: serde_json::Value =
+            serde_json::from_str(&bundle_str).expect("V1: parse bundle JSON for diagnostic print");
+        eprintln!(
+            "V1_DIAGNOSTIC mediaType={:?} content_keys={:?}",
+            bundle_val.get("mediaType"),
+            bundle_val
+                .as_object()
+                .map(|m| m.keys().cloned().collect::<Vec<_>>())
+        );
+    }
+
     // Self-verify gate. The identity + issuer regexes are plucked from the
     // SAN we actually extracted (tactical decision E) — escape and anchor
     // the literal values rather than predicting a GHA-workflow URL
