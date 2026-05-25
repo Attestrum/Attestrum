@@ -157,7 +157,7 @@ At every commit, append a session entry to BOTH `CHANGELOG.md` and `SESSION-LOG.
 
 Every local commit is pushed to `origin/main` immediately after the local commit lands. No commit sits unpushed except briefly during a deliberate multi-commit landing sequence.
 
-**Current remote**: `https://github.com/AustinMunday/Attestrum.git` (private). If the founder later creates an `Attestrum` GitHub org and transfers the repo there, `git remote set-url origin https://github.com/Attestrum/Attestrum.git` flips the local pointer; refs and history survive the transfer.
+**Current remote**: `https://github.com/Attestrum/Attestrum.git` (private). Hosted by the `Attestrum` GitHub org (created 2026-05-25, owned by Hyper Beam Media LLC). The repo was originally pushed to `AustinMunday/Attestrum` (personal account) and transferred to the org on 2026-05-25 — refs and history survived the transfer cleanly.
 
 **Workflow per commit, in order:**
 
@@ -357,4 +357,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push to `github.com/AustinMunday/Attestrum`.*
+*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push (originally to `github.com/AustinMunday/Attestrum`; transferred same day to `github.com/Attestrum/Attestrum` org owned by Hyper Beam Media LLC).*
