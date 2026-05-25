@@ -151,7 +151,7 @@ pub fn verify(req: VerifyRequest<'_>) -> Result<VerifiedAttestation, AttestrumAt
     let manifest_file = File::open(req.manifest_path).map_err(AttestrumAttestError::Io)?;
     verifier
         .verify(manifest_file, bundle_proto, &policy, req.offline)
-        .map_err(|e| AttestrumAttestError::SigstoreVerify(e.to_string()))?;
+        .map_err(|e| AttestrumAttestError::SigstoreVerify(format_error_chain(&e)))?;
 
     // 7. Extract the in-toto Statement payload (base64-encoded JSON in
     //    bundle.dsseEnvelope.payload) and parse it.
@@ -284,6 +284,28 @@ fn parse_proto_int64(v: &serde_json::Value) -> Option<i64> {
     }
 }
 
+/// Walk [`std::error::Error::source`] and format every level's Display
+/// message on its own indented line. Used to preserve sigstore-rs's
+/// `#[source]` chain when wrapping `SignatureVerificationError` /
+/// `VerificationError` into [`AttestrumAttestError::SigstoreVerify`]'s
+/// String payload — the top-level Display of sigstore-rs errors is
+/// generic (`"signature verification failed"`) for any of cert-chain,
+/// SCT, DSSE-math, Rekor-inclusion, or SAN-policy failures; the deeper
+/// source frame names the actual subsystem and is what the cosign-interop
+/// CI failure log needs to surface for diagnosis.
+fn format_error_chain<E: std::error::Error + ?Sized>(err: &E) -> String {
+    use std::fmt::Write as _;
+    let mut out = format!("[0] {err}");
+    let mut current = err.source();
+    let mut depth = 1usize;
+    while let Some(e) = current {
+        let _ = write!(out, "\n  [{depth}] {e}");
+        current = e.source();
+        depth += 1;
+    }
+    out
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -383,5 +405,54 @@ mod tests {
         let bundle = json!({"verificationMaterial": {}});
         let err = extract_tlog_fields(&bundle).unwrap_err();
         assert!(err.to_string().contains("tlogEntries"));
+    }
+
+    #[test]
+    fn format_error_chain_walks_source_chain() {
+        use std::error::Error;
+        use std::fmt;
+
+        #[derive(Debug)]
+        struct ChainErr {
+            msg: &'static str,
+            src: Option<Box<dyn Error + 'static>>,
+        }
+        impl fmt::Display for ChainErr {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(self.msg)
+            }
+        }
+        impl Error for ChainErr {
+            fn source(&self) -> Option<&(dyn Error + 'static)> {
+                self.src.as_deref()
+            }
+        }
+
+        let leaf = ChainErr {
+            msg: "x509 leaf parse failed",
+            src: None,
+        };
+        let mid = ChainErr {
+            msg: "cert chain validation failed",
+            src: Some(Box::new(leaf)),
+        };
+        let top = ChainErr {
+            msg: "signature verification failed",
+            src: Some(Box::new(mid)),
+        };
+
+        let rendered = format_error_chain(&top);
+        assert!(
+            rendered.contains("[0] signature verification failed"),
+            "missing top frame: {rendered}"
+        );
+        assert!(
+            rendered.contains("[1] cert chain validation failed"),
+            "missing middle frame: {rendered}"
+        );
+        assert!(
+            rendered.contains("[2] x509 leaf parse failed"),
+            "missing leaf frame: {rendered}"
+        );
     }
 }
