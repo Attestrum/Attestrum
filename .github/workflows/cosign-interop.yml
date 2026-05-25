@@ -1,0 +1,104 @@
+name: cosign-interop
+
+# Sprint 4 E4.5 — prove a third party with zero Attestrum installed can
+# verify our bundles via `cosign verify-blob-attestation --new-bundle-format`
+# alone. Closes Sprint 4 acceptance per PATH-A-BRIEF §1.5 caption + Part 6
+# Sprint 4 acceptance criterion.
+#
+# Separate workflow file (NOT a job in ci.yml) so an OIDC- or
+# cosign-installer-side failure does not mark the standard test job red.
+# The test sits in crates/attestrum-attest/tests/cosign_interop.rs and is
+# `#[ignore]`d so `cargo test --workspace` lists but does not execute it;
+# this workflow is the only path that runs it under `--include-ignored`.
+#
+# Trigger cadence: push: branches: [main] only — NO `pull_request` trigger.
+# Every successful run leaves one Sigstore public-good Rekor transparency-
+# log entry; the push:main-only cadence caps this at ~one entry per merge.
+# The Rekor entry's visible content is the workflow URL (GHA OIDC identity),
+# the v0.3 predicate URI, and the empty-corpus synthetic manifest's BLAKE3
+# hash. No corpus content leaks because the manifest is synthetic.
+#
+# First GREEN CI run is gated on the founder's first public push to
+# `github.com/Attestrum/Attestrum`. Until that push, this workflow does
+# not run.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: cosign-interop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write    # GHA OIDC token exchange → Fulcio identity proof
+  contents: read
+
+jobs:
+  cosign-interop:
+    name: cosign v3+ verify-blob-attestation interop
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.88.0
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-cosign-interop-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-cosign-interop-
+
+      # Tactical decision D — belt + suspenders pin. `@v3` is the action
+      # major-version pin; the explicit `cosign version --json` grep
+      # immediately after exits 1 if the installer ever returns a non-v3
+      # binary (catches installer regressions and stricter drift than the
+      # action pin alone). Tighten the case match below to `v3.0.*` (or a
+      # specific minor) if minor-version drift becomes a concern.
+      - name: Install cosign (sigstore/cosign-installer@v3)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify installed cosign is v3.x
+        run: |
+          set -euo pipefail
+          version_json="$(cosign version --json)"
+          echo "$version_json"
+          git_version="$(echo "$version_json" | jq -r '.GitVersion')"
+          case "$git_version" in
+            v3.*) echo "cosign $git_version: OK (v3.x line)";;
+            *)
+              echo "::error::sigstore/cosign-installer@v3 returned non-v3.x cosign: $git_version" >&2
+              exit 1
+              ;;
+          esac
+
+      # Exchange the GHA-issued ID-token-request for a sigstore-audience
+      # token Fulcio accepts. Audience MUST be `sigstore` (Fulcio's
+      # expected audience claim). Mask the token in workflow logs before
+      # exporting to subsequent steps via GITHUB_ENV.
+      - name: Fetch SIGSTORE_ID_TOKEN via GHA OIDC exchange
+        run: |
+          set -euo pipefail
+          token="$(curl --fail-with-body -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" \
+            | jq -r '.value')"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to obtain sigstore-audience OIDC token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "SIGSTORE_ID_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: cargo test cosign_interop (ignored)
+        run: |
+          cargo test \
+            --workspace \
+            --test cosign_interop \
+            -- --include-ignored cosign_interop

@@ -10,7 +10,7 @@ diagram_type: sequenceDiagram
 
 Source of truth: `code` as of Sprint 4 E4 (this commit). `crates/attestrum-attest/src/verify.rs` wraps `sigstore::bundle::verify::blocking::Verifier`; `crates/attestrum-attest/src/identity.rs` extracts the (SAN, OIDC issuer) tuple from the leaf cert; `crates/attestrum-cli/src/commands/verify.rs` is the user-facing subcommand driven by `crates/attestrum-cli/src/lifecycle.rs::VerifyState`; the contract test at `crates/attestrum-cli/tests/verify_flow_contract.rs` closes the per-`sequenceDiagram` obligation per PATH-A-BRIEF §7.1.
 
-**Cosign byte-equivalence**: the cosign interop test that exercises `cosign v3.0.3+ verify-blob-attestation --new-bundle-format --bundle <bundle> <manifest>` against every CI-emitted bundle is **deferred to Sprint 4 E4.5** (paired CI workflow change to install cosign + run the test unignored). Until E4.5 lands, our verify path is internally consistent (sigstore-rs verifies what we sign via sigstore-rs) but byte-equivalence with cosign is asserted by passing the same VerificationPolicy tests sigstore-rs and cosign both consume — not yet by a direct cosign-vs-attestrum shell-out in CI.
+**Cosign byte-equivalence**: shipped at Sprint 4 E4.5. The interop test at `crates/attestrum-attest/tests/cosign_interop.rs` builds an empty-corpus manifest through the production `attestrum_pipeline::build_corpus`, signs it via `attestrum_attest::sign` against the Sigstore public-good roots, self-verifies via `attestrum_attest::verify` as a sanity gate, then shells out to `cosign verify-blob-attestation --new-bundle-format` and asserts exit 0 + `Verified OK` in stderr. The test is `#[ignore]`d by default; the dedicated workflow at `.github/workflows/cosign-interop.yml` (push:main-only, NO pull_request) installs `cosign v3.x` via `sigstore/cosign-installer@v3`, exchanges the GHA OIDC token for a sigstore-audience token, and runs the ignored test under `--include-ignored`. The identity-regex argument is plucked from `SignedAttestation.identity` post-sign (`regex::escape` + `^…$` anchor) so the assertion reflects the real SAN extracted from the bundle's cert rather than a predicted GHA-workflow URL pattern.
 
 **Contract-test obligation closed at `crates/attestrum-cli/tests/verify_flow_contract.rs`** (Sprint 4 E4). The contract test enumerates `verify_documented_transitions()` (20 edges) plus four proptest properties (documented-edges-reachable, undocumented-holds, paths-terminate-in-known-exit, exit-codes-in-allowed-set) plus four end-to-end smokes (missing-bundle → exit 2; missing-manifest → exit 2; malformed-bundle bytes → exit 1 or 6; valid-JSON-but-no-cert → exit 6).
 
@@ -126,9 +126,12 @@ The `dsseEnvelope.payload` (the in-toto Statement JSON, base64-encoded) IS deter
 - Predicate schema validation = lightweight attempt-deserialise as `TrainingCorpusPredicate` (the Rust type IS the v0.3 schema via schemars derive). Exit 8 path is REAL at E4 (not just reserved). No `jsonschema-rs` dep.
 - `--print-predicate` outputs canonical JSON via `attestrum_attest::deterministic_json` (sorted keys) per CLAUDE.md §7 determinism rules. Pipe-friendly.
 
-**Deferred (E4.5 / Sprint 5+)**:
+**Shipped at Sprint 4 E4.5**:
 
-- cosign interop Rust test + CI workflow update to install `cosign v3+` and run `cosign verify-blob-attestation --new-bundle-format` against every CI-emitted bundle — **E4.5**.
+- cosign interop Rust test + CI workflow update to install `cosign v3+` and run `cosign verify-blob-attestation --new-bundle-format` against every CI-emitted bundle. See `crates/attestrum-attest/tests/cosign_interop.rs` + `.github/workflows/cosign-interop.yml`. First GREEN CI run is gated on the founder's first public push to `github.com/Attestrum/Attestrum`.
+
+**Deferred (Sprint 5+)**:
+
 - `<workspace>/trust/` cache layout with atomic-rename writes + per-workspace separation — follow-up.
 - `--manifest`-omitted auto-resolution from `bundle.subject[0].name` — follow-up.
 - `<workspace>/attestrum.toml`'s `[verify]` block for default identity-policy — follow-up.

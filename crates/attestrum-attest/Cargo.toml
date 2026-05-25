@@ -19,3 +19,18 @@ sigstore   = { workspace = true }
 x509-cert  = { workspace = true }
 regex      = { workspace = true }
 base64     = { workspace = true }
+
+# Sprint 4 E4.5: dev-only deps for the `cosign verify-blob-attestation`
+# interop test (`tests/cosign_interop.rs`). All three are existing
+# workspace members already used elsewhere in the workspace; pulling them
+# in as dev-deps lets the interop test exercise the production sign path
+# end-to-end (build a real empty-corpus manifest.parquet via the same
+# `attestrum_pipeline::build_corpus` the CLI consumes, hash it via the
+# same `attestrum_cas::stream_hash` the CLI consumes, sign it via this
+# crate's `sign`, self-verify via `verify`, then shell out to cosign).
+# No new license-inventory rows: these are workspace members, not
+# externally-published crates.
+[dev-dependencies]
+attestrum-core     = { path = "../attestrum-core", version = "0.0.1" }
+attestrum-cas      = { path = "../attestrum-cas", version = "0.1.0" }
+attestrum-pipeline = { path = "../attestrum-pipeline", version = "0.1.0" }
