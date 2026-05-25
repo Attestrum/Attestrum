@@ -197,6 +197,15 @@ fn stream_hash_then_put_roundtrip() {
 
 #[cfg(unix)]
 #[test]
+#[cfg_attr(
+    target_env = "musl",
+    ignore = "Alpine CI runs as root with CAP_DAC_OVERRIDE which bypasses \
+              directory write permissions, so chmod 0o555 is not enforced \
+              against the test's UID. The general I/O-error-propagation \
+              invariant is covered by missing_tmp_dir_propagates_io_error \
+              (below), which works regardless of UID because root cannot \
+              open a file in a directory that does not exist."
+)]
 fn read_only_parent_propagates_io_error() {
     use std::os::unix::fs::PermissionsExt;
     let root = fresh_root("readonly_parent");
@@ -227,6 +236,38 @@ fn read_only_parent_propagates_io_error() {
     assert!(
         matches!(err.kind(), ErrorKind::PermissionDenied),
         "expected PermissionDenied, got {:?} — {err}",
+        err.kind()
+    );
+}
+
+#[test]
+fn missing_tmp_dir_propagates_io_error() {
+    // Verifies that filesystem errors during `CasStore::put` propagate as
+    // io::Error rather than being swallowed. Exercises the temp-file-create
+    // path inside put (OpenOptions::create_new in the `tmp/` subdir).
+    //
+    // Uses a missing parent directory rather than chmod-based permissions
+    // so the assertion holds regardless of UID — root cannot open a file
+    // in a directory that does not exist (kernel structural error, not
+    // a DAC check that CAP_DAC_OVERRIDE could bypass). This is the
+    // cross-target equivalent of `read_only_parent_propagates_io_error`,
+    // which is musl-ignored because Alpine CI runs as root.
+    let root = fresh_root("missing_tmp");
+    let store = CasStore::new(&root).expect("create CasStore");
+    let contents = b"missing tmp dir test";
+    let digest = *blake3::hash(contents).as_bytes();
+
+    // Remove the `tmp/` subdir that CasStore::new just created. The next
+    // `put` call tries to OpenOptions::create_new("tmp/.attestrum-tmp.<...>")
+    // and gets ENOENT.
+    fs::remove_dir_all(root.join("tmp")).expect("remove tmp/");
+
+    let err = store
+        .put(&digest, contents)
+        .expect_err("expected put to fail when tmp/ is absent");
+    assert!(
+        matches!(err.kind(), ErrorKind::NotFound),
+        "expected NotFound (tmp/ removed), got {:?} — {err}",
         err.kind()
     );
 }
