@@ -106,8 +106,12 @@ regex = "1"
 # MIT OR Apache-2.0 (allow-listed). Already in Cargo.lock transitively
 # via several deps; E4 promotes to direct.
 base64 = "0.22"
-# Reserved for later sprints (kept commented so additions are explicit per CLAUDE.md §8):
-# jiff   = "0.2"
+# Sprint 5 S5-D1 E1: jiff (Timestamp type) + unicode-normalization (NFC for the
+# PROTECTED text-fingerprint pipeline). Both pre-approved per
+# docs/license-inventory.md PATH-A-BRIEF §2.1 entries. First-use commit adds
+# Actually-used rows to docs/license-inventory.md alongside.
+jiff                  = "0.2"
+unicode-normalization = "0.1"
 
 # Pre-Sprint-5 (2026-05-25): sigstore-rs 0.14.0 hard-requires `Claims.email`
 # (src/oauth/token.rs:31), which breaks every workload-identity OIDC flow

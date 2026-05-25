@@ -7,3 +7,18 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+attestrum-core = { path = "../attestrum-core", version = "0.0.1" }
+blake3                = { workspace = true }
+sha2                  = { workspace = true }
+serde                 = { workspace = true }
+serde_json            = { workspace = true }
+thiserror             = { workspace = true }
+unicode-normalization = { workspace = true }
+jiff                  = { workspace = true }
+# `schemars` deliberately omitted at E1 — Modality (re-exported from
+# attestrum_core) doesn't currently derive JsonSchema, and adding the derive
+# there would propagate schemars as a transitive dep through every workspace
+# crate that pulls in attestrum-core. JSON-Schema emission for
+# FingerprintBundle lands at E5 (API freeze + cross-target determinism gate)
+# alongside whichever shim makes Modality satisfy JsonSchema (either a derive
+# on attestrum_core::Modality, or a remote-derive shim local to this crate).
