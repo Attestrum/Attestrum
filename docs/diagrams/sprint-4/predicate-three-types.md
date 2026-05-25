@@ -2,7 +2,7 @@
 title: "attestrum-attest three predicate types — v0.3 schema bump (f32 → u32 PPM at E3.6 for cross-target byte determinism)"
 models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/canonicalize.rs, crates/attestrum-attest/src/json.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/tests/api_surface.rs, crates/attestrum-attest/tests/schema_derive.rs, docs/schemas/training-corpus-v0.3.schema.json, docs/schemas/inclusion-proof-v0.3.schema.json, docs/schemas/non-inclusion-proof-v0.3.schema.json, docs/migration/v0.2-to-v0.3-attestrum-rebrand.md, TRAINING_CORPUS_PREDICATE_TYPE, INCLUSION_PROOF_PREDICATE_TYPE, NON_INCLUSION_PROOF_PREDICATE_TYPE, ALL_PREDICATE_TYPES, AttestrumAttestError, canonicalize, json, in-toto Statement v1, Sigstore Bundle v0.3, PATH-A-BRIEF.md Part 3"
 source_of_truth: code
-last_verified: 3b3f17e 2026-05-24
+last_verified: 026b1a8 2026-05-25
 diagram_type: classDiagram
 ---
 
@@ -76,8 +76,8 @@ classDiagram
     +SignalCoverage signal_coverage_each_field_bounded_0_to_1
     +LicensingPosture licensing_posture
     +Vec LicenseInventoryEntry license_inventory
-    +Option String takedown_contact_uri
-    +Option String dataset_homepage_uri
+    +Option String takedown_contact
+    +Option String dataset_homepage
     +Option PublicationIntent publication_intent
     +Option String total_compute
     +Option String training_cost
@@ -87,7 +87,7 @@ classDiagram
 
   class DeterminismFields {
     +String target_triple
-    +String seed_or_sde
+    +String seed
     +String manifest_schema_version
   }
 
@@ -267,7 +267,7 @@ Each revision below corresponds to a specific [BLOCKER]- or [STRONG]-severity fi
 - **NEW** `merkle_algorithm: String` — defaults to `blake3-rfc6962`, expressed explicitly so the verifier knows which hash function + RFC 6962 domain-separation prefixes to apply when recomputing the root.
 - **CHANGED** `attestrum_version` regex from `^v[0-9]+\.[0-9]+\.[0-9]+` (unanchored, matches `v1.2.3garbage`) to `^v\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$` (end-anchored, SemVer-compliant with optional pre-release + build metadata). Reflected in the field-shape comment in the class.
 - **CHANGED** `manifest.{digest_algo, digest_hex}` split → `manifest.digest_set: DigestMap` (algorithm-qualified, mirrors the in-toto Subject digest pattern of carrying both BLAKE3 + SHA-256). `DigestAlgo` enum dropped (no longer needed).
-- **CHANGED** `takedown_contact_uri` / `dataset_homepage_uri` / `publication_intent` from required to `Option<...>`. A corpus published privately (`publication_intent: Private`) may legitimately have none of these.
+- **CHANGED** `takedown_contact` / `dataset_homepage` / `publication_intent` from required to `Option<...>`. A corpus published privately (`publication_intent: Private`) may legitimately have none of these.
 - **CHANGED** `signal_coverage` field-shape comment reflects per-field schema constraint of `0..=1` bounds (E1.5 contract). **E3.6 v0.3 update**: the Rust types changed from `Option<f32>` to `Option<u32>` representing parts-per-million in `0..=1_000_000`. The semantic range is unchanged (0.0..=1.0 coverage, six decimal places of precision), but the wire format is integer-only because float JSON serialization is platform-nondeterministic (rounding, denormal flush-to-zero, NaN canonicalization). Verifiers read `<field_value> / 1_000_000` to recover the human-readable ratio for display. The schemars-derived JSON Schema now declares `"type": ["integer", "null"]` with `"minimum": 0, "maximum": 1000000` — the actual schema-enforced range constraint that the v0.1 schema was missing.
 
 **A.2 `InclusionProofPredicate` changes** (vs E1 draft):

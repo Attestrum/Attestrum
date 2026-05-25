@@ -2,7 +2,7 @@
 title: "robots.txt parser — per-document state machine"
 models: "crates/attestrum-signals/src/robots.rs, crates/attestrum-signals/src/lib.rs"
 source_of_truth: code
-last_verified: 3b3f17e 2026-05-24
+last_verified: 026b1a8 2026-05-25
 diagram_type: stateDiagram-v2
 ---
 

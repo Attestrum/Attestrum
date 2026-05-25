@@ -2,7 +2,7 @@
 title: "attestrum-manifest Parquet row schema (BUILD-PLAN §4.2 16 cols + input_ordinal + occurrence_index binding)"
 models: "crates/attestrum-manifest/src/lib.rs, crates/attestrum-manifest/src/io.rs"
 source_of_truth: code
-last_verified: 3b3f17e 2026-05-24
+last_verified: 026b1a8 2026-05-25
 diagram_type: erDiagram
 ---
 
@@ -25,7 +25,7 @@ The `input_ordinal` column was added in Sprint 3 E2.5 per the E3 pre-implementat
 
 If that holds, the multiset Merkle binding is correct — no need to trust Attestrum's internal counter logic.
 
-**Deterministic Parquet writer config** (per E3 cross-check, more conservative than the original lean): PARQUET_1_0 writer version, ZSTD compression at level 3, dictionary encoding DISABLED globally, statistics DISABLED globally, raw `Int8`/`UInt8` encoding for `modality` and `source_type` enums (mapping pinned in KeyValue metadata), raw `Int64` for `fetched_at_ms` (avoids Arrow TIMESTAMP timezone-metadata leak), `created_by` pinned (NOT the parquet-rs default), bloom filters off, sorted by `(document_id, occurrence_index)`. `attestrum.manifest.schema_version = 1` lives in file-level KeyValue metadata, not as a per-row column.
+**Deterministic Parquet writer config** (per E3 cross-check, more conservative than the original lean): PARQUET_1_0 writer version, ZSTD compression at level 3, dictionary encoding DISABLED globally, statistics DISABLED globally, raw `Int8`/`UInt8` encoding for `modality` and `source_type` enums (mapping pinned in KeyValue metadata), raw `Int64` for `fetched_at_ms` (avoids Arrow TIMESTAMP timezone-metadata leak), `created_by` pinned (NOT the parquet-rs default), bloom filters off, sorted by `(document_id, occurrence_index)`. `attestrum.manifest.schema_version = 2` lives in file-level KeyValue metadata, not as a per-row column.
 
 ```mermaid
 erDiagram
@@ -74,7 +74,7 @@ erDiagram
 - `sort_order_is_document_id_then_occurrence_index` — entries written in any input order land on disk sorted lexicographically by `document_id`, then by `occurrence_index` as the tie-break.
 - `audit_invariant_holds_post_sort` — for each consecutive `document_id` group post-`sort_entries`, `occurrence_index` rank equals the rank when the group is sorted by `input_ordinal`.
 - `nullable_fields_roundtrip_as_none_when_absent` — `mime_type`, `source_url`, `source_type`, `source_dataset_id`, `registered_domain`, `license_spdx`, `language`, `fetched_at`, `exclusion_reason`, `chunk_refs` each roundtrip as `Option::None` when unset.
-- `schema_version_keyvalue_metadata_pinned_to_1` — file-level KeyValue contains `attestrum.manifest.schema_version = "1"`.
+- `schema_version_keyvalue_metadata_pinned_to_2` — file-level KeyValue contains `attestrum.manifest.schema_version = "2"`.
 
 **E2 + E2.5 deliverable** (pure types, no Parquet I/O yet, LANDED): `pub struct ManifestEntry` mirroring the columns above; `pub struct ManifestSignals` mirroring the SIGNALS sub-struct; `pub fn assign_input_ordinals(&mut [ManifestEntry])` walks entries in slice order and sets `input_ordinal = i as u64`; `pub fn assign_occurrence_indices(&mut [ManifestEntry])` walks entries in input order and assigns per-`document_id` 0-based ordinals; `pub fn sort_entries(&mut [ManifestEntry])` sorts in place by `(document_id, occurrence_index)`. Serde JSON roundtrip tests + audit-invariant test all green. This diagram stays `source_of_truth: diagram` until E3's Parquet roundtrip lands the on-disk schema.
 

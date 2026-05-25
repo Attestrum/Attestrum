@@ -2,7 +2,7 @@
 title: "CAS atomic write — single std::fs path with tmp/ staging + rename(2)"
 models: "crates/attestrum-cas/src/store.rs"
 source_of_truth: code
-last_verified: 3b3f17e 2026-05-24
+last_verified: 026b1a8 2026-05-25
 diagram_type: sequenceDiagram
 ---
 
