@@ -15,6 +15,10 @@ serde_json            = { workspace = true }
 thiserror             = { workspace = true }
 unicode-normalization = { workspace = true }
 jiff                  = { workspace = true }
+# Sprint 5 S5-D1 E2: image decode + two perceptual hashes (pHash + blockhash).
+image        = { workspace = true }
+image_hasher = { workspace = true }
+blockhash    = { workspace = true }
 # `schemars` deliberately omitted at E1 — Modality (re-exported from
 # attestrum_core) doesn't currently derive JsonSchema, and adding the derive
 # there would propagate schemars as a transitive dep through every workspace

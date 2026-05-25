@@ -94,6 +94,18 @@ allow = [
     # OSI-approved; widely used for distributed data sets like root-CA
     # bundles.
     "CDLA-Permissive-2.0",
+    # NCSA added at Sprint 5 S5-D1 E2 as transitive-only exception for
+    # `libfuzzer-sys` (pulled in transitively by `image → ravif → rav1e →
+    # libfuzzer-sys` even with `image` configured `default-features = false,
+    # features = ["png","jpeg","webp","bmp","gif","tiff"]` — `ravif` is part
+    # of the cargo graph regardless of the avif feature flag, and its
+    # transitive dev-graph reaches libfuzzer-sys). University of Illinois /
+    # NCSA Open Source License: OSI-approved + FSF-free + permissive
+    # (BSD-3-Clause-equivalent in effect — MIT-style permission grant with
+    # an attribution requirement + a no-endorsement clause). Same trust
+    # profile as ISC + MIT-0 added at Sprint 4 E3. Direct deps remain
+    # restricted to the CLAUDE.md §8 list; this is transitive-only.
+    "NCSA",
 ]
 confidence-threshold = 0.8
 

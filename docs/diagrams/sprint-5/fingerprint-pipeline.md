@@ -1,18 +1,18 @@
 ---
 title: "Sprint 5 attestrum-fingerprint pipeline — text (E1) + image (E2) + bytes (E2) + MinHash/SimHash (E3) + ISCC composition (E4)"
-models: "crates/attestrum-fingerprint/src/lib.rs, fingerprint_text, FingerprintBundle, TextFingerprint, FingerprintOpts, AttestrumFingerprintError, FINGERPRINT_SCHEMA, Modality, attestrum_core::Modality, attestrum_core::hex::encode"
+models: "crates/attestrum-fingerprint/src/lib.rs, fingerprint_text, fingerprint_image, FingerprintBundle, TextFingerprint, ImageFingerprint, FingerprintOpts, AttestrumFingerprintError, FINGERPRINT_SCHEMA, Modality, attestrum_core::Modality, attestrum_core::hex::encode"
 source_of_truth: diagram
-last_verified: 25e9d7e 2026-05-25
+last_verified: 4452b59 2026-05-25
 diagram_type: flowchart
 ---
 
 # Sprint 5 `attestrum-fingerprint` pipeline
 
-Source of truth: **`diagram`** as of Sprint 5 E1 (this commit). The diagram is the contract this crate implements; it flips to `source_of_truth: code` at S5-D1 E5 (the API freeze + cross-target determinism gate) per the Sprint 5 plan at `/Users/austinmunday/.claude/plans/you-re-picking-up-attestrum-stateful-hearth.md`.
+Source of truth: **`diagram`** through S5-D1 E4. The diagram is the contract this crate implements; it flips to `source_of_truth: code` at S5-D1 E5 (the API freeze + cross-target determinism gate) per the Sprint 5 plan at `/Users/austinmunday/.claude/plans/you-re-picking-up-attestrum-stateful-hearth.md`.
 
-**This is the ONLY diagram for S5-D1** per PATH-A-BRIEF Part 6 Sprint 5 line 1171. Per-E-commit diagram updates mean updating this file's `last_verified` SHA + adding/flipping branch nodes as each E-commit lands, NOT creating a new diagram per commit.
+**This is the ONLY diagram for S5-D1** per PATH-A-BRIEF Part 6 Sprint 5 line 1171. Per-E-commit diagram updates mean updating this file's `last_verified` SHA + flipping branch nodes from grey (deferred) to green (shipped) as each E-commit lands, NOT creating a new diagram per commit.
 
-**E1 (this commit) ships the text branch only** — the highlighted path. Image + bytes (raw) + MinHash + SimHash + ISCC are stubbed as future-commit branches so the reverse-reference linter sees the public API surface that future commits will extend without restructuring this diagram.
+**Branch state at E2** (this commit): **text branch + image branch** both ship. The bytes (raw) branch, MinHash + SimHash branch, and ISCC composition branch remain grey until E3/E4 land them. `fingerprint_text` (E1) + `fingerprint_image` (E2) are the public entry-points implemented at this commit.
 
 **Modality reuse**: `attestrum_core::Modality` is re-exported from this crate as `attestrum_fingerprint::Modality` — there is NO second Modality enum in the workspace. The 6-variant attestrum-core enum (Text, Image, Audio, Video, Pdf, Other) is reused verbatim per its docstring at `crates/attestrum-core/src/lib.rs:50-52` ("Mirrors PATH-A-BRIEF §2.1's `Fingerprinter::modality` return type so `attestrum-fingerprint` re-uses this enum verbatim in Sprint 5."). Sprint 5's narrower-than-the-enum implementation scope is expressed by which `fingerprint_*` functions exist, not by which variants the enum has. Audio/Video/Pdf inputs in Sprint 5 either route to `fingerprint_bytes` (Other-as-bytes treatment) or surface as `AttestrumFingerprintError::ModalityNotImplemented(Modality)` from the dispatch entry-point when that lands.
 
@@ -22,8 +22,8 @@ Source of truth: **`diagram`** as of Sprint 5 E1 (this commit). The diagram is t
 
 ```mermaid
 flowchart TB
-  classDef e1Ship fill:#1f6f3f,stroke:#3ec072,color:#fff
-  classDef e2Deferred fill:#3a3a3a,stroke:#666,color:#aaa
+  classDef shipped fill:#1f6f3f,stroke:#3ec072,color:#fff
+  classDef deferred fill:#3a3a3a,stroke:#666,color:#aaa
   classDef e3Deferred fill:#3a3a3a,stroke:#666,color:#aaa
   classDef e4Deferred fill:#3a3a3a,stroke:#666,color:#aaa
   classDef protected fill:#7a1f1f,stroke:#c63737,color:#fff
@@ -36,9 +36,9 @@ flowchart TB
 
   bytes --> dispatch{"Which fingerprint_* entry?"}
 
-  dispatch -->|"fingerprint_text<br/>(E1, this commit)"| utf8["UTF-8 validate<br/>std::str::from_utf8"]
-  dispatch -->|"fingerprint_image<br/>(E2, deferred)"| imgDecode["image::load_from_memory"]
-  dispatch -->|"fingerprint_bytes<br/>(E2, deferred)"| rawHash["BLAKE3 + SHA-256<br/>over raw bytes"]
+  dispatch -->|"fingerprint_text<br/>(E1, shipped)"| utf8["UTF-8 validate<br/>std::str::from_utf8"]
+  dispatch -->|"fingerprint_image<br/>(E2, this commit)"| imgDecode["image::load_from_memory"]
+  dispatch -->|"fingerprint_bytes<br/>(deferred)"| rawHash["BLAKE3 + SHA-256<br/>over raw bytes"]
 
   utf8 --> nfc["NFC normalize<br/>unicode-normalization 0.1"]
   nfc --> lower["str::to_lowercase<br/>Unicode-aware case fold"]
@@ -46,8 +46,10 @@ flowchart TB
   wsCollapse --> textHash["BLAKE3 + SHA-256<br/>over normalized UTF-8 bytes"]
   textHash --> textBuild["Build TextFingerprint<br/>+ FingerprintBundle<br/>(modality=Text)"]
 
-  imgDecode --> imgHash["pHash 64-bit + blockhash 64-bit<br/>(E2: image_hasher + blockhash crates)"]
-  imgHash --> imgBuild["Build ImageFingerprint<br/>+ FingerprintBundle<br/>(modality=Image)"]
+  imgDecode --> imgHashRaw["BLAKE3 + SHA-256<br/>over raw input bytes<br/>(exact-match digests)"]
+  imgHashRaw --> imgPhash["pHash 64-bit<br/>image_hasher: hash_size(8,8) + preproc_dct<br/>= DCT-based perceptual hash"]
+  imgPhash --> imgBlockhash["blockhash 64-bit<br/>blockhash::blockhash64<br/>= blockhash.io spec (block-mean)"]
+  imgBlockhash --> imgBuild["Build ImageFingerprint<br/>{ phash, blockhash, width, height }<br/>+ FingerprintBundle<br/>(modality=Image)"]
 
   rawHash --> bytesBuild["Build FingerprintBundle<br/>(modality=Other)"]
 
@@ -68,8 +70,8 @@ flowchart TB
   ts -. "InvalidTimestamp" .-> error
   dispatch -. "audio/video/pdf in Sprint 5" .-> error
 
-  class utf8,nfc,lower,wsCollapse,textHash,textBuild,ts e1Ship
-  class imgDecode,imgHash,imgBuild,rawHash,bytesBuild e2Deferred
+  class utf8,nfc,lower,wsCollapse,textHash,textBuild,ts,imgDecode,imgHashRaw,imgPhash,imgBlockhash,imgBuild shipped
+  class rawHash,bytesBuild deferred
   class minHash e3Deferred
   class isccCompose e4Deferred
   class wsCollapse protected
@@ -78,10 +80,10 @@ flowchart TB
 
 **Legend**:
 
-- **Green nodes** (`E1`): land in this commit (`S5-D1 E1`). `wsCollapse` is **red** because the normalization step it represents is the PROTECTED locking-point per CLAUDE.md §4.
-- **Grey nodes** (`E2`/`E3`/`E4`): deferred to subsequent commits in S5-D1. Each future commit fills in its branch + updates this diagram's `last_verified` SHA. No new diagram file per commit.
+- **Green nodes** (`shipped`): land in or before this commit. `wsCollapse` is **red** because the normalization step it represents is the PROTECTED locking-point per CLAUDE.md §4.
+- **Grey nodes** (`deferred`): subsequent commits in S5-D1. Each future commit fills in its branch + updates this diagram's `last_verified` SHA. No new diagram file per commit.
 
-## What lands at Sprint 5 E1 (this commit)
+## What lands at Sprint 5 E1 (text fingerprint)
 
 - `crates/attestrum-fingerprint/Cargo.toml` — deps: `blake3` + `sha2` + `serde` + `serde_json` + `thiserror` (existing workspace deps) + NEW `unicode-normalization` (0.1) + NEW `jiff` (0.x) + path-dep `attestrum-core`. All pre-approved per `docs/license-inventory.md`. `schemars` deliberately omitted at E1 — `attestrum_core::Modality` does not currently derive `JsonSchema`, and adding the derive would propagate `schemars` as a transitive dep through every workspace crate; JSON-Schema emission for `FingerprintBundle` lands at E5 alongside whichever shim makes `Modality` satisfy `JsonSchema`.
 - `crates/attestrum-fingerprint/src/lib.rs` — the public surface drawn above: `pub use attestrum_core::Modality`; `pub struct FingerprintBundle`; `pub struct TextFingerprint`; `pub struct FingerprintOpts`; `pub enum AttestrumFingerprintError`; `pub const FINGERPRINT_SCHEMA`; `pub fn fingerprint_text(&[u8], &FingerprintOpts) -> Result<FingerprintBundle, AttestrumFingerprintError>`. Private helpers: `normalize_text(&str) -> String` (PROTECTED pipeline) + thin hex wrappers around `attestrum_core::hex::encode`.
@@ -91,14 +93,21 @@ flowchart TB
 - This diagram file (`docs/diagrams/sprint-5/fingerprint-pipeline.md`).
 - `CHANGELOG.md` + `SESSION-LOG.md` per-commit entry per CLAUDE.md §6.
 
-## What's NOT in scope for E1
+## What lands at Sprint 5 E2 (image fingerprint — this commit)
 
-- `fingerprint_image`, `fingerprint_bytes` — E2.
-- MinHash + SimHash — E3 (`src/text/minhash.rs` + `src/text/simhash.rs` will land).
+- `crates/attestrum-fingerprint/Cargo.toml` — adds `image = "0.25"` (default-features off + features `png, jpeg, webp, bmp, gif, tiff`), `image_hasher = "3.0"`, `blockhash = "0.5"` (all pre-approved per `docs/license-inventory.md`). `image_hasher 3.0` resolves to `3.1.1` in the lockfile (semver-compatible). `blockhash` default features include the `image` integration so `image::DynamicImage` satisfies `blockhash::Image` directly.
+- `pub struct ImageFingerprint { phash: String, blockhash: String, width: u32, height: u32 }` — 16-char hex (64-bit) for both perceptual hashes; image dimensions for display.
+- `pub fn fingerprint_image(bytes: &[u8], opts: &FingerprintOpts) -> Result<FingerprintBundle, AttestrumFingerprintError>` — decode via `image::load_from_memory`; pHash via `image_hasher::HasherConfig::new().hash_size(8, 8).preproc_dct().to_hasher()`; blockhash via `blockhash::blockhash64(&img)`; BLAKE3 + SHA-256 over the RAW input bytes (exact-match digest for `MatchEvidence::ExactBlake3`/`ExactSha256` paths means "same encoded file" semantics for images, distinct from text's "same normalized form" semantics).
+- `AttestrumFingerprintError::ImageDecode(String)` — new error variant for non-image / corrupt input bytes.
+- `FingerprintBundle.image: Option<ImageFingerprint>` — non-breaking serde addition (`#[serde(skip_serializing_if = "Option::is_none")]`); E1-emitted text bundles stay byte-identical because the field stays `None` + omitted in JSON.
+
+## What's NOT in scope yet
+
+- `fingerprint_bytes` — deferred. Trivial when needed (BLAKE3 + SHA-256 over raw bytes, modality=Other); will land alongside `attestrum-prove`'s manifest-walk path (E8 area) when there's a concrete consumer.
+- MinHash + SimHash — E3 (`src/text/minhash.rs` + `src/text/simhash.rs`).
 - ISCC composition — E4 (`iscc-lib` first-use commit).
 - `fingerprint_path(&Path, ...)` dispatch entry — lands when `attestrum-prove` integrates the crate (E8 area).
-- The `image` / `iscc` / image-perceptual-hash fields on `FingerprintBundle` — added by their respective commits via non-breaking serde additions (`Option<T>` with `#[serde(skip_serializing_if)]`).
-- File-based golden fixtures under `tests/golden/fingerprint/text/` — for E1 the goldens are inline string constants in the test module because the text-normalization values are short enough to inline; the on-disk `tests/fixtures/fp/` directory pattern from PATH-A-BRIEF §2.1 line 530 lands at E2 alongside image fixtures (which DO require byte-on-disk files).
+- File-based golden fixtures under `tests/golden/fingerprint/image/` — for E2 the tests use programmatically-generated `image::ImageBuffer` patterns (4x checkerboard variants for Hamming-distance robustness assertions) rather than committed PNG fixtures. Committed binary fixtures land at E5 alongside the cross-target byte-determinism gate where the encoded-bytes round-trip stability matters.
 
 ## PROTECTED normalization detail
 

@@ -112,6 +112,24 @@ base64 = "0.22"
 # Actually-used rows to docs/license-inventory.md alongside.
 jiff                  = "0.2"
 unicode-normalization = "0.1"
+# Sprint 5 S5-D1 E2: image decode + perceptual hashing (pHash + blockhash).
+# All three pre-approved per docs/license-inventory.md PATH-A-BRIEF §2.1.
+# `image` 0.25 = decoder for PNG/JPEG/WebP/etc. `image_hasher` 3.0 = pHash
+# / aHash / dHash family (Mean/Gradient/Median variants over DCT-resized
+# grayscale). `blockhash` 0.5 = http://blockhash.io spec (block-mean hash
+# that resists tonal manipulation differently from pHash — both ship so
+# inclusion-proof MatchEvidence::Perceptual covers different attack surfaces).
+image        = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif", "tiff"] }
+image_hasher = "3.0"
+# blockhash bumped from PATH-A-BRIEF §2.1's `"0.5"` to `"1"` because `0.5`
+# pins `image ^0.24` while the rest of the workspace + `image_hasher 3.0`
+# require `image ^0.25` (different crate instances at the type level —
+# `DynamicImage` from 0.24 doesn't satisfy traits expecting 0.25). blockhash
+# `1.0.0` (also MIT) was published with `image ^0.25` for exactly this
+# alignment; the `blockhash64` + `Display` + `distance` API is byte-identical
+# to 0.5.0 so no code change beyond the version pin. Docs/license-inventory
+# updated alongside.
+blockhash    = "1"
 
 # Pre-Sprint-5 (2026-05-25): sigstore-rs 0.14.0 hard-requires `Claims.email`
 # (src/oauth/token.rs:31), which breaks every workload-identity OIDC flow

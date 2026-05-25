@@ -7,14 +7,22 @@
 //! diagram (the single diagram covering all of S5-D1; per-E-commit updates
 //! bump its `last_verified` SHA rather than spawning per-commit diagrams).
 //!
-//! Sprint 5 E1 (this commit) ships the text branch only:
+//! Sprint 5 E1 ships the text branch:
 //! [`fingerprint_text`] applies the **PROTECTED** normalization pipeline
 //! (NFC → `str::to_lowercase` → whitespace collapse) and produces a
 //! [`FingerprintBundle`] carrying both BLAKE3 (Attestrum-native, Merkle leaf
 //! input) and SHA-256 (Sigstore / in-toto interop) digests of the normalized
-//! bytes. Subsequent commits in S5-D1 add the image branch (E2), MinHash +
-//! SimHash (E3), and ISCC composition (E4); the API freeze + cross-target
-//! determinism gate lands at E5.
+//! bytes.
+//!
+//! Sprint 5 E2 (this commit) adds the image branch: [`fingerprint_image`]
+//! decodes via the `image` crate, computes a DCT-based 64-bit pHash via
+//! `image_hasher` (`HasherConfig::new().hash_size(8, 8).preproc_dct()`), a
+//! 64-bit blockhash via the `blockhash` crate (blockhash.io spec), and the
+//! BLAKE3 + SHA-256 over the RAW input bytes — distinct from text's
+//! over-normalized-bytes semantics because image exact-match means "same
+//! encoded file" not "same decoded pixels". Subsequent commits in S5-D1 add
+//! MinHash + SimHash (E3) and ISCC composition (E4); the API freeze +
+//! cross-target determinism gate lands at E5.
 //!
 //! # PROTECTED
 //!
@@ -83,6 +91,11 @@ pub struct FingerprintBundle {
     /// Text-specific details. Present iff `modality == Modality::Text`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<TextFingerprint>,
+    /// Image-specific details. Present iff `modality == Modality::Image`.
+    /// Sprint 5 E2 addition; non-breaking for E1-emitted text bundles
+    /// because `None` is omitted via `skip_serializing_if`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<ImageFingerprint>,
     /// Deterministic timestamp (RFC 3339). Set from
     /// `FingerprintOpts.source_date_epoch` — never the system clock.
     pub generated_at: String,
@@ -103,6 +116,37 @@ pub struct TextFingerprint {
     /// before lowercase + whitespace collapse. Diagnostic only; the hash
     /// input length is `FingerprintBundle.byte_len`.
     pub nfc_char_count: u64,
+}
+
+/// Image-specific fingerprint details. Sprint 5 E2 ships two 64-bit
+/// perceptual hashes (different attack-surface profiles):
+///
+/// - [`Self::phash`] — DCT-based 64-bit perceptual hash via
+///   `image_hasher::HasherConfig::new().hash_size(8, 8).preproc_dct()`.
+///   Sensitive to subtle tonal changes; robust to small geometric
+///   distortions and re-encoding.
+/// - [`Self::blockhash`] — 64-bit blockhash.io spec hash via
+///   `blockhash::blockhash64`. Block-mean approach; robust to colour /
+///   tonal manipulation; more sensitive to geometric distortions than
+///   pHash.
+///
+/// Inclusion-proof [`MatchEvidence::Perceptual`] in `attestrum-attest`
+/// carries `hamming_distance` + `threshold` over one of these hashes;
+/// non-inclusion proofs cite both for completeness. The decision of
+/// which hash to use for a given match is the consumer's
+/// (`attestrum-prove` at E9) — both are emitted here unconditionally.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageFingerprint {
+    /// DCT-based 64-bit pHash, hex-encoded lowercase (16 chars).
+    pub phash: String,
+    /// 64-bit blockhash.io spec hash, hex-encoded lowercase (16 chars).
+    pub blockhash: String,
+    /// Original image width in pixels (pre-resize). Diagnostic only —
+    /// not load-bearing for hash comparison.
+    pub width: u32,
+    /// Original image height in pixels (pre-resize). Diagnostic only.
+    pub height: u32,
 }
 
 // ============================================================================
@@ -141,11 +185,19 @@ pub enum AttestrumFingerprintError {
     /// Caller passed a [`Modality`] this crate does not yet implement in
     /// Sprint 5 (Audio / Video / Pdf). Sprint 5 supports Text + Image +
     /// Other-as-bytes; the unimplemented variants surface here from any
-    /// future dispatch entry-point (E2's `fingerprint_bytes` will accept
-    /// Other; a hypothetical `fingerprint_any(Modality, &[u8])` would
-    /// surface this for the rest).
+    /// future dispatch entry-point (a hypothetical
+    /// `fingerprint_any(Modality, &[u8])` would surface this for Audio /
+    /// Video / Pdf).
     #[error("modality {0:?} not yet implemented in attestrum-fingerprint v0.1")]
     ModalityNotImplemented(Modality),
+
+    /// Input bytes could not be decoded as any supported image format
+    /// (image-path only). The wrapped string is the underlying `image`
+    /// crate's error message; we wrap rather than carry the typed error
+    /// so this crate's public-error type doesn't drag `image::ImageError`
+    /// into downstream callers' type surface.
+    #[error("image decode failed: {0}")]
+    ImageDecode(String),
 }
 
 // ============================================================================
@@ -210,6 +262,93 @@ pub fn fingerprint_text(
         text: Some(TextFingerprint {
             original_byte_len,
             nfc_char_count,
+        }),
+        image: None,
+        generated_at,
+    })
+}
+
+/// Fingerprint image content. Decodes the encoded image bytes (PNG /
+/// JPEG / WebP / BMP / GIF / TIFF supported via the `image` crate's
+/// feature set), computes two 64-bit perceptual hashes (pHash + blockhash
+/// — see [`ImageFingerprint`] for the algorithm choice rationale), and
+/// derives BLAKE3 + SHA-256 over the **raw input bytes** (the encoded
+/// file).
+///
+/// Returns a [`FingerprintBundle`] with `modality = Modality::Image`,
+/// `image = Some(ImageFingerprint { … })`, `text = None`, and
+/// `generated_at` derived from the caller's `source_date_epoch`.
+///
+/// # Exact-match semantics
+///
+/// `blake3` / `sha256` are over the **raw input bytes** (the encoded
+/// file's bytes), NOT the decoded pixel data. Inclusion-proof
+/// [`MatchEvidence::ExactBlake3`] / [`MatchEvidence::ExactSha256`] paths
+/// therefore mean "the corpus contains this same encoded file"; a
+/// re-encoded copy (lossy JPEG re-save, format conversion, etc.) will
+/// have a different exact-match digest but will likely retain matching
+/// perceptual hashes — that's the [`MatchEvidence::Perceptual`] path's
+/// job. This is a deliberate divergence from the text path, where
+/// exact-match means "same normalized content"; for images the canonical
+/// form is the encoded bytes because lossy re-encoding is the dominant
+/// variance source publishers actually encounter.
+///
+/// [`MatchEvidence::ExactBlake3`]: https://docs.rs/attestrum-attest/
+/// [`MatchEvidence::ExactSha256`]: https://docs.rs/attestrum-attest/
+/// [`MatchEvidence::Perceptual`]: https://docs.rs/attestrum-attest/
+pub fn fingerprint_image(
+    bytes: &[u8],
+    opts: &FingerprintOpts,
+) -> Result<FingerprintBundle, AttestrumFingerprintError> {
+    let img = image::load_from_memory(bytes)
+        .map_err(|e| AttestrumFingerprintError::ImageDecode(e.to_string()))?;
+    let width = img.width();
+    let height = img.height();
+
+    // DCT-based pHash: 8x8 = 64 bits, with preproc_dct to apply discrete
+    // cosine transform to a larger resize-target before downsampling to
+    // the 8x8 hash size (the "real" pHash recipe per Marr / pHash.org).
+    // image_hasher's default HashAlg::Gradient + preproc_dct() composes
+    // into a DCT-based perceptual hash; without preproc_dct it's dHash.
+    let phash_hasher = image_hasher::HasherConfig::new()
+        .hash_size(8, 8)
+        .preproc_dct()
+        .to_hasher();
+    let phash = phash_hasher.hash_image(&img);
+
+    // 64-bit blockhash.io spec hash via the separate `blockhash` crate.
+    // Distinct algorithm class from image_hasher's HashAlg::Blockhash
+    // variant (which is image_hasher's reimplementation); the dedicated
+    // crate is the canonical implementation of the blockhash.io spec.
+    let bh = blockhash::blockhash64(&img);
+
+    // BLAKE3 + SHA-256 over RAW input bytes (see docstring exact-match
+    // semantics note).
+    let blake3 = blake3::hash(bytes);
+    let sha256 = {
+        use sha2::Digest;
+        let mut h = sha2::Sha256::new();
+        h.update(bytes);
+        h.finalize()
+    };
+
+    let generated_at = jiff::Timestamp::from_second(opts.source_date_epoch)
+        .map_err(|_| AttestrumFingerprintError::InvalidTimestamp(opts.source_date_epoch))?
+        .to_string();
+
+    Ok(FingerprintBundle {
+        schema: FINGERPRINT_SCHEMA.to_string(),
+        modality: Modality::Image,
+        blake3: attestrum_core::hex::encode(blake3.as_bytes()),
+        sha256: attestrum_core::hex::encode(&sha256),
+        byte_len: bytes.len() as u64,
+        text: None,
+        image: Some(ImageFingerprint {
+            phash: attestrum_core::hex::encode(phash.as_bytes()),
+            // blockhash::Blockhash64's Display impl is lowercase hex.
+            blockhash: bh.to_string(),
+            width,
+            height,
         }),
         generated_at,
     })
@@ -430,8 +569,9 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_bundle_omits_text_field_when_none() {
-        // Hand-construct a bundle with text=None to exercise the skip-if-None.
+    fn fingerprint_bundle_omits_text_and_image_fields_when_none() {
+        // Hand-construct a bundle with text=None AND image=None to
+        // exercise both skip-if-None branches.
         let bundle = FingerprintBundle {
             schema: FINGERPRINT_SCHEMA.to_string(),
             modality: Modality::Other,
@@ -439,10 +579,12 @@ mod tests {
             sha256: "0".repeat(64),
             byte_len: 0,
             text: None,
+            image: None,
             generated_at: "2025-01-01T00:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&bundle).unwrap();
         assert!(!json.contains("\"text\""));
+        assert!(!json.contains("\"image\""));
     }
 
     // ----- Modality re-export sanity -----
@@ -453,5 +595,235 @@ mod tests {
         // system level — `Modality` in this crate IS `attestrum_core::Modality`.
         fn assert_same_type<T>(_a: T, _b: T) {}
         assert_same_type(Modality::Text, attestrum_core::Modality::Text);
+    }
+
+    // ========================================================================
+    // E2: image fingerprint tests
+    // ========================================================================
+    //
+    // Test images are generated programmatically via image::ImageBuffer +
+    // re-encoded to in-memory PNG bytes via image::DynamicImage::write_to.
+    // This keeps the test self-contained (no committed PNG fixtures) and
+    // produces deterministic input bytes for repeatable assertions. The
+    // committed-binary-fixture pattern lands at E5 alongside the cross-
+    // target byte-determinism gate where the encoded-bytes round-trip
+    // stability is the property under test.
+
+    use image::{DynamicImage, ImageBuffer, ImageFormat, Luma};
+    use std::io::Cursor;
+
+    /// Build a 32x32 grayscale checkerboard with the given tile size.
+    /// `tile_size = 4` yields a high-contrast 8x8-cell pattern; `tile_size = 8`
+    /// yields a 4x4-cell pattern. Different tile sizes produce visibly
+    /// different images with different perceptual hashes.
+    fn checkerboard_png_bytes(tile_size: u32) -> Vec<u8> {
+        let dim = 32u32;
+        let buf: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::from_fn(dim, dim, |x, y| {
+            let cell_x = x / tile_size;
+            let cell_y = y / tile_size;
+            if (cell_x + cell_y) % 2 == 0 {
+                Luma([255u8])
+            } else {
+                Luma([0u8])
+            }
+        });
+        let img = DynamicImage::ImageLuma8(buf);
+        let mut out = Vec::new();
+        img.write_to(&mut Cursor::new(&mut out), ImageFormat::Png)
+            .expect("PNG encode of checkerboard test fixture");
+        out
+    }
+
+    /// Build a 32x32 horizontal gradient (left=black, right=white). Used as
+    /// a visually-distinct comparison image.
+    fn gradient_png_bytes() -> Vec<u8> {
+        let dim = 32u32;
+        let buf: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::from_fn(dim, dim, |x, _y| {
+            // Map x in [0..32) to brightness [0..255].
+            let v = (x * 255 / (dim - 1)).min(255) as u8;
+            Luma([v])
+        });
+        let img = DynamicImage::ImageLuma8(buf);
+        let mut out = Vec::new();
+        img.write_to(&mut Cursor::new(&mut out), ImageFormat::Png)
+            .expect("PNG encode of gradient test fixture");
+        out
+    }
+
+    /// Decode a hex-encoded perceptual hash back to `[u8; 8]` for Hamming-
+    /// distance computation in tests. Both phash + blockhash are 64-bit
+    /// (8 bytes) hex strings.
+    fn decode_hex_8(hex: &str) -> [u8; 8] {
+        assert_eq!(hex.len(), 16, "expected 16-char hex (64-bit hash)");
+        let mut out = [0u8; 8];
+        for i in 0..8 {
+            let byte =
+                u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("hash hex must decode");
+            out[i] = byte;
+        }
+        out
+    }
+
+    /// Hamming distance between two 64-bit hashes (bit count of XOR).
+    fn hamming_distance_64(a: [u8; 8], b: [u8; 8]) -> u32 {
+        (0..8).map(|i| (a[i] ^ b[i]).count_ones()).sum()
+    }
+
+    #[test]
+    fn fingerprint_image_basic_shape() {
+        let png = checkerboard_png_bytes(4);
+        let bundle = fingerprint_image(&png, &opts()).unwrap();
+
+        assert_eq!(bundle.modality, Modality::Image);
+        assert_eq!(bundle.schema, FINGERPRINT_SCHEMA);
+        assert_eq!(bundle.byte_len, png.len() as u64);
+        assert!(
+            bundle.text.is_none(),
+            "image bundle must NOT carry text branch"
+        );
+        let img = bundle.image.as_ref().expect("image branch must populate");
+        // 64-bit hashes encode to 16 hex chars each.
+        assert_eq!(
+            img.phash.len(),
+            16,
+            "phash should be 16 hex chars (64 bits)"
+        );
+        assert_eq!(
+            img.blockhash.len(),
+            16,
+            "blockhash should be 16 hex chars (64 bits)"
+        );
+        assert!(img.phash.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(img.blockhash.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(img.width, 32);
+        assert_eq!(img.height, 32);
+        // Raw-bytes BLAKE3 + SHA-256 land as 64-char hex.
+        assert_eq!(bundle.blake3.len(), 64);
+        assert_eq!(bundle.sha256.len(), 64);
+    }
+
+    #[test]
+    fn fingerprint_image_deterministic_for_same_input_bytes() {
+        // The PROTECTED guarantee for the image path: same encoded bytes
+        // produce byte-identical FingerprintBundles. Mirrors the text
+        // path's same-input-same-output property.
+        let png = checkerboard_png_bytes(4);
+        let a = fingerprint_image(&png, &opts()).unwrap();
+        let b = fingerprint_image(&png, &opts()).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn fingerprint_image_distinct_images_distinct_exact_digests() {
+        // Visually-distinct images MUST have distinct BLAKE3 / SHA-256
+        // (because raw input bytes differ — the encoded PNGs are
+        // different). Perceptual hashes will ALSO differ for these
+        // sufficiently-distinct test images.
+        let checker = fingerprint_image(&checkerboard_png_bytes(4), &opts()).unwrap();
+        let gradient = fingerprint_image(&gradient_png_bytes(), &opts()).unwrap();
+        assert_ne!(checker.blake3, gradient.blake3);
+        assert_ne!(checker.sha256, gradient.sha256);
+        let checker_img = checker.image.as_ref().unwrap();
+        let gradient_img = gradient.image.as_ref().unwrap();
+        assert_ne!(checker_img.phash, gradient_img.phash);
+        assert_ne!(checker_img.blockhash, gradient_img.blockhash);
+    }
+
+    #[test]
+    fn fingerprint_image_perceptual_hashes_differ_meaningfully_between_distinct_images() {
+        // Robustness sanity: a checkerboard and a gradient should have
+        // perceptual-hash Hamming distance well above zero. Loose bound;
+        // tight thresholds are calibrated at E5 alongside the cross-
+        // target determinism gate. Any value > 8 (12.5% of bits) is a
+        // strong enough signal that the hashes ARE responding to
+        // perceptually-distinct inputs (not constant outputs).
+        let checker = fingerprint_image(&checkerboard_png_bytes(4), &opts()).unwrap();
+        let gradient = fingerprint_image(&gradient_png_bytes(), &opts()).unwrap();
+        let checker_img = checker.image.as_ref().unwrap();
+        let gradient_img = gradient.image.as_ref().unwrap();
+
+        let phash_dist = hamming_distance_64(
+            decode_hex_8(&checker_img.phash),
+            decode_hex_8(&gradient_img.phash),
+        );
+        let blockhash_dist = hamming_distance_64(
+            decode_hex_8(&checker_img.blockhash),
+            decode_hex_8(&gradient_img.blockhash),
+        );
+        assert!(
+            phash_dist >= 8,
+            "phash Hamming distance between checkerboard + gradient was {phash_dist}; expected >= 8 — perceptual hash may be returning constant output"
+        );
+        assert!(
+            blockhash_dist >= 8,
+            "blockhash Hamming distance between checkerboard + gradient was {blockhash_dist}; expected >= 8 — perceptual hash may be returning constant output"
+        );
+    }
+
+    #[test]
+    fn fingerprint_image_rejects_non_image_bytes() {
+        let opts = opts();
+        // Random bytes that are not a valid image header.
+        let bad = b"not an image, this is just plain text";
+        let err = fingerprint_image(bad, &opts).unwrap_err();
+        match err {
+            AttestrumFingerprintError::ImageDecode(msg) => {
+                assert!(
+                    !msg.is_empty(),
+                    "ImageDecode error should carry the underlying image-crate error message"
+                );
+            }
+            other => panic!("expected ImageDecode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fingerprint_image_rejects_unrepresentable_epoch() {
+        // Mirrors the text-path InvalidTimestamp test; image path goes
+        // through the same jiff::Timestamp::from_second call.
+        let png = checkerboard_png_bytes(4);
+        let bad_opts = FingerprintOpts {
+            source_date_epoch: i64::MAX,
+        };
+        let err = fingerprint_image(&png, &bad_opts).unwrap_err();
+        match err {
+            AttestrumFingerprintError::InvalidTimestamp(t) => assert_eq!(t, i64::MAX),
+            other => panic!("expected InvalidTimestamp, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fingerprint_image_bundle_round_trips_via_serde_json() {
+        let png = checkerboard_png_bytes(4);
+        let bundle = fingerprint_image(&png, &opts()).unwrap();
+        let json = serde_json::to_string(&bundle).unwrap();
+        let back: FingerprintBundle = serde_json::from_str(&json).unwrap();
+        assert_eq!(bundle, back);
+    }
+
+    #[test]
+    fn fingerprint_image_bundle_serializes_camel_case_keys() {
+        let png = checkerboard_png_bytes(4);
+        let bundle = fingerprint_image(&png, &opts()).unwrap();
+        let json = serde_json::to_string(&bundle).unwrap();
+        // ImageFingerprint nested fields under camelCase.
+        assert!(json.contains("\"phash\""));
+        assert!(json.contains("\"blockhash\""));
+        assert!(json.contains("\"width\""));
+        assert!(json.contains("\"height\""));
+        // Modality serialised as Image (PascalCase default).
+        assert!(json.contains("\"Image\""));
+        // text field MUST be omitted (None + skip-if-None).
+        assert!(!json.contains("\"text\""));
+    }
+
+    #[test]
+    fn text_bundle_continues_to_omit_image_field() {
+        // E2 added the image field; ensure E1's text-path bundles still
+        // serialize without an "image" key (backwards-compat for
+        // anyone who has serialized text bundles).
+        let bundle = fingerprint_text(b"hello", &opts()).unwrap();
+        let json = serde_json::to_string(&bundle).unwrap();
+        assert!(!json.contains("\"image\""));
     }
 }
