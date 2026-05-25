@@ -106,6 +106,19 @@ allow = [
     # profile as ISC + MIT-0 added at Sprint 4 E3. Direct deps remain
     # restricted to the CLAUDE.md §8 list; this is transitive-only.
     "NCSA",
+    # BSL-1.0 added at Sprint 5 S5-D1 E4 as transitive-only exception for
+    # `xxhash-rust` v0.8.15 (pulled in via `iscc-lib v0.4.0` for the CDC
+    # chunking algorithm underlying the ISCC Data-Code computation per
+    # ISO 24138:2024). Boost Software License 1.0: OSI-approved + FSF-free
+    # + permissive — strictly MORE permissive than MIT (no attribution
+    # required for binary redistribution, only for source distribution).
+    # Origin: the C++ Boost project; widely used in the Rust ecosystem
+    # (xxhash-rust itself is the pure-Rust port of Cyan4973/xxHash, the
+    # canonical fast non-cryptographic hash used by RocksDB, ZFS, etc.).
+    # Same transitive-only pattern as NCSA + ISC + MIT-0 + Zlib +
+    # CDLA-Permissive-2.0 — direct workspace deps remain restricted to
+    # CLAUDE.md §8's base list. Founder-approved 2026-05-25.
+    "BSL-1.0",
 ]
 confidence-threshold = 0.8
 

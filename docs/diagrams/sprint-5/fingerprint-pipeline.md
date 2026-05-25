@@ -1,8 +1,8 @@
 ---
 title: "Sprint 5 attestrum-fingerprint pipeline — text (E1) + image (E2) + bytes (E2) + MinHash/SimHash (E3) + ISCC composition (E4)"
-models: "crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-fingerprint/src/text/mod.rs, crates/attestrum-fingerprint/src/text/minhash.rs, crates/attestrum-fingerprint/src/text/simhash.rs, fingerprint_text, fingerprint_image, FingerprintBundle, TextFingerprint, ImageFingerprint, FingerprintOpts, AttestrumFingerprintError, FINGERPRINT_SCHEMA, Modality, attestrum_core::Modality, attestrum_core::hex::encode"
+models: "crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-fingerprint/src/text/mod.rs, crates/attestrum-fingerprint/src/text/minhash.rs, crates/attestrum-fingerprint/src/text/simhash.rs, fingerprint_text, fingerprint_image, FingerprintBundle, TextFingerprint, ImageFingerprint, IsccComposition, FingerprintOpts, AttestrumFingerprintError, FINGERPRINT_SCHEMA, Modality, attestrum_core::Modality, attestrum_core::hex::encode, iscc_image_pixels, compose_iscc, IsccContentInput"
 source_of_truth: diagram
-last_verified: 6c92754 2026-05-25
+last_verified: 737d890 2026-05-25
 diagram_type: flowchart
 ---
 
@@ -12,11 +12,17 @@ Source of truth: **`diagram`** through S5-D1 E4. The diagram is the contract thi
 
 **This is the ONLY diagram for S5-D1** per PATH-A-BRIEF Part 6 Sprint 5 line 1171. Per-E-commit diagram updates mean updating this file's `last_verified` SHA + flipping branch nodes from grey (deferred) to green (shipped) as each E-commit lands, NOT creating a new diagram per commit.
 
-**Branch state at E3** (this commit): **text branch + image branch + text MinHash/SimHash sub-branch** all ship. The bytes (raw) branch and ISCC composition branch remain grey until E4 / E8 area land them. `fingerprint_text` (E1) + `fingerprint_image` (E2) remain the public entry-points; E3 extends `fingerprint_text` to populate two new `TextFingerprint` fields (`minhash: Vec<u64>` length 128, `simhash: u64`) unconditionally via the new private `text::minhash` + `text::simhash` modules.
+**Branch state at E4** (this commit): **text branch + image branch + text MinHash/SimHash sub-branch + ISCC composition sub-branch** all ship. Only the bytes (raw) branch remains grey until E8 area lands `fingerprint_bytes`. `fingerprint_text` (E1) + `fingerprint_image` (E2) remain the public entry-points; E4 extends both to populate the new `FingerprintBundle.iscc: Option<IsccComposition>` field via `iscc-lib 0.4`'s `gen_text_code_v0` / `gen_image_code_v0` + `gen_data_code_v0` + `gen_instance_code_v0` composed by `gen_iscc_code_v0`.
 
 **Modality reuse**: `attestrum_core::Modality` is re-exported from this crate as `attestrum_fingerprint::Modality` — there is NO second Modality enum in the workspace. The 6-variant attestrum-core enum (Text, Image, Audio, Video, Pdf, Other) is reused verbatim per its docstring at `crates/attestrum-core/src/lib.rs:50-52` ("Mirrors PATH-A-BRIEF §2.1's `Fingerprinter::modality` return type so `attestrum-fingerprint` re-uses this enum verbatim in Sprint 5."). Sprint 5's narrower-than-the-enum implementation scope is expressed by which `fingerprint_*` functions exist, not by which variants the enum has. Audio/Video/Pdf inputs in Sprint 5 either route to `fingerprint_bytes` (Other-as-bytes treatment) or surface as `AttestrumFingerprintError::ModalityNotImplemented(Modality)` from the dispatch entry-point when that lands.
 
-**PROTECTED**: the text normalization pipeline (`NFC → str::to_lowercase → split_whitespace + " " join`) is locked per CLAUDE.md §4 as of E1. The MinHash 128 + SimHash 64 algorithm parameters (5-gram word shingles, 128 permutations, BLAKE3-keyed key derivation with the literal prefixes `"attestrum-minhash-v1-perm-"` + `"attestrum-simhash-v1"`, SimHash uniform weights) are locked as of E3 (this commit). Any subsequent change to either invalidates every inclusion proof emitted to that point and requires a `Protected-system-change:` commit-message footer + a schema URI bump from `https://attestrum.com/fingerprint/v0.1` → `…/v0.2` with a migration packet. The `FINGERPRINT_SCHEMA` const captures the URI; changing it without a version bump is the protocol violation.
+**PROTECTED**: three locking points per CLAUDE.md §4 are locked across E1 / E3 / E4:
+
+1. **E1** — the text normalization pipeline (`NFC → str::to_lowercase → split_whitespace + " " join`) consumed by BLAKE3 + SHA-256 + MinHash + SimHash.
+2. **E3** — the MinHash 128 + SimHash 64 algorithm parameters (5-gram word shingles, 128 permutations, BLAKE3-keyed key derivation with the literal prefixes `"attestrum-minhash-v1-perm-"` + `"attestrum-simhash-v1"`, SimHash uniform weights, `acc > 0` tie-break).
+3. **E4 (this commit)** — the ISCC composition recipe (`iscc-lib 0.4` version pin, RAW input text for `gen_text_code_v0`, 32×32 grayscale Lanczos3 resize for `gen_image_code_v0`, 64-bit per unit, `gen_iscc_code_v0(&[content, data, instance], wide=false)`, `IsccComposition` serde shape of 4 strings).
+
+Any subsequent change to any of the three invalidates every inclusion proof emitted to that point and requires a `Protected-system-change:` commit-message footer + a schema URI bump from `https://attestrum.com/fingerprint/v0.1` → `…/v0.2` with a migration packet. The `FINGERPRINT_SCHEMA` const captures the URI; changing it without a version bump is the protocol violation.
 
 **Determinism discipline**: `FingerprintOpts.source_date_epoch` is REQUIRED. The crate body never reads the system clock — `generated_at` is derived from the caller's epoch via `jiff::Timestamp::from_second`. Mirrors the `--source-date-epoch` discipline established in Sprint 3 E3 for the Parquet manifest writer (Reproducible Builds convention; see CLAUDE.md §7 determinism subsection).
 
@@ -24,7 +30,6 @@ Source of truth: **`diagram`** through S5-D1 E4. The diagram is the contract thi
 flowchart TB
   classDef shipped fill:#1f6f3f,stroke:#3ec072,color:#fff
   classDef deferred fill:#3a3a3a,stroke:#666,color:#aaa
-  classDef e4Deferred fill:#3a3a3a,stroke:#666,color:#aaa
   classDef protected fill:#7a1f1f,stroke:#c63737,color:#fff
   classDef output fill:#1a3a6f,stroke:#3a8ed7,color:#fff
 
@@ -52,34 +57,41 @@ flowchart TB
 
   rawHash --> bytesBuild["Build FingerprintBundle<br/>(modality=Other)"]
 
-  textBuild --> minHash["MinHash 128 + SimHash 64<br/>(E3, this commit)<br/>BLAKE3-keyed 5-gram word shingles<br/>PROTECTED"]
-  minHash --> isccCompose["ISCC meta/content/data/instance<br/>(E4: iscc-lib 0.4)"]
+  textBuild --> minHash["MinHash 128 + SimHash 64<br/>(E3)<br/>BLAKE3-keyed 5-gram word shingles<br/>PROTECTED"]
+  minHash --> isccCompose["ISCC content+data+instance unit codes<br/>(E4, this commit)<br/>iscc-lib 0.4 — PROTECTED<br/>text: gen_text_code_v0(raw, 64)<br/>image: gen_image_code_v0(32x32 Lanczos3 grayscale, 64)<br/>data: gen_data_code_v0(raw_bytes, 64)<br/>instance: gen_instance_code_v0(raw_bytes, 64)<br/>composite: gen_iscc_code_v0([...], wide=false)"]
   isccCompose --> output["FingerprintBundle<br/>schema = FINGERPRINT_SCHEMA<br/>= attestrum.com/fingerprint/v0.1"]
 
   imgBuild --> isccCompose
   bytesBuild --> output
+
+  %% E4: raw bytes feed the ISCC data-code + instance-code unit hashes
+  %% directly. Solid edges from minHash + imgBuild above represent the
+  %% temporal/sequence order in which the bundle gets populated; this
+  %% dotted edge represents the actual raw-bytes data dependency.
+  bytes -. "raw bytes for data + instance codes" .-> isccCompose
 
   opts --> ts["jiff::Timestamp::from_second<br/>= generated_at (RFC 3339)"]
   ts --> textBuild
   ts --> imgBuild
   ts --> bytesBuild
 
-  error["AttestrumFingerprintError<br/>(InvalidUtf8 / InvalidTimestamp / ModalityNotImplemented)"]
+  error["AttestrumFingerprintError<br/>(InvalidUtf8 / InvalidTimestamp / ModalityNotImplemented / ImageDecode / IsccBackend)"]
   utf8 -. "InvalidUtf8" .-> error
   ts -. "InvalidTimestamp" .-> error
   dispatch -. "audio/video/pdf in Sprint 5" .-> error
+  imgDecode -. "ImageDecode" .-> error
+  isccCompose -. "IsccBackend" .-> error
 
-  class utf8,nfc,lower,wsCollapse,textHash,textBuild,ts,imgDecode,imgHashRaw,imgPhash,imgBlockhash,imgBuild,minHash shipped
+  class utf8,nfc,lower,wsCollapse,textHash,textBuild,ts,imgDecode,imgHashRaw,imgPhash,imgBlockhash,imgBuild,minHash,isccCompose shipped
   class rawHash,bytesBuild deferred
-  class isccCompose e4Deferred
-  class wsCollapse,minHash protected
+  class wsCollapse,minHash,isccCompose protected
   class output output
 ```
 
 **Legend**:
 
 - **Green nodes** (`shipped`): land in or before this commit.
-- **Red nodes** (`protected`): PROTECTED locking points per CLAUDE.md §4. `wsCollapse` is red because the text-normalization step it represents is PROTECTED as of E1. `minHash` is red because the MinHash + SimHash algorithm parameters are PROTECTED as of this commit (E3).
+- **Red nodes** (`protected`): PROTECTED locking points per CLAUDE.md §4. Mermaid renders the last-applied class's style when a node is in multiple classes, so PROTECTED-and-shipped nodes display as red. `wsCollapse` is red because the text-normalization step it represents is PROTECTED as of E1. `minHash` is red because the MinHash + SimHash algorithm parameters are PROTECTED as of E3. `isccCompose` is red because the ISCC composition recipe is PROTECTED as of this commit (E4).
 - **Grey nodes** (`deferred`): subsequent commits in S5-D1. Each future commit fills in its branch + updates this diagram's `last_verified` SHA. No new diagram file per commit.
 
 ## What lands at Sprint 5 E1 (text fingerprint)
@@ -111,12 +123,32 @@ flowchart TB
 - This diagram file (`docs/diagrams/sprint-5/fingerprint-pipeline.md`) — `minHash` node flipped from `e3Deferred` (grey) to `shipped` + `protected` (red, indicating the PROTECTED algorithm-parameter lock); `last_verified` SHA bumped to `6c92754`; `models:` frontmatter extended to reference the new `src/text/` files; legend updated; this section added.
 - `CHANGELOG.md` + `SESSION-LOG.md` per-commit entries per CLAUDE.md §6.
 
+## What lands at Sprint 5 E4 (ISCC composition — this commit)
+
+- `Cargo.toml` (workspace) — adds `iscc-lib = "0.4"` to `[workspace.dependencies]`. Apache-2.0, pre-approved per `docs/license-inventory.md` PATH-A-BRIEF §2.1 row.
+- `crates/attestrum-fingerprint/Cargo.toml` — adds `iscc-lib = { workspace = true }`.
+- `deny.toml` — transitive-only allow-list expanded with `BSL-1.0` (Boost Software License 1.0) for `xxhash-rust v0.8.15` pulled in via `iscc-lib`'s CDC chunking. Same pattern as the existing `NCSA` (E2), `ISC` + `MIT-0` + `Zlib` + `CDLA-Permissive-2.0` (Sprint 4 E3) transitive entries — direct workspace deps remain restricted to CLAUDE.md §8's base list.
+- `crates/attestrum-fingerprint/src/lib.rs` —
+  - `pub struct IsccComposition { content_code, data_code, instance_code, composite }` (4 base32 ISCC strings, `#[serde(rename_all = "camelCase")]`).
+  - `pub iscc: Option<IsccComposition>` added to `FingerprintBundle` (`#[serde(skip_serializing_if = "Option::is_none")]`).
+  - `AttestrumFingerprintError::IsccBackend(String)` error variant + auto-`From<iscc_lib::IsccError>` impl.
+  - Private helpers: `iscc_image_pixels(&DynamicImage) -> [u8; 1024]` (32×32 Lanczos3 grayscale resize → fixed-size byte array) and `compose_iscc(IsccContentInput, raw_bytes) -> Result<IsccComposition, _>`.
+  - `fingerprint_text` populates `iscc: Some(compose_iscc(IsccContentInput::Text(raw_input), bytes)?)` — RAW text per ISCC spec, NOT the PROTECTED-normalized text.
+  - `fingerprint_image` populates `iscc: Some(compose_iscc(IsccContentInput::Image(&pixels), bytes)?)` — image-code over 32×32 grayscale Lanczos3 resize.
+  - Crate-level + `FingerprintBundle` doc-comments refreshed; PROTECTED block expanded to capture the third locking point.
+- Inline `#[cfg(test)]` tests added: 4 text-branch e2e tests (`populates_iscc_composition`, `iscc_is_deterministic`, `distinct_content_distinct_composite`, `iscc_bundle_round_trips_via_serde_json`) + 3 image-branch e2e tests (same shape) + 3 existing tests adjusted (`fingerprint_text_basic_ascii`, `fingerprint_image_basic_shape`, `fingerprint_bundle_omits_text_image_and_iscc_fields_when_none` renamed from `…_text_and_image_…`).
+- `docs/license-inventory.md` — new "Actually-used" row for `iscc-lib@0.4.0 | Apache-2.0 | 2026-05-25 | Sprint 5 S5-D1 E4 | attestrum-fingerprint`.
+- This diagram file — `isccCompose` node flipped from `e4Deferred` (grey) to `shipped, protected` (red); the now-unused `classDef e4Deferred` removed; `last_verified` SHA bumped to `737d890`; `models:` frontmatter extended with `IsccComposition` + helper names; new dotted `bytes -.-> isccCompose` edge clarifying the raw-bytes data dependency; legend updated; this section added; "Branch state at E3" → "Branch state at E4"; "What's NOT in scope yet" pruned to drop the ISCC line.
+- `CHANGELOG.md` + `SESSION-LOG.md` per-commit entries per CLAUDE.md §6.
+
 ## What's NOT in scope yet
 
 - `fingerprint_bytes` — deferred. Trivial when needed (BLAKE3 + SHA-256 over raw bytes, modality=Other); will land alongside `attestrum-prove`'s manifest-walk path (E8 area) when there's a concrete consumer.
-- ISCC composition — E4 (`iscc-lib` first-use commit).
 - `fingerprint_path(&Path, ...)` dispatch entry — lands when `attestrum-prove` integrates the crate (E8 area).
-- File-based golden fixtures under `tests/golden/fingerprint/image/` — for E2 the tests use programmatically-generated `image::ImageBuffer` patterns (4x checkerboard variants for Hamming-distance robustness assertions) rather than committed PNG fixtures. Committed binary fixtures land at E5 alongside the cross-target byte-determinism gate where the encoded-bytes round-trip stability matters.
+- ISCC composite-distance helper (for `MatchEvidence::Iscc.composite_distance`) — lives in `attestrum-prove` (E9), not this crate. We emit the codes; the prover computes the distance via `iscc_lib::iscc_decompose` + Hamming over the binary digest representation.
+- Audio / Video / Other-modality ISCC unit codes — out of Sprint 5 entirely (no `fingerprint_audio` / `fingerprint_video` entry-points; `iscc-lib` exposes `gen_audio_code_v0` / `gen_video_code_v0` for future use).
+- Meta-Code via `gen_meta_code_v0` — requires metadata input we don't carry.
+- File-based golden fixtures under `tests/golden/fingerprint/image/` — for E2/E4 the tests use programmatically-generated `image::ImageBuffer` patterns rather than committed PNG fixtures. Committed binary fixtures land at E5 alongside the cross-target byte-determinism gate.
 
 ## PROTECTED normalization detail
 

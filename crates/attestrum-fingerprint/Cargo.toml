@@ -19,6 +19,9 @@ jiff                  = { workspace = true }
 image        = { workspace = true }
 image_hasher = { workspace = true }
 blockhash    = { workspace = true }
+# Sprint 5 S5-D1 E4: ISCC composition (ISO 24138:2024) via iscc-lib 0.4.
+# PROTECTED — see crate-level docs.
+iscc-lib     = { workspace = true }
 # `schemars` deliberately omitted at E1 — Modality (re-exported from
 # attestrum_core) doesn't currently derive JsonSchema, and adding the derive
 # there would propagate schemars as a transitive dep through every workspace

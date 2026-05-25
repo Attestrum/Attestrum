@@ -130,6 +130,14 @@ image_hasher = "3.0"
 # to 0.5.0 so no code change beyond the version pin. Docs/license-inventory
 # updated alongside.
 blockhash    = "1"
+# Sprint 5 S5-D1 E4: ISCC composition via iscc-lib 0.4 — the official
+# Rust-core conformance-tested polyglot implementation of ISO 24138:2024
+# (BIO-CODES project; per PATH-A-BRIEF Part 2.1 line 532). Apache-2.0,
+# pre-approved per docs/license-inventory.md's Pre-approved table.
+# PROTECTED at first emission of MatchEvidence::Iscc (founder-approved
+# 2026-05-25): the version pin + pre-processing pipelines + bit width +
+# composition shape are all part of the locked spec.
+iscc-lib     = "0.4"
 
 # Pre-Sprint-5 (2026-05-25): sigstore-rs 0.14.0 hard-requires `Claims.email`
 # (src/oauth/token.rs:31), which breaks every workload-identity OIDC flow

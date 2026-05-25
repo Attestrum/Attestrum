@@ -22,31 +22,50 @@
 //! over-normalized-bytes semantics because image exact-match means "same
 //! encoded file" not "same decoded pixels".
 //!
-//! Sprint 5 E3 (this commit) adds two near-duplicate-detection hashes to
-//! the text branch: MinHash (128 BLAKE3-keyed permutations over 5-gram
-//! word shingles) and SimHash (64-bit, BLAKE3-keyed, uniform-weighted).
-//! Both run over the already-PROTECTED-normalized text produced by
+//! Sprint 5 E3 adds two near-duplicate-detection hashes to the text
+//! branch: MinHash (128 BLAKE3-keyed permutations over 5-gram word
+//! shingles) and SimHash (64-bit, BLAKE3-keyed, uniform-weighted). Both
+//! run over the already-PROTECTED-normalized text produced by
 //! [`normalize_text`] and are populated unconditionally by
 //! [`fingerprint_text`]; downstream `attestrum-prove` (Sprint 5 E9)
 //! consumes them via `MatchEvidence::MinHash`. Implementation lives under
 //! `src/text/{mod,minhash,simhash}.rs` (`pub(crate)`; no external dep —
-//! hand-rolled per PATH-A-BRIEF Part 2.1 line 522). Subsequent commits in
-//! S5-D1 add ISCC composition (E4); the API freeze + cross-target
-//! determinism gate lands at E5.
+//! hand-rolled per PATH-A-BRIEF Part 2.1 line 522).
+//!
+//! Sprint 5 E4 (this commit) adds ISO 24138:2024 ISCC composition via the
+//! official `iscc-lib 0.4` Rust-core crate (PATH-A-BRIEF Part 2.1 line
+//! 532): [`fingerprint_text`] + [`fingerprint_image`] populate the new
+//! [`FingerprintBundle::iscc`] field (an [`IsccComposition`] of four
+//! strings — content code, data code, instance code, and the composite).
+//! Text content-code uses the RAW input text (per the ISCC spec —
+//! iscc-lib applies its own normalization internally), DISTINCT from the
+//! PROTECTED-normalized text consumed by BLAKE3 + SHA-256 + MinHash +
+//! SimHash. Image content-code uses a 32×32 grayscale Lanczos3 resize of
+//! the decoded image (the canonical ISCC pre-processing). Downstream
+//! `attestrum-prove` (Sprint 5 E9) consumes the composite via
+//! `MatchEvidence::Iscc { composite_distance }`. The API freeze + cross-
+//! target determinism gate lands at E5.
 //!
 //! # PROTECTED
 //!
 //! Per CLAUDE.md §4: once any inclusion proof is emitted citing the
-//! `attestrum.com/fingerprint/v0.1` schema URI, the text-normalization
-//! pipeline AND the MinHash / SimHash algorithm parameters are immutable.
-//! Changing [`normalize_text`] in any future commit invalidates every
-//! previously-emitted inclusion proof; so does changing the MinHash
-//! shingle size, permutation count, or BLAKE3 key-derivation scheme, or
-//! the SimHash weighting / accumulator shape. Any such change requires
-//! both a `Protected-system-change:` commit-message footer AND a schema
-//! URI bump from `…/fingerprint/v0.1` → `…/fingerprint/v0.2` with a
-//! migration packet. The MinHash + SimHash parameter lock landed in the
-//! Sprint 5 E3 commit (founder-approved 2026-05-25).
+//! `attestrum.com/fingerprint/v0.1` schema URI, all of the following are
+//! immutable:
+//!
+//! - The text-normalization pipeline ([`normalize_text`]).
+//! - The MinHash / SimHash algorithm parameters (`src/text/`).
+//! - The ISCC composition recipe (this commit): `iscc-lib 0.4` version
+//!   pin, raw-text input for `gen_text_code_v0`, 32×32 grayscale
+//!   Lanczos3 resize for `gen_image_code_v0`, 64-bit per unit,
+//!   `gen_iscc_code_v0` over `[content_code, data_code, instance_code]`
+//!   with `wide = false`, [`IsccComposition`] serde shape.
+//!
+//! Any such change requires both a `Protected-system-change:` commit-
+//! message footer AND a schema URI bump from `…/fingerprint/v0.1` →
+//! `…/fingerprint/v0.2` with a migration packet. The MinHash + SimHash
+//! parameter lock landed in the Sprint 5 E3 commit; the ISCC composition
+//! parameter lock landed in this commit (both founder-approved
+//! 2026-05-25).
 //!
 //! # Modality reuse
 //!
@@ -117,6 +136,13 @@ pub struct FingerprintBundle {
     /// because `None` is omitted via `skip_serializing_if`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<ImageFingerprint>,
+    /// ISCC composition per ISO 24138:2024. Present for text and image
+    /// modalities (Sprint 5 E4); will be `None` for the future Other-as-
+    /// bytes path. Non-breaking serde addition (`skip_serializing_if`):
+    /// E1 / E2 / E3-emitted bundles remain byte-identical when the field
+    /// is `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iscc: Option<IsccComposition>,
     /// Deterministic timestamp (RFC 3339). Set from
     /// `FingerprintOpts.source_date_epoch` — never the system clock.
     pub generated_at: String,
@@ -190,6 +216,45 @@ pub struct ImageFingerprint {
     pub height: u32,
 }
 
+/// ISO 24138:2024 ISCC composition produced by `iscc-lib 0.4`.
+///
+/// Four base32-encoded ISCC unit code strings (each starting with the
+/// `"ISCC:"` prefix). Sprint 5 E4 ships content + data + instance unit
+/// codes and the composite `gen_iscc_code_v0` over them; meta-code is
+/// omitted because we have no metadata input.
+///
+/// Caller-side downstream code computes **composite distance** via
+/// `iscc_decompose` + Hamming over the binary digest representation of
+/// two composites — that lives in `attestrum-prove` (Sprint 5 E9), not
+/// here. The fingerprint crate's job is to emit the codes; the distance
+/// computation is the consumer's.
+///
+/// PROTECTED algorithm parameters (see crate-level docs):
+///
+/// - Text content-code: `gen_text_code_v0(raw_input_text, 64)` — RAW
+///   input text per ISCC spec, NOT the PROTECTED-normalized text.
+/// - Image content-code: `gen_image_code_v0(&pixels[..1024], 64)` over
+///   a 32×32 grayscale `image::imageops::FilterType::Lanczos3` resize
+///   of the decoded image.
+/// - Data code: `gen_data_code_v0(raw_bytes, 64)`.
+/// - Instance code: `gen_instance_code_v0(raw_bytes, 64)`.
+/// - Composite: `gen_iscc_code_v0(&[content, data, instance], false)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IsccComposition {
+    /// Content-code (Text-Code-v0 for text inputs, Image-Code-v0 for
+    /// image inputs). Base32-encoded; starts with `"ISCC:"` prefix.
+    pub content_code: String,
+    /// Data-Code-v0 (similarity hash over the raw input bytes).
+    pub data_code: String,
+    /// Instance-Code-v0 (cryptographic hash over the raw input bytes).
+    pub instance_code: String,
+    /// Composite ISCC-CODE from `gen_iscc_code_v0(&[content, data,
+    /// instance], wide=false)` — the canonical ISO 24138 ISCC string
+    /// downstream `MatchEvidence::Iscc` evidence is measured against.
+    pub composite: String,
+}
+
 // ============================================================================
 // FingerprintOpts
 // ============================================================================
@@ -239,6 +304,22 @@ pub enum AttestrumFingerprintError {
     /// into downstream callers' type surface.
     #[error("image decode failed: {0}")]
     ImageDecode(String),
+
+    /// `iscc-lib` returned an error during ISCC unit-code generation or
+    /// composition (Sprint 5 E4+). The wrapped string is iscc-lib's
+    /// `IsccError` Display output; we wrap rather than re-export the
+    /// typed error so this crate's public surface doesn't drag
+    /// `iscc_lib::IsccError` into downstream callers' type surface.
+    /// Variant name + message format pinned by PATH-A-BRIEF Part 2.1
+    /// line 496.
+    #[error("iscc backend failed: {0}")]
+    IsccBackend(String),
+}
+
+impl From<iscc_lib::IsccError> for AttestrumFingerprintError {
+    fn from(err: iscc_lib::IsccError) -> Self {
+        Self::IsccBackend(err.to_string())
+    }
 }
 
 // ============================================================================
@@ -297,6 +378,11 @@ pub fn fingerprint_text(
     let minhash = text::minhash::compute(&normalized);
     let simhash = text::simhash::compute(&normalized);
 
+    // Sprint 5 E4: PROTECTED ISCC composition over the RAW input text
+    // (per ISCC spec — iscc-lib applies its own normalization internally).
+    // See `compose_iscc` for the locked algorithm parameters.
+    let iscc = compose_iscc(IsccContentInput::Text(input), bytes)?;
+
     let generated_at = jiff::Timestamp::from_second(opts.source_date_epoch)
         .map_err(|_| AttestrumFingerprintError::InvalidTimestamp(opts.source_date_epoch))?
         .to_string();
@@ -314,6 +400,7 @@ pub fn fingerprint_text(
             simhash,
         }),
         image: None,
+        iscc: Some(iscc),
         generated_at,
     })
 }
@@ -382,6 +469,12 @@ pub fn fingerprint_image(
         h.finalize()
     };
 
+    // Sprint 5 E4: PROTECTED ISCC composition over the 32×32 grayscale
+    // Lanczos3 resize of the decoded image. See `compose_iscc` +
+    // `iscc_image_pixels` for the locked pipeline.
+    let iscc_pixels = iscc_image_pixels(&img);
+    let iscc = compose_iscc(IsccContentInput::Image(&iscc_pixels), bytes)?;
+
     let generated_at = jiff::Timestamp::from_second(opts.source_date_epoch)
         .map_err(|_| AttestrumFingerprintError::InvalidTimestamp(opts.source_date_epoch))?
         .to_string();
@@ -400,6 +493,7 @@ pub fn fingerprint_image(
             width,
             height,
         }),
+        iscc: Some(iscc),
         generated_at,
     })
 }
@@ -417,6 +511,65 @@ fn normalize_text(input: &str) -> String {
     let nfc: String = input.nfc().collect();
     let lower = nfc.to_lowercase();
     lower.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+/// PROTECTED ISCC image pre-processing pipeline (CLAUDE.md §4, Sprint 5
+/// E4 lock).
+///
+/// Decode → `to_luma8` → `resize_exact(32, 32, Lanczos3)` → `into_raw`.
+/// The fixed `[u8; 1024]` return type enforces the
+/// `iscc_lib::gen_image_code_v0` input contract (1024 = 32 × 32 grayscale
+/// pixels) at compile time. The filter choice (Lanczos3) matches the
+/// canonical ISCC spec; the `image` crate's Lanczos3 implementation is
+/// integer-only + deterministic across our 4 CI targets.
+fn iscc_image_pixels(img: &image::DynamicImage) -> [u8; 1024] {
+    let resized = img.resize_exact(32, 32, image::imageops::FilterType::Lanczos3);
+    let gray = resized.to_luma8();
+    let pixels: Vec<u8> = gray.into_raw();
+    pixels
+        .try_into()
+        .expect("32x32 Luma8 yields exactly 1024 pixels by construction")
+}
+
+/// Either-or dispatch input for the [`compose_iscc`] helper. Text path
+/// hands a `&str` (iscc-lib applies its own normalization internally);
+/// image path hands the pre-processed 1024-pixel grayscale slice from
+/// [`iscc_image_pixels`].
+enum IsccContentInput<'a> {
+    Text(&'a str),
+    Image(&'a [u8; 1024]),
+}
+
+/// PROTECTED ISCC composition pipeline (CLAUDE.md §4, Sprint 5 E4 lock).
+///
+/// Produces an [`IsccComposition`] by calling `iscc-lib 0.4`:
+///
+/// 1. Content code: `gen_text_code_v0(raw_text, 64)` OR
+///    `gen_image_code_v0(&pixels, 64)` depending on `content_input`.
+/// 2. Data code: `gen_data_code_v0(raw_bytes, 64)`.
+/// 3. Instance code: `gen_instance_code_v0(raw_bytes, 64)`.
+/// 4. Composite: `gen_iscc_code_v0(&[content, data, instance], false)`.
+///
+/// `iscc_lib::IsccError` is auto-converted to
+/// [`AttestrumFingerprintError::IsccBackend`] via the `From` impl above.
+fn compose_iscc(
+    content_input: IsccContentInput<'_>,
+    raw_bytes: &[u8],
+) -> Result<IsccComposition, AttestrumFingerprintError> {
+    let content_code = match content_input {
+        IsccContentInput::Text(text) => iscc_lib::gen_text_code_v0(text, 64)?.iscc,
+        IsccContentInput::Image(pixels) => iscc_lib::gen_image_code_v0(pixels, 64)?.iscc,
+    };
+    let data_code = iscc_lib::gen_data_code_v0(raw_bytes, 64)?.iscc;
+    let instance_code = iscc_lib::gen_instance_code_v0(raw_bytes, 64)?.iscc;
+    let composite =
+        iscc_lib::gen_iscc_code_v0(&[&content_code, &data_code, &instance_code], false)?.iscc;
+    Ok(IsccComposition {
+        content_code,
+        data_code,
+        instance_code,
+        composite,
+    })
 }
 
 // ============================================================================
@@ -492,6 +645,12 @@ mod tests {
             text.minhash.len(),
             128,
             "TextFingerprint.minhash must be exactly 128 entries"
+        );
+        // E4: ISCC composition populated.
+        let iscc = bundle.iscc.as_ref().expect("E4 iscc branch must populate");
+        assert!(
+            iscc.composite.starts_with("ISCC:"),
+            "iscc.composite must start with the ISCC: prefix"
         );
         // Both digests are hex-64 lowercase.
         assert_eq!(bundle.blake3.len(), 64);
@@ -625,9 +784,11 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_bundle_omits_text_and_image_fields_when_none() {
-        // Hand-construct a bundle with text=None AND image=None to
-        // exercise both skip-if-None branches.
+    fn fingerprint_bundle_omits_text_image_and_iscc_fields_when_none() {
+        // Hand-construct a bundle with text=None AND image=None AND
+        // iscc=None to exercise all three skip-if-None branches (the
+        // future Other-as-bytes path). E4 added the iscc field; this
+        // test now covers all three optional branches.
         let bundle = FingerprintBundle {
             schema: FINGERPRINT_SCHEMA.to_string(),
             modality: Modality::Other,
@@ -636,11 +797,13 @@ mod tests {
             byte_len: 0,
             text: None,
             image: None,
+            iscc: None,
             generated_at: "2025-01-01T00:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&bundle).unwrap();
         assert!(!json.contains("\"text\""));
         assert!(!json.contains("\"image\""));
+        assert!(!json.contains("\"iscc\""));
     }
 
     // ----- Modality re-export sanity -----
@@ -742,6 +905,82 @@ mod tests {
             back.text.as_ref().unwrap().simhash
         );
     }
+
+    // ========================================================================
+    // E4: ISCC composition (ISO 24138:2024 via iscc-lib 0.4) — end-to-end
+    // through fingerprint_text + fingerprint_image. Tests cover shape (all
+    // 4 ISCC strings present + prefixed "ISCC:"), determinism (same input
+    // → same composition), distinctness (different inputs → different
+    // composite), and the serde round-trip preserving every IsccComposition
+    // field. PROTECTED at this commit per CLAUDE.md §4.
+    // ========================================================================
+
+    #[test]
+    fn fingerprint_text_populates_iscc_composition() {
+        let bundle = fingerprint_text(
+            b"the quick brown fox jumps over the lazy dog in the meadow",
+            &opts(),
+        )
+        .unwrap();
+        let iscc = bundle.iscc.as_ref().expect("text path must populate iscc");
+        // All 4 unit codes must be ISCC-prefixed non-empty strings.
+        for (label, code) in [
+            ("content_code", &iscc.content_code),
+            ("data_code", &iscc.data_code),
+            ("instance_code", &iscc.instance_code),
+            ("composite", &iscc.composite),
+        ] {
+            assert!(
+                code.starts_with("ISCC:"),
+                "iscc.{label} = {code:?} must start with ISCC: prefix"
+            );
+            assert!(
+                code.len() > "ISCC:".len(),
+                "iscc.{label} must carry payload after the prefix"
+            );
+        }
+    }
+
+    #[test]
+    fn fingerprint_text_iscc_is_deterministic() {
+        let a = fingerprint_text(b"hello deterministic world", &opts()).unwrap();
+        let b = fingerprint_text(b"hello deterministic world", &opts()).unwrap();
+        assert_eq!(a.iscc, b.iscc, "same text input must yield identical iscc");
+    }
+
+    #[test]
+    fn fingerprint_text_distinct_content_distinct_composite() {
+        // Different inputs MUST produce different ISCC composite codes.
+        // Cryptographic-distinctness sanity check (catches "compose
+        // returns a constant" failure modes).
+        let a = fingerprint_text(b"the quick brown fox", &opts()).unwrap();
+        let b = fingerprint_text(b"a completely different document", &opts()).unwrap();
+        let a_iscc = a.iscc.as_ref().unwrap();
+        let b_iscc = b.iscc.as_ref().unwrap();
+        assert_ne!(a_iscc.composite, b_iscc.composite);
+        // Instance codes (cryptographic hash) MUST differ for different bytes.
+        assert_ne!(a_iscc.instance_code, b_iscc.instance_code);
+    }
+
+    #[test]
+    fn fingerprint_text_iscc_bundle_round_trips_via_serde_json() {
+        let bundle = fingerprint_text(b"round trip me through serde", &opts()).unwrap();
+        let json = serde_json::to_string(&bundle).unwrap();
+        let back: FingerprintBundle = serde_json::from_str(&json).unwrap();
+        assert_eq!(bundle.iscc, back.iscc);
+        // Confirm camelCase JSON keys for the new IsccComposition fields.
+        assert!(json.contains("\"iscc\""));
+        assert!(json.contains("\"contentCode\""));
+        assert!(json.contains("\"dataCode\""));
+        assert!(json.contains("\"instanceCode\""));
+        assert!(json.contains("\"composite\""));
+    }
+
+    // Image-branch ISCC tests live below (after the E2 fixture helpers
+    // are declared) because they consume `checkerboard_png_bytes` /
+    // `gradient_png_bytes`. The test module's item-order doesn't affect
+    // visibility (Rust scopes by module, not by source order), but
+    // keeping the test next to its fixtures aids navigation.
 
     // ========================================================================
     // E2: image fingerprint tests
@@ -846,6 +1085,12 @@ mod tests {
         // Raw-bytes BLAKE3 + SHA-256 land as 64-char hex.
         assert_eq!(bundle.blake3.len(), 64);
         assert_eq!(bundle.sha256.len(), 64);
+        // E4: ISCC composition populated for image branch.
+        let iscc = bundle.iscc.as_ref().expect("E4 iscc branch must populate");
+        assert!(
+            iscc.composite.starts_with("ISCC:"),
+            "iscc.composite must start with the ISCC: prefix"
+        );
     }
 
     #[test]
@@ -971,5 +1216,55 @@ mod tests {
         let bundle = fingerprint_text(b"hello", &opts()).unwrap();
         let json = serde_json::to_string(&bundle).unwrap();
         assert!(!json.contains("\"image\""));
+    }
+
+    // ========================================================================
+    // E4: image-branch ISCC tests (image fixtures defined above)
+    // ========================================================================
+
+    #[test]
+    fn fingerprint_image_populates_iscc_composition() {
+        let bundle = fingerprint_image(&checkerboard_png_bytes(4), &opts()).unwrap();
+        let iscc = bundle.iscc.as_ref().expect("image path must populate iscc");
+        for (label, code) in [
+            ("content_code", &iscc.content_code),
+            ("data_code", &iscc.data_code),
+            ("instance_code", &iscc.instance_code),
+            ("composite", &iscc.composite),
+        ] {
+            assert!(
+                code.starts_with("ISCC:"),
+                "image-branch iscc.{label} = {code:?} must start with ISCC: prefix"
+            );
+            assert!(
+                code.len() > "ISCC:".len(),
+                "image-branch iscc.{label} must carry payload after the prefix"
+            );
+        }
+    }
+
+    #[test]
+    fn fingerprint_image_iscc_is_deterministic() {
+        let png = checkerboard_png_bytes(4);
+        let a = fingerprint_image(&png, &opts()).unwrap();
+        let b = fingerprint_image(&png, &opts()).unwrap();
+        assert_eq!(
+            a.iscc, b.iscc,
+            "same encoded image bytes must yield identical iscc"
+        );
+    }
+
+    #[test]
+    fn fingerprint_image_distinct_content_distinct_composite() {
+        let checker = fingerprint_image(&checkerboard_png_bytes(4), &opts()).unwrap();
+        let gradient = fingerprint_image(&gradient_png_bytes(), &opts()).unwrap();
+        let c_iscc = checker.iscc.as_ref().unwrap();
+        let g_iscc = gradient.iscc.as_ref().unwrap();
+        assert_ne!(
+            c_iscc.composite, g_iscc.composite,
+            "visually distinct images must yield distinct ISCC composites"
+        );
+        // Instance code (cryptographic hash over raw bytes) MUST differ.
+        assert_ne!(c_iscc.instance_code, g_iscc.instance_code);
     }
 }
