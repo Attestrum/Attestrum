@@ -96,9 +96,12 @@ pub fn sign(req: SignRequest<'_>) -> Result<SignedAttestation, AttestrumAttestEr
         .blocking_signer(id_token)
         .map_err(|e| AttestrumAttestError::SigstoreSession(e.to_string()))?;
 
-    // 4. Sign the payload bytes. Builds the DSSE envelope, signs with the
-    //    ephemeral private key, submits the envelope + cert chain to Rekor
-    //    v2, embeds the tlog entry + timestamps into the SigningArtifact.
+    // 4. Sign the canonical Statement JSON bytes. sigstore-rs 0.14.0's
+    //    SigningSession::sign produces Bundle v0.2 + MessageSignature
+    //    over SHA-256(input) — wrong primitive for in-toto attestations.
+    //    See docs/diagrams/sprint-4/sign-flow.md (source_of_truth:
+    //    diagram) for the DSSE-aware replacement Session 2 builds at
+    //    crates/attestrum-attest/src/dsse_sign.rs.
     let artifact = session
         .sign(req.statement_payload)
         .map_err(|e| AttestrumAttestError::SigstoreSign(e.to_string()))?;
