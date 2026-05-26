@@ -16,6 +16,7 @@ members = [
     "crates/attestrum-fingerprint-registry",
     "crates/attestrum-cli",
     "tools/diagram-linter",
+    "tools/secret-scanner",
 ]
 
 [workspace.package]

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Attestrum pre-commit hook — runs all six gates per CLAUDE.md §7.
+#
+# Strict-block: any gate failure rejects the commit. There is no env-var
+# bypass. To skip this hook requires editing this file or invoking
+# `git commit --no-verify`, which is itself flagged by CLAUDE.md anti-patterns.
+#
+# Activation: `git config core.hooksPath .githooks` (one-time per clone).
+# CLAUDE.md §7 documents this setup step.
+
+set -uo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+green() { printf '\033[32m%s\033[0m\n' "$*"; }
+bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
+
+bold "[pre-commit] Attestrum six-gate ritual (CLAUDE.md §7)"
+
+run_gate() {
+    local name=$1
+    shift
+    printf '  · %-40s ' "$name"
+    if output=$("$@" 2>&1); then
+        green "ok"
+        return 0
+    else
+        red "FAIL"
+        echo "$output" | sed 's/^/    /'
+        return 1
+    fi
+}
+
+failed=0
+
+# Gate 1 — cargo fmt
+run_gate "cargo fmt --check" cargo fmt --check || failed=1
+
+# Gate 2 — cargo clippy (workspace + all targets, deny warnings)
+run_gate "cargo clippy --workspace --all-targets" \
+    cargo clippy --workspace --all-targets --quiet -- -D warnings || failed=1
+
+# Gate 3 — cargo test (workspace)
+run_gate "cargo test --workspace" cargo test --workspace --quiet || failed=1
+
+# Gate 4 — diagram-linter (strict, matching CI's --root flag)
+run_gate "diagram-linter --strict" \
+    cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams || failed=1
+
+# Gate 5 — cargo-deny (sources + licenses; advisories is CI-only)
+run_gate "cargo-deny sources + licenses" cargo deny check sources licenses || failed=1
+
+# Gate 6 — secret-scanner (staged content)
+run_gate "secret-scanner --staged" \
+    cargo run -p secret-scanner --release --quiet -- check || failed=1
+
+echo
+if [ $failed -ne 0 ]; then
+    red "[pre-commit] BLOCKED — one or more gates failed."
+    echo "Fix the issue and re-run the commit. See CLAUDE.md §0.5 + §7."
+    exit 1
+fi
+
+green "[pre-commit] all six gates pass — commit proceeding."
+exit 0

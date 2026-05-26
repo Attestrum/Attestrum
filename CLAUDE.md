@@ -259,17 +259,18 @@ The push is part of the commit ritual, not a separate ceremony. After the local 
 
 ## 7. Build And Test Discipline
 
-Before EVERY commit, all of the following must pass. No exceptions, no "I'll fix it in the next commit," no "the CI will catch it."
+Before EVERY commit, all of the following must pass. No exceptions, no "I'll fix it in the next commit," no "the CI will catch it." These six gates are also wrapped by the git pre-commit hook at `.githooks/pre-commit`; activation is `git config core.hooksPath .githooks` (one-time per clone). The hook strict-blocks with no env-var bypass per CLAUDE.md §0.5.4.
 
 ```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run -p diagram-linter -- check --strict
+cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams
 cargo deny check sources licenses
+cargo run -p secret-scanner --release --quiet -- check
 ```
 
-If any of those fail, fix it before committing. Never disable a failing test to get a green light. Never `#[allow(...)]` a clippy lint without a comment explaining the specific case. Never skip the linter "just this once."
+If any of those fail, fix it before committing. Never disable a failing test to get a green light. Never `#[allow(...)]` a clippy lint without a comment explaining the specific case. Never skip the linter "just this once." Never `git commit --no-verify` to bypass the hook — that's an explicit CLAUDE.md §0.5.4 anti-pattern.
 
 **Why `cargo deny check sources licenses` is in the local pre-commit set (added 2026-05-25 after Sprint 5 S5-D1 E1 through E4 + the deny.toml fix-forward + the parallel `difficulty.md` self-audit's §4.2.7 finding all surfaced the same gap):** the `sources` check catches `[patch.crates-io]` / git-pin additions whose URL isn't in `deny.toml`'s `allow-git` list (regression seen at `60a78559` → `25e9d7e` fix-forward), and the `licenses` check catches transitive deps whose SPDX license isn't in `deny.toml`'s `allow` list (regressions seen when first-using `image` → `ravif` → `rav1e` → `libfuzzer-sys` (NCSA, E2) and `iscc-lib` → `xxhash-rust` (BSL-1.0, E4)). Both checks run sub-second locally; both are policed by CI's `audit` job. Local pre-check stops the regression at commit time rather than after a wasted push. `cargo deny check bans` is omitted from the pre-commit set because it's a "ban-list" gate that the workspace doesn't currently populate — re-add here once any `[bans].deny` entries land. `cargo deny check advisories` is deliberately CI-only — it's slow (queries the RUSTSEC index) and currently red on two carry-forward transitive advisories (RUSTSEC-2024-0436 paste-unmaintained + RUSTSEC-2023-0071 Marvin Attack); see the TODO box below for the carry-forward triage state.
 
