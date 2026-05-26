@@ -68,9 +68,10 @@ This section is the canonical policy. The protocol layers below (`.gitignore`, t
 | `~/.claude/plans/` | Claude Code session plan files |
 | `~/.claude/projects/-Users-austinmunday-Documents-Claude-Attestrum/memory/` | Claude Code per-project memory |
 | `~/Documents/Claude/Annex/` | Annex-era historical repo (pre-rebrand) |
-| `Branding Material/` (in-repo, untracked + gitignored) | Brand asset source files (video / audio / logo) |
-| `.playwright-mcp/` (in-repo, untracked + gitignored) | Browser MCP session cache |
-| `.attestrum/`, `.claude/`, `/diagrams-png/` (gitignored) | Local working dirs / generated artifacts |
+| `~/Documents/Claude/Attestrum-brand-assets/` | Brand asset source files (video / audio / logo) — sibling, outside repo |
+| `.playwright-mcp/` (in-repo, gitignored) | Browser MCP session cache |
+| `.attestrum/`, `.claude/`, `/diagrams-png/`, `target/` (gitignored) | Local working dirs / build artifacts |
+| `/_*` (defensive glob; currently no occupants) | Reserved namespace for future underscore-prefixed local dirs at the repo root |
 
 ### 0.5.3 Categorically forbidden in any tracked file
 
@@ -91,9 +92,25 @@ Even if a file is otherwise public-surface, these patterns must never appear in 
 - **Never bypass the pre-commit hook.** The `.githooks/pre-commit` hook intentionally has no env-var override. To skip it requires editing the hook file, which is a deliberate act subject to founder review.
 - **Never reference `~/.claude/plans/<file>.md` paths in tracked files.** Plan files live outside the repo; they are session-internal context, not project documentation.
 
-### 0.5.5 If you find a leak
+### 0.5.5 Naming cadence — three tiers signal "off-limits-to-push" at a glance
 
-If you discover a file or piece of content that violates §0.5.1-§0.5.4 already in the public tree:
+The publication boundary uses a three-tier naming convention so the filesystem layout itself signals public-vs-private without anyone having to consult `.gitignore` or this file. When you create a new persistent location, place it in the tier that matches its purpose:
+
+| Tier | Convention | When to use | Examples |
+|---|---|---|---|
+| **1. External sibling** (strongest) | `~/Documents/Claude/Attestrum-<purpose>/` — outside the repo, alongside it | Internal notes, brand assets, anything too persistent or large to recreate; content the founder needs to keep but never publish | `Attestrum-internal-notes/`, `Attestrum-brand-assets/` |
+| **2. In-repo dotfile prefix** | `.<name>/` — inside the repo, gitignored | Tool caches and CLI working dirs that MUST live in-repo for the tool to function | `.attestrum/` (CLI working dir), `.claude/`, `.playwright-mcp/`, `target/` (Rust build) |
+| **3. In-repo underscore prefix** | `_<name>/` — inside the repo, caught by `/_*` defensive glob in `.gitignore` | Project-local working dirs that don't fit the dotfile convention. Currently empty — reserved namespace | (no current occupants) |
+
+**Tracked exceptions to the dotfile convention**: `.github/` (CI workflows) and `.githooks/` (pre-commit hook) are dotfile-named but are TRACKED and public. Don't `git rm` these by pattern.
+
+**`~/.claude/plans/` is a fourth implicit tier** — session plan files live in the founder's home directory under Claude Code's per-user plans store. Not project-specific; never moved into the repo regardless of how mature the plan becomes.
+
+When in doubt: default to tier 1 (external sibling). The physical separation is uncatchable by any `git add` mistake.
+
+### 0.5.6 If you find a leak
+
+If you discover a file or piece of content that violates §0.5.1-§0.5.5 already in the public tree:
 
 1. **Stop other work.** Surface to the founder before doing anything destructive.
 2. **For new leaks** (would land in your current commit): edit the file before committing.

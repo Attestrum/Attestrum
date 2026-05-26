@@ -84,7 +84,7 @@ secrets.*
 /BUILD-PLAN.md
 /PATH-A-BRIEF.md
 
-# Underscore-prefix defensive glob — tier 3 of the CLAUDE.md §0.5.6
+# Underscore-prefix defensive glob — tier 3 of the CLAUDE.md §0.5.5
 # naming cadence. Any future `_<name>/` working dir created at the repo
 # root is gitignored without manual maintenance. The leading `/` anchors
 # to root only, so legitimate `_test_helper.rs` files or similar inside

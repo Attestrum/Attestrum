@@ -12,6 +12,30 @@ Pre-MVP. Sprint 4 of 6 just landed (DSSE-wrapped Sigstore Bundle v0.3 + Rekor v1
 
 No external API or storage stability promises until `v0.1.0`. The PROTECTED subsystems listed in `CHANGELOG.md` are corpus-incompatible if changed and will follow major-version migration discipline once shipped.
 
+## Repository layout
+
+```
+crates/                 Rust workspace — 14 crates implementing the build pipeline,
+                        Merkle tree, manifest writer, signing/verify, and the CLI.
+tools/                  Workspace-internal tooling:
+                          diagram-linter/   enforces docs/diagrams/ frontmatter + freshness
+                          secret-scanner/   pre-commit credential pattern gate
+tests/                  Cross-crate integration tests + golden fixtures.
+docs/                   Public-facing docs:
+                          diagrams/         28 Mermaid architecture diagrams
+                          migration/        version migration notes
+                          schemas/          JSON Schema files for predicate types
+                          license-inventory.md
+.github/workflows/      CI definitions (ci, cosign-interop, determinism).
+.githooks/              Pre-commit hook wrapping the six-gate ritual (CLAUDE.md §7).
+                        Activate per clone with `git config core.hooksPath .githooks`.
+LICENSE-APACHE          Dual license — Apache-2.0 OR MIT
+LICENSE-MIT             at your option. Copyright © Hyper Beam Media LLC.
+README.md, CHANGELOG.md, SECURITY.md, CLAUDE.md, DIAGRAMS-OVERVIEW.md
+```
+
+Everything else in the working tree is local-only and gitignored — see [CLAUDE.md §0.5](./CLAUDE.md) for the three-tier publication-boundary cadence (external sibling `~/Documents/Claude/Attestrum-<purpose>/` for persistent local content; in-repo dotfile prefix `.<name>/` for tool caches; in-repo underscore prefix `_<name>/` reserved for future project-local working dirs).
+
 ## Build
 
 ```bash
