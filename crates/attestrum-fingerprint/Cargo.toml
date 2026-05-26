@@ -22,10 +22,9 @@ blockhash    = { workspace = true }
 # Sprint 5 S5-D1 E4: ISCC composition (ISO 24138:2024) via iscc-lib 0.4.
 # PROTECTED — see crate-level docs.
 iscc-lib     = { workspace = true }
-# `schemars` deliberately omitted at E1 — Modality (re-exported from
-# attestrum_core) doesn't currently derive JsonSchema, and adding the derive
-# there would propagate schemars as a transitive dep through every workspace
-# crate that pulls in attestrum-core. JSON-Schema emission for
-# FingerprintBundle lands at E5 (API freeze + cross-target determinism gate)
-# alongside whichever shim makes Modality satisfy JsonSchema (either a derive
-# on attestrum_core::Modality, or a remote-derive shim local to this crate).
+# Sprint 5 S5-D1 E5: JsonSchema derives on FingerprintBundle + nested types
+# so the canonical schema published at attestrum.com/fingerprint/v0.1.schema.json
+# is generated directly from the Rust types via the schemars derive macro.
+# Paired with the attestrum_core::Modality JsonSchema derive that lands in
+# the same commit (resolves the Modality field's enum shape transitively).
+schemars     = { workspace = true }

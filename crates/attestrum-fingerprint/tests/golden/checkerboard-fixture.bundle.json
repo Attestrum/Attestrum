@@ -1,0 +1,20 @@
+{
+  "blake3": "5727a06d2eca10167df2392dd4a7740510ff9025071e1f08b76e1d63c374ee88",
+  "byteLen": 258,
+  "generatedAt": "2025-05-24T18:00:00Z",
+  "image": {
+    "blockhash": "aa55aa55aa55aa55",
+    "height": 32,
+    "phash": "004915b52a6aa202",
+    "width": 32
+  },
+  "iscc": {
+    "composite": "ISCC:KEAYAVIAKUAFKACVRTTQ7AWXV3RQEVZHUBWS5SQQCY",
+    "contentCode": "ISCC:EEAYAVIAKUAFKACV",
+    "dataCode": "ISCC:GAAYZZYPQLL25YYC",
+    "instanceCode": "ISCC:IAAVOJ5ANUXMUEAW"
+  },
+  "modality": "Image",
+  "schema": "https://attestrum.com/fingerprint/v0.1",
+  "sha256": "0196c0dda8ece67ddf99f2466ab843ffdb1f64d452528553f3abd1afa8b73142"
+}

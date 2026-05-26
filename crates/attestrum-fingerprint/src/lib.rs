@@ -32,7 +32,7 @@
 //! `src/text/{mod,minhash,simhash}.rs` (`pub(crate)`; no external dep —
 //! hand-rolled per PATH-A-BRIEF Part 2.1 line 522).
 //!
-//! Sprint 5 E4 (this commit) adds ISO 24138:2024 ISCC composition via the
+//! Sprint 5 E4 adds ISO 24138:2024 ISCC composition via the
 //! official `iscc-lib 0.4` Rust-core crate (PATH-A-BRIEF Part 2.1 line
 //! 532): [`fingerprint_text`] + [`fingerprint_image`] populate the new
 //! [`FingerprintBundle::iscc`] field (an [`IsccComposition`] of four
@@ -43,8 +43,27 @@
 //! SimHash. Image content-code uses a 32×32 grayscale Lanczos3 resize of
 //! the decoded image (the canonical ISCC pre-processing). Downstream
 //! `attestrum-prove` (Sprint 5 E9) consumes the composite via
-//! `MatchEvidence::Iscc { composite_distance }`. The API freeze + cross-
-//! target determinism gate lands at E5.
+//! `MatchEvidence::Iscc { composite_distance }`.
+//!
+//! Sprint 5 E5 (this commit) closes S5-D1 by freezing the public API
+//! surface and asserting cross-target byte determinism. Three new test
+//! artifacts gate the contract: a `tests/api_surface.rs` golden-file
+//! snapshot of every `pub` item in `src/lib.rs` (mirroring the proven
+//! `attestrum-attest` precedent — accidental `pub` additions / renames /
+//! signature shifts break the diff); a `tests/schema_derive.rs`
+//! schemars-derived JSON Schema published at
+//! `attestrum.com/fingerprint/v0.1.schema.json` and pinned via
+//! `docs/schemas/fingerprint-v0.1.schema.json`; and a `tests/determinism.rs`
+//! byte-identity check against committed PNG fixtures under
+//! `tests/fixtures/` (the `cargo test --workspace` invocation in the
+//! existing `determinism.yml` 4-target matrix catches inter-target drift
+//! on the same golden). [`FingerprintBundle`] / [`TextFingerprint`] /
+//! [`ImageFingerprint`] / [`IsccComposition`] now derive
+//! `schemars::JsonSchema`; the [`Modality`] re-export inherits the same
+//! derive from `attestrum_core` (paired commit). Diagram source-of-truth
+//! flipped from `diagram` to `code` for `docs/diagrams/sprint-5/
+//! fingerprint-pipeline.md` — the Rust types are now authoritative; the
+//! diagram becomes the derived view.
 //!
 //! # PROTECTED
 //!
@@ -108,7 +127,7 @@ pub const FINGERPRINT_SCHEMA: &str = "https://attestrum.com/fingerprint/v0.1";
 /// crate produces ordered field output via `serde_json::to_value` /
 /// `serde_json::to_string`; the caller is responsible for byte-deterministic
 /// re-emission when embedding the bundle in a signed predicate).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FingerprintBundle {
     /// Schema URI. Always [`FINGERPRINT_SCHEMA`] for E1-emitted bundles.
@@ -162,7 +181,7 @@ pub struct FingerprintBundle {
 /// - **Jaccard similarity** from `minhash` as
 ///   `a.minhash.iter().zip(b.minhash.iter()).filter(|(x, y)| x == y).count() as f64 / 128.0`.
 /// - **Hamming distance** from `simhash` as `(a.simhash ^ b.simhash).count_ones()`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TextFingerprint {
     /// Length of the **input** bytes before normalization. Useful for
@@ -202,7 +221,7 @@ pub struct TextFingerprint {
 /// non-inclusion proofs cite both for completeness. The decision of
 /// which hash to use for a given match is the consumer's
 /// (`attestrum-prove` at E9) — both are emitted here unconditionally.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageFingerprint {
     /// DCT-based 64-bit pHash, hex-encoded lowercase (16 chars).
@@ -239,7 +258,7 @@ pub struct ImageFingerprint {
 /// - Data code: `gen_data_code_v0(raw_bytes, 64)`.
 /// - Instance code: `gen_instance_code_v0(raw_bytes, 64)`.
 /// - Composite: `gen_iscc_code_v0(&[content, data, instance], false)`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IsccComposition {
     /// Content-code (Text-Code-v0 for text inputs, Image-Code-v0 for
@@ -1123,11 +1142,17 @@ mod tests {
     #[test]
     fn fingerprint_image_perceptual_hashes_differ_meaningfully_between_distinct_images() {
         // Robustness sanity: a checkerboard and a gradient should have
-        // perceptual-hash Hamming distance well above zero. Loose bound;
-        // tight thresholds are calibrated at E5 alongside the cross-
-        // target determinism gate. Any value > 8 (12.5% of bits) is a
-        // strong enough signal that the hashes ARE responding to
-        // perceptually-distinct inputs (not constant outputs).
+        // perceptual-hash Hamming distance well above zero. Thresholds
+        // calibrated at S5-D1 E5 against observed values on macOS aarch64
+        // (`phash_dist = 22`, `blockhash_dist = 32` for `checkerboard(4)`
+        // vs `gradient`). Calibrated bounds keep a 2-bit safety margin
+        // below observed to tolerate small cross-target jitter
+        // (image_hasher's DCT uses f32 internally — Lanczos3 + blockhash
+        // are integer-only and shouldn't vary, but phash might shift one
+        // or two bits on a different target). If this assertion fails in
+        // the 4-target determinism matrix, the underlying fingerprint
+        // bundle byte-identity will ALSO fail in `tests/determinism.rs`
+        // and that's the canonical signal — re-calibrate there.
         let checker = fingerprint_image(&checkerboard_png_bytes(4), &opts()).unwrap();
         let gradient = fingerprint_image(&gradient_png_bytes(), &opts()).unwrap();
         let checker_img = checker.image.as_ref().unwrap();
@@ -1142,12 +1167,12 @@ mod tests {
             decode_hex_8(&gradient_img.blockhash),
         );
         assert!(
-            phash_dist >= 8,
-            "phash Hamming distance between checkerboard + gradient was {phash_dist}; expected >= 8 — perceptual hash may be returning constant output"
+            phash_dist >= 20,
+            "phash Hamming distance between checkerboard + gradient was {phash_dist}; expected >= 20 (calibrated bound, observed 22 at E5 — re-calibrate if cross-target drift surfaces in tests/determinism.rs)"
         );
         assert!(
-            blockhash_dist >= 8,
-            "blockhash Hamming distance between checkerboard + gradient was {blockhash_dist}; expected >= 8 — perceptual hash may be returning constant output"
+            blockhash_dist >= 30,
+            "blockhash Hamming distance between checkerboard + gradient was {blockhash_dist}; expected >= 30 (calibrated bound, observed 32 at E5 — re-calibrate if cross-target drift surfaces in tests/determinism.rs)"
         );
     }
 

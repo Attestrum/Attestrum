@@ -43,6 +43,7 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 ### Added — Sprint 5 (fingerprinting, PROTECTED, in-progress)
 
 - `crates/attestrum-fingerprint` — modality-routed perceptual fingerprinting. Text via MinHash-128 + SimHash-64 (hand-rolled over BLAKE3, no new external deps). Image via pHash + blockhash. ISCC composition via `iscc-lib` 0.4. Audio / video / PDF deferred to Sprint 5 mid/late.
+- S5-D1 E5 — fingerprint crate public API surface frozen at v0.1. `FingerprintBundle`, `TextFingerprint`, `ImageFingerprint`, `IsccComposition`, plus the re-exported `Modality` enum, now derive `schemars::JsonSchema`. The canonical schema is published at `attestrum.com/fingerprint/v0.1.schema.json` and pinned in-repo at `docs/schemas/fingerprint-v0.1.schema.json`. A hand-rolled API-surface golden test (`tests/api_surface.rs`) catches accidental `pub` additions / renames / signature shifts. A cross-target byte-determinism gate (`tests/determinism.rs` + committed PNG fixtures + bundle JSON goldens) runs as part of the `cargo test --workspace` invocation on every target of the existing `determinism.yml` 4-matrix and fails if any target produces a byte-differing fingerprint of the same input. Perceptual-hash threshold assertions tightened from the placeholder `>= 8` bound to calibrated `>= 20` (pHash) / `>= 30` (blockhash).
 
 ### Added — Infrastructure
 

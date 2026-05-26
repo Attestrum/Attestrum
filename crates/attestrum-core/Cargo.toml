@@ -9,6 +9,10 @@ repository.workspace = true
 [dependencies]
 serde     = { workspace = true }
 thiserror = { workspace = true }
+# Sprint 5 S5-D1 E5: JsonSchema derive on Modality so attestrum-fingerprint
+# (and any downstream crate emitting JSON Schemas referencing the workspace's
+# canonical Modality enum) can derive schemas without a remote-derive shim.
+schemars  = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

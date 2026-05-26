@@ -432,6 +432,7 @@ dependencies = [
 name = "attestrum-core"
 version = "0.0.1"
 dependencies = [
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -452,6 +453,7 @@ dependencies = [
  "image_hasher",
  "iscc-lib",
  "jiff",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "sha2 0.10.9",

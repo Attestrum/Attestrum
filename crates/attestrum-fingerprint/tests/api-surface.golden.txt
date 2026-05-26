@@ -1,0 +1,10 @@
+src/lib.rs: const FINGERPRINT_SCHEMA
+src/lib.rs: enum AttestrumFingerprintError
+src/lib.rs: fn fingerprint_image
+src/lib.rs: fn fingerprint_text
+src/lib.rs: struct FingerprintBundle
+src/lib.rs: struct FingerprintOpts
+src/lib.rs: struct ImageFingerprint
+src/lib.rs: struct IsccComposition
+src/lib.rs: struct TextFingerprint
+src/lib.rs: use attestrum_core::Modality

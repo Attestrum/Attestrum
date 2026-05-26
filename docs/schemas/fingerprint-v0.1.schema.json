@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "ImageFingerprint": {
+      "description": "Image-specific fingerprint details. Sprint 5 E2 ships two 64-bit\nperceptual hashes (different attack-surface profiles):\n\n- [`Self::phash`] — DCT-based 64-bit perceptual hash via\n  `image_hasher::HasherConfig::new().hash_size(8, 8).preproc_dct()`.\n  Sensitive to subtle tonal changes; robust to small geometric\n  distortions and re-encoding.\n- [`Self::blockhash`] — 64-bit blockhash.io spec hash via\n  `blockhash::blockhash64`. Block-mean approach; robust to colour /\n  tonal manipulation; more sensitive to geometric distortions than\n  pHash.\n\nInclusion-proof [`MatchEvidence::Perceptual`] in `attestrum-attest`\ncarries `hamming_distance` + `threshold` over one of these hashes;\nnon-inclusion proofs cite both for completeness. The decision of\nwhich hash to use for a given match is the consumer's\n(`attestrum-prove` at E9) — both are emitted here unconditionally.",
+      "properties": {
+        "blockhash": {
+          "description": "64-bit blockhash.io spec hash, hex-encoded lowercase (16 chars).",
+          "type": "string"
+        },
+        "height": {
+          "description": "Original image height in pixels (pre-resize). Diagnostic only.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "phash": {
+          "description": "DCT-based 64-bit pHash, hex-encoded lowercase (16 chars).",
+          "type": "string"
+        },
+        "width": {
+          "description": "Original image width in pixels (pre-resize). Diagnostic only —\nnot load-bearing for hash comparison.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phash",
+        "blockhash",
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "IsccComposition": {
+      "description": "ISO 24138:2024 ISCC composition produced by `iscc-lib 0.4`.\n\nFour base32-encoded ISCC unit code strings (each starting with the\n`\"ISCC:\"` prefix). Sprint 5 E4 ships content + data + instance unit\ncodes and the composite `gen_iscc_code_v0` over them; meta-code is\nomitted because we have no metadata input.\n\nCaller-side downstream code computes **composite distance** via\n`iscc_decompose` + Hamming over the binary digest representation of\ntwo composites — that lives in `attestrum-prove` (Sprint 5 E9), not\nhere. The fingerprint crate's job is to emit the codes; the distance\ncomputation is the consumer's.\n\nPROTECTED algorithm parameters (see crate-level docs):\n\n- Text content-code: `gen_text_code_v0(raw_input_text, 64)` — RAW\n  input text per ISCC spec, NOT the PROTECTED-normalized text.\n- Image content-code: `gen_image_code_v0(&pixels[..1024], 64)` over\n  a 32×32 grayscale `image::imageops::FilterType::Lanczos3` resize\n  of the decoded image.\n- Data code: `gen_data_code_v0(raw_bytes, 64)`.\n- Instance code: `gen_instance_code_v0(raw_bytes, 64)`.\n- Composite: `gen_iscc_code_v0(&[content, data, instance], false)`.",
+      "properties": {
+        "composite": {
+          "description": "Composite ISCC-CODE from `gen_iscc_code_v0(&[content, data,\ninstance], wide=false)` — the canonical ISO 24138 ISCC string\ndownstream `MatchEvidence::Iscc` evidence is measured against.",
+          "type": "string"
+        },
+        "contentCode": {
+          "description": "Content-code (Text-Code-v0 for text inputs, Image-Code-v0 for\nimage inputs). Base32-encoded; starts with `\"ISCC:\"` prefix.",
+          "type": "string"
+        },
+        "dataCode": {
+          "description": "Data-Code-v0 (similarity hash over the raw input bytes).",
+          "type": "string"
+        },
+        "instanceCode": {
+          "description": "Instance-Code-v0 (cryptographic hash over the raw input bytes).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contentCode",
+        "dataCode",
+        "instanceCode",
+        "composite"
+      ],
+      "type": "object"
+    },
+    "Modality": {
+      "description": "Document modality — the broad content kind. Mirrors PATH-A-BRIEF §2.1's\n`Fingerprinter::modality` return type so `attestrum-fingerprint` re-uses this\nenum verbatim in Sprint 5.\n\nDerives `schemars::JsonSchema` as of Sprint 5 S5-D1 E5 so the canonical\n`FingerprintBundle` JSON Schema (published at\n`attestrum.com/fingerprint/v0.1.schema.json`) can resolve the `modality`\nfield's enum shape without a remote-derive shim. `schemars` is a workspace\ndep already pulled in by `attestrum-attest`; adding it here is a graph\npromotion, not a new external dep.",
+      "enum": [
+        "Text",
+        "Image",
+        "Audio",
+        "Video",
+        "Pdf",
+        "Other"
+      ],
+      "type": "string"
+    },
+    "TextFingerprint": {
+      "description": "Text-specific fingerprint details.\n\nDiagnostic fields (`original_byte_len`, `nfc_char_count`) describe the\npre-normalization input. The `minhash` Vec (128 BLAKE3-keyed 5-gram-\nshingle min-hashes) and the `simhash` u64 (64-bit, BLAKE3-keyed,\nuniform-weighted) are near-duplicate-detection hashes computed over\nthe PROTECTED-normalized text. Both algorithm parameter sets are\nlocked as of Sprint 5 E3 — see crate-level PROTECTED block.\n\nCaller-side downstream code computes:\n\n- **Jaccard similarity** from `minhash` as\n  `a.minhash.iter().zip(b.minhash.iter()).filter(|(x, y)| x == y).count() as f64 / 128.0`.\n- **Hamming distance** from `simhash` as `(a.simhash ^ b.simhash).count_ones()`.",
+      "properties": {
+        "minhash": {
+          "description": "128 BLAKE3-keyed MinHash values over 5-gram word shingles of the\nPROTECTED-normalized text. Length is always exactly 128. Empty\ninput yields `vec![u64::MAX; 128]`. PROTECTED — see crate-level\nPROTECTED block for the locked algorithm parameters.",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "nfcCharCount": {
+          "description": "Number of Unicode scalar values (chars) in the post-NFC string,\nbefore lowercase + whitespace collapse. Diagnostic only; the hash\ninput length is `FingerprintBundle.byte_len`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "originalByteLen": {
+          "description": "Length of the **input** bytes before normalization. Useful for\ndistinguishing whitespace-collapsed-equivalent documents in\ninclusion-proof evidence display.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "simhash": {
+          "description": "64-bit BLAKE3-keyed SimHash with uniform weights over 5-gram word\nshingles of the PROTECTED-normalized text. Empty input yields `0`.\nPROTECTED — see crate-level PROTECTED block for the locked\nalgorithm parameters.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "originalByteLen",
+        "nfcCharCount",
+        "minhash",
+        "simhash"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://attestrum.com/fingerprint/v0.1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Deterministic fingerprint of a single document. Sprint 5 E1 lands the\ntext-only shape: `blake3` + `sha256` + `byte_len` + `text` populated for\ntext inputs; `image` + `iscc` fields land in E2/E4 as non-breaking\noptional-field additions.\n\nSerialization is canonical-JSON-friendly (`camelCase` keys, sorted via\n`attestrum-attest`'s `deterministic_json_vec` at the call site — this\ncrate produces ordered field output via `serde_json::to_value` /\n`serde_json::to_string`; the caller is responsible for byte-deterministic\nre-emission when embedding the bundle in a signed predicate).",
+  "properties": {
+    "blake3": {
+      "description": "BLAKE3-256 over the **normalized** bytes (post-normalization for\ntext; raw input bytes for image / Other when those branches land).\nHex-encoded lowercase, 64 chars.",
+      "type": "string"
+    },
+    "byteLen": {
+      "description": "Byte length of the bytes that were hashed (post-normalization for\ntext; raw input length for image / Other branches).",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "generatedAt": {
+      "description": "Deterministic timestamp (RFC 3339). Set from\n`FingerprintOpts.source_date_epoch` — never the system clock.",
+      "type": "string"
+    },
+    "image": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImageFingerprint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Image-specific details. Present iff `modality == Modality::Image`.\nSprint 5 E2 addition; non-breaking for E1-emitted text bundles\nbecause `None` is omitted via `skip_serializing_if`."
+    },
+    "iscc": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IsccComposition"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "ISCC composition per ISO 24138:2024. Present for text and image\nmodalities (Sprint 5 E4); will be `None` for the future Other-as-\nbytes path. Non-breaking serde addition (`skip_serializing_if`):\nE1 / E2 / E3-emitted bundles remain byte-identical when the field\nis `None`."
+    },
+    "modality": {
+      "$ref": "#/$defs/Modality",
+      "description": "Which modality was fingerprinted. For E1 this is always\n[`Modality::Text`]; image / bytes paths arrive at E2."
+    },
+    "schema": {
+      "description": "Schema URI. Always [`FINGERPRINT_SCHEMA`] for E1-emitted bundles.",
+      "type": "string"
+    },
+    "sha256": {
+      "description": "SHA-256 over the **normalized** bytes. Same input as `blake3`.\nHex-encoded lowercase, 64 chars. Mandatory (in-toto Subject DSSE\nenvelopes require `digest.sha256`; we always populate both for\ndownstream interop).",
+      "type": "string"
+    },
+    "text": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TextFingerprint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Text-specific details. Present iff `modality == Modality::Text`."
+    }
+  },
+  "required": [
+    "schema",
+    "modality",
+    "blake3",
+    "sha256",
+    "byteLen",
+    "generatedAt"
+  ],
+  "title": "Attestrum Fingerprint Bundle v0.1",
+  "type": "object"
+}

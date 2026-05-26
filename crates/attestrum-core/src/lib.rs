@@ -50,7 +50,14 @@ pub type Result<T> = std::result::Result<T, AttestrumError>;
 /// Document modality — the broad content kind. Mirrors PATH-A-BRIEF §2.1's
 /// `Fingerprinter::modality` return type so `attestrum-fingerprint` re-uses this
 /// enum verbatim in Sprint 5.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// Derives `schemars::JsonSchema` as of Sprint 5 S5-D1 E5 so the canonical
+/// `FingerprintBundle` JSON Schema (published at
+/// `attestrum.com/fingerprint/v0.1.schema.json`) can resolve the `modality`
+/// field's enum shape without a remote-derive shim. `schemars` is a workspace
+/// dep already pulled in by `attestrum-attest`; adding it here is a graph
+/// promotion, not a new external dep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum Modality {
     Text,
     Image,
