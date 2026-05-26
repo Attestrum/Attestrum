@@ -53,7 +53,7 @@ This section is the canonical policy. The protocol layers below (`.gitignore`, t
 |---|---|
 | `/crates/`, `/tools/`, `/tests/` | Rust source + linter tests + test fixtures |
 | `/docs/diagrams/` | Mermaid architecture diagrams |
-| `/docs/migration/`, `/docs/schemas/`, `/docs/license-inventory.md` | Migration / schema / license docs |
+| `/docs/migration/`, `/docs/schemas/`, `/docs/research/`, `/docs/license-inventory.md` | Migration / schema / research / license docs |
 | `/.github/workflows/` | CI definitions |
 | `/Cargo.toml`, `/Cargo.lock`, `/rust-toolchain.toml`, `/rustfmt.toml`, `/clippy.toml`, `/deny.toml` | Build / lint / dep config |
 | `/LICENSE-APACHE`, `/LICENSE-MIT` | License files |
@@ -484,4 +484,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-26. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. For the per-section change history, see `git log -- CLAUDE.md`. Structural milestones reflected in the current text: top-of-file authority-anchor sentence (2026-05-26 hardening pass); §0.4 first-time-setup checklist (2026-05-26); §0.5 publication boundary (2026-05-25 public-flip cleanup); §2 PNG render tightened from MAY to MUST so the founder always has up-to-date PNGs for internal-notes visual review (2026-05-26); §3 step 5 + Quick Reference Card carry the matching agent-side instruction (2026-05-26); §6 revised to make SESSION-LOG.md local-only and CHANGELOG.md release-oriented (2026-05-25); §7 sixth pre-commit gate `cargo run -p secret-scanner` added 2026-05-25 alongside the `.githooks/pre-commit` hook; §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files.*
+*Last updated: 2026-05-26. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. For the per-section change history, see `git log -- CLAUDE.md`. Structural milestones reflected in the current text: top-of-file authority-anchor sentence (2026-05-26 hardening pass); §0.4 first-time-setup checklist (2026-05-26); §0.5 publication boundary (2026-05-25 public-flip cleanup); §0.5.1 `/docs/research/` formalized as a public-surface subdir alongside the existing `migration/`, `schemas/`, `license-inventory.md` siblings (2026-05-26 — first occupant is `docs/research/cross-target-determinism.md` at `f647f30`); §2 PNG render tightened from MAY to MUST so the founder always has up-to-date PNGs for internal-notes visual review (2026-05-26); §3 step 5 + Quick Reference Card carry the matching agent-side instruction (2026-05-26); §6 revised to make SESSION-LOG.md local-only and CHANGELOG.md release-oriented (2026-05-25); §7 sixth pre-commit gate `cargo run -p secret-scanner` added 2026-05-25 alongside the `.githooks/pre-commit` hook; §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files.*

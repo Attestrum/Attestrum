@@ -1,4 +1,4 @@
-# Cross-Target Byte-Determinism in Attestrum
+# Which Attestrum Outputs Are Byte-Identical Across CI Platforms — and the One Field That Isn't
 
 Engineering documentation. Describes which artifacts Attestrum guarantees are byte-identical across CI targets, which are not, why, and how the system absorbs the known cross-target drift architecturally. Intended for partners, security auditors, and external verifiers evaluating Attestrum's reproducibility claims.
 
