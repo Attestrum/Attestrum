@@ -76,3 +76,15 @@ secrets.*
 .cursor/
 .aider*
 .continue/
+
+# Removed canonical files (CLAUDE.md §0.5.2). These three were removed
+# from the tree during the 2026-05-25 public-release cleanup; they are
+# retained as local-only notes at ~/Documents/Claude/Attestrum-internal-notes/.
+# Listing them by exact root-name prevents a stale-instruction agent
+# (e.g., a session pointed at a pre-cleanup plan file) from re-creating
+# them via `git add SESSION-LOG.md`. The leading `/` anchors to the
+# repo root only — legitimate references to these names inside other
+# files (migration notes, diagram prose) are unaffected.
+/SESSION-LOG.md
+/BUILD-PLAN.md
+/PATH-A-BRIEF.md
