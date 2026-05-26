@@ -256,21 +256,24 @@ pub enum AttestrumProveError {
 /// Build an inclusion or non-inclusion proof for `target` against
 /// `manifest`.
 ///
-/// **S5-D2 E2 implements the exact-hash dispatch** ([`ProofTarget::Blake3`],
+/// **S5-D2 E2-E3 implement the exact-hash dispatch** ([`ProofTarget::Blake3`],
 /// [`ProofTarget::Sha256`], [`ProofTarget::Bundle`]) against
 /// [`ManifestSource::Local`] only. The returned [`ProofArtifact`] carries a
 /// fully-validating [`InclusionProofPredicate`] wrapped in an
 /// [`InTotoStatement`] (predicate type
-/// `attestrum.com/attestation/inclusion-proof/v0.3`), with several fields
-/// stubbed pending later E-commits:
+/// `attestrum.com/attestation/inclusion-proof/v0.3`). As of E3 the
+/// predicate is **cryptographically self-contained**: external verifiers
+/// can re-derive the corpus's BLAKE3 Merkle root from
+/// `predicate.{leaf_hash, leaf_index, tree_size, audit_path}` alone via
+/// [`attestrum_merkle::verify_audit_path`], no manifest re-read required.
 ///
-/// - `predicate.audit_path` is `vec![]` (E3 lands the real RFC 6962
-///   audit-path via [`attestrum_merkle::MerkleTree::audit_path`]).
+/// Fields still stubbed pending later E-commits:
+///
 /// - `bundle_path` is forced to `None` regardless of `opts.sign` (E4
 ///   lands DSSE-sign).
 /// - `corpus.attestation_digest` is zeros-hex (refined at E4 alongside
 ///   signing — the digest is of the corpus's signed in-toto Statement
-///   which doesn't exist as an E2 input).
+///   which isn't an E3 input).
 /// - `proof_generated_at` / `proof_generator_identity` are `None` (E4
 ///   populates these from `opts.source_date_epoch` + the OIDC identity).
 ///
@@ -321,8 +324,19 @@ pub fn prove(
     let (leaf_index, evidence) = find_exact_match(&entries, target_b3, target_s256)?;
     let entry = &entries[leaf_index];
 
-    let leaves: Vec<[u8; 32]> = entries.iter().map(|e| e.document_id).collect();
-    let root = attestrum_merkle::merkle_root(&leaves);
+    let tree = attestrum_merkle::MerkleTree::new(entries.iter().map(|e| e.document_id).collect());
+    let root = tree.root();
+    let audit = tree.audit_path(leaf_index).unwrap_or_else(|e| {
+        // Unreachable by construction: find_exact_match returns a leaf_index
+        // bounded by entries.len(), and tree was built from the same entries.
+        // audit_path only errors with IndexOutOfBounds when leaf_index >=
+        // tree_size, which can't happen here.
+        unreachable!(
+            "find_exact_match returned in-bounds leaf_index={leaf_index} \
+             for tree of size {} but audit_path rejected it: {e}",
+            tree.len()
+        )
+    });
 
     let matched_subject = entry_to_subject(entry);
 
@@ -342,7 +356,7 @@ pub fn prove(
         leaf_count: entries.len() as u64,
         leaf_hash: attestrum_core::hex::encode_32(&entry.document_id),
         hash_algorithm: "blake3-rfc6962".to_string(),
-        audit_path: vec![],
+        audit_path: audit.iter().map(attestrum_core::hex::encode_32).collect(),
         leaf_index: leaf_index as u64,
         matched_subject: matched_subject.clone(),
         proof_generated_at: None,
