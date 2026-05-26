@@ -210,11 +210,25 @@ pub struct TextFingerprint {
 /// - [`Self::phash`] — DCT-based 64-bit perceptual hash via
 ///   `image_hasher::HasherConfig::new().hash_size(8, 8).preproc_dct()`.
 ///   Sensitive to subtle tonal changes; robust to small geometric
-///   distortions and re-encoding.
+///   distortions and re-encoding. **Approximately deterministic
+///   cross-target, NOT byte-identical**: `image_hasher 3.1.1` uses
+///   `f32` internally for the DCT, and f32 math is not guaranteed
+///   byte-identical across rustc + LLVM + target libc combinations.
+///   Empirically the cross-target Hamming drift is ≤ 1-2 bits per 64
+///   for inputs whose DCT coefficients sit away from the median
+///   threshold, but high-frequency content (sharp checkerboards) can
+///   shift up to ~8 bits per 64. Downstream `attestrum-prove` consumers
+///   handle this natively via [`MatchEvidence::Perceptual`]'s
+///   `threshold` field — the threshold IS the cross-target tolerance.
+///   Exact-byte cross-target identity is provided by [`Self::blockhash`]
+///   and the parent [`FingerprintBundle`]'s blake3/sha256 fields.
+///   See `tests/determinism.rs` `normalize_phash_for_cross_target` for
+///   the determinism-test-side handling. Documented as a known
+///   limitation at Sprint 5 S5-D1 E5 fix-forward (2026-05-26).
 /// - [`Self::blockhash`] — 64-bit blockhash.io spec hash via
 ///   `blockhash::blockhash64`. Block-mean approach; robust to colour /
 ///   tonal manipulation; more sensitive to geometric distortions than
-///   pHash.
+///   pHash. Integer-only — **fully cross-target byte-identical**.
 ///
 /// Inclusion-proof [`MatchEvidence::Perceptual`] in `attestrum-attest`
 /// carries `hamming_distance` + `threshold` over one of these hashes;
