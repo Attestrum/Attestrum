@@ -7,12 +7,20 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Sprint 5 D2 E1 — minimal dep set per CLAUDE.md §14 (eager-generalization
-# anti-pattern). Each subsequent E-commit adds its own deps as functional
-# code lands: parquet + arrow + attestrum-manifest + attestrum-merkle at
-# E2, hf-hub + url at E7.
+# Per-E-commit dep additions per CLAUDE.md §14 (eager-generalization
+# anti-pattern). Each E-commit adds only what its newly-shipped code
+# consumes; hf-hub + url remain deferred to E7.
+#
+# E1: attestrum-core, attestrum-attest, attestrum-fingerprint, serde,
+#     thiserror (public API surface + smoke tests).
+# E2: + attestrum-manifest, attestrum-merkle, serde_json (local-Parquet
+#     manifest read + RFC 6962 Merkle-root recompute + predicate
+#     JSON-serialization for the in-toto Statement wrapping).
 attestrum-core         = { path = "../attestrum-core",         version = "0.0.1" }
 attestrum-attest       = { path = "../attestrum-attest",       version = "0.0.1" }
 attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
+attestrum-manifest     = { path = "../attestrum-manifest",     version = "0.1.0" }
+attestrum-merkle       = { path = "../attestrum-merkle",       version = "0.1.0" }
 serde                  = { workspace = true }
+serde_json             = { workspace = true }
 thiserror              = { workspace = true }

@@ -2,7 +2,7 @@
 title: "Sprint 5 attestrum-prove pipeline — exact + fuzzy match (E1-E5) + non-inclusion (E6) + alternate manifest sources (E7) + CLI + API freeze (E8)"
 models: "crates/attestrum-prove/src/lib.rs, crates/attestrum-prove/Cargo.toml, crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-merkle/src/lib.rs, crates/attestrum-manifest/src/lib.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/sign.rs, crates/attestrum-cli/src/commands/prove.rs, prove, ProofTarget, ManifestSource, ProveOpts, ProofArtifact, ProofKind, AttestrumProveError, InclusionProofPredicate, NonInclusionProofPredicate, MatchEvidence, IsccEvidence, PerceptualEvidence, MinHashEvidence, CorpusRef, MerkleTree, audit_path, FingerprintBundle, fingerprint_text, fingerprint_image, ManifestEntry"
 source_of_truth: diagram
-last_verified: d5ce6e5 2026-05-26
+last_verified: d122c64 2026-05-26
 diagram_type: flowchart
 ---
 
@@ -12,7 +12,7 @@ Source of truth: **`diagram`** through S5-D2 E1-E7. This diagram is the contract
 
 **This is the ONLY sprint-5 diagram for S5-D2** per the D1 cadence precedent (one diagram per deliverable; per-E-commit updates bump `last_verified` + flip branch nodes from grey-deferred to green-shipped rather than creating a new diagram per commit).
 
-**Branch state at E1** (this commit, types-only): the public API surface lands (`ProofTarget`, `PerceptualHashes`, `ManifestSource`, `ProveOpts`, `ProofArtifact`, `ProofKind`, `AttestrumProveError`, plus the `pub fn prove()` contract); every Mermaid node remains grey because no functional behavior is wired yet. The `prove()` body is `unimplemented!("S5-D2 E2+ fills this in")`. Each subsequent E-commit flips a sub-graph from grey to green, with PROTECTED nodes turning red. E2 onward fills in functional behavior.
+**Branch state at E2** (this commit, exact-match path live, audit-path stubbed): `prove()` now resolves the exact-hash dispatch arms (`ProofTarget::Blake3`, `Sha256`, `Bundle` against `ManifestSource::Local`) end-to-end — reads the local Parquet manifest via `attestrum_manifest::read_manifest`, finds the matching leaf, recomputes the RFC 6962 BLAKE3 Merkle root via `attestrum_merkle::merkle_root`, builds an `InclusionProofPredicate` (with `audit_path: vec![]` placeholder), wraps it in an `InTotoStatement` at predicate type `attestrum.com/attestation/inclusion-proof/v0.3`, and returns an unsigned `ProofArtifact { kind: Inclusion, confidence: 1.0, bundle_path: None, ... }`. The Mermaid nodes that flip from grey to green at this commit: `target`, `manifest`, `opts`, `dispatch`, `resolve`, `exactB3`, `exactS256`, `bundleExact`, `localPq`, `loadIdx`, `matchQuery`, `matchDec`, `predIncl`, `evidenceVariant`, `evExact`, `stmt`, `signCheck`, `unsignedOut`, plus the two now-reachable error edges `errMan` (manifest parse failure) and `errAmb` (multiple leaves with same digest). `auditPath` stays grey because its body is stubbed (`vec![]`) — E3 lands the real audit-path via `attestrum_merkle::MerkleTree::audit_path` and flips that node. Fuzzy paths (`isccPath`, `perceptPath`, `docPath`, `docMulti*`, `fuzzyScan`, `fuzzyDec`, `evIscc`, `evPercept`, `evMinhash`) panic with `unimplemented!("S5-D2 E5+")` pending E5. HF / URL fetches (`hfFetch`, `urlFetch`) panic with `unimplemented!("S5-D2 E7")` pending E7. The non-inclusion path (`nonInc`, `predNonIncl`, `stmtNI`) panics with `unimplemented!("S5-D2 E6")` pending E6. DSSE-sign + signed-output (`dsseSign`, `signedOut`) and CLI (`cliEntry`, `cliPrint`) stay grey pending E4 and E8.
 
 **Parent overview**: `docs/diagrams/overview/prove-pipeline.md` carries the architectural-overview view (sourced from PATH-A-BRIEF Part 1.3 verbatim). This sprint-5 diagram is the implementation-detail view: specific Rust function calls, internal helpers, error edges to typed variants, and the per-E-commit progress tracker. Different audiences.
 
@@ -138,7 +138,8 @@ flowchart TB
   fpText -.-> protectedFp
   fpImage -.-> protectedFp
 
-  class target,manifest,opts,dispatch,resolve,exactB3,exactS256,bundleExact,isccPath,perceptPath,docPath,fpDispatch,fpText,fpImage,fpErr,docMulti,docMulti2,localPq,hfFetch,urlFetch,loadIdx,matchQuery,fuzzyScan,matchDec,fuzzyDec,auditPath,nonInc,predIncl,evidenceVariant,evExact,evIscc,evPercept,evMinhash,predNonIncl,stmt,stmtNI,signCheck,dsseSign,unsignedOut,signedOut,result,cliEntry,cliPrint,errFp,errSrc,errMan,errMerk,errSign,errAmb deferred
+  class target,manifest,opts,dispatch,resolve,exactB3,exactS256,bundleExact,localPq,loadIdx,matchQuery,matchDec,predIncl,evidenceVariant,evExact,stmt,signCheck,unsignedOut,errMan,errAmb shipped
+  class isccPath,perceptPath,docPath,fpDispatch,fpText,fpImage,fpErr,docMulti,docMulti2,hfFetch,urlFetch,fuzzyScan,fuzzyDec,auditPath,nonInc,evIscc,evPercept,evMinhash,predNonIncl,stmtNI,dsseSign,signedOut,cliEntry,cliPrint,errFp,errSrc,errMerk,errSign deferred
   class protectedAttest,protectedMerkle,protectedFp protected
   class result output
 ```

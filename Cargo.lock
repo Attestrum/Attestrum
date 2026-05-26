@@ -511,7 +511,10 @@ dependencies = [
  "attestrum-attest",
  "attestrum-core",
  "attestrum-fingerprint",
+ "attestrum-manifest",
+ "attestrum-merkle",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 
