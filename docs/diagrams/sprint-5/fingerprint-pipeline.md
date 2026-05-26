@@ -2,13 +2,13 @@
 title: "Sprint 5 attestrum-fingerprint pipeline — text (E1) + image (E2) + bytes (E2) + MinHash/SimHash (E3) + ISCC composition (E4)"
 models: "crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-fingerprint/src/text/mod.rs, crates/attestrum-fingerprint/src/text/minhash.rs, crates/attestrum-fingerprint/src/text/simhash.rs, fingerprint_text, fingerprint_image, FingerprintBundle, TextFingerprint, ImageFingerprint, IsccComposition, FingerprintOpts, AttestrumFingerprintError, FINGERPRINT_SCHEMA, Modality, attestrum_core::Modality, attestrum_core::hex::encode, iscc_image_pixels, compose_iscc, IsccContentInput"
 source_of_truth: diagram
-last_verified: 737d890 2026-05-25
+last_verified: 94e0467 2026-05-25
 diagram_type: flowchart
 ---
 
 # Sprint 5 `attestrum-fingerprint` pipeline
 
-Source of truth: **`diagram`** through S5-D1 E4. The diagram is the contract this crate implements; it flips to `source_of_truth: code` at S5-D1 E5 (the API freeze + cross-target determinism gate) per the Sprint 5 plan at `/Users/austinmunday/.claude/plans/you-re-picking-up-attestrum-stateful-hearth.md`.
+Source of truth: **`diagram`** through S5-D1 E4. The diagram is the contract this crate implements; it flips to `source_of_truth: code` at S5-D1 E5 (the API freeze + cross-target determinism gate).
 
 **This is the ONLY diagram for S5-D1** per PATH-A-BRIEF Part 6 Sprint 5 line 1171. Per-E-commit diagram updates mean updating this file's `last_verified` SHA + flipping branch nodes from grey (deferred) to green (shipped) as each E-commit lands, NOT creating a new diagram per commit.
 
