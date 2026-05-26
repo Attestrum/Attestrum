@@ -162,4 +162,4 @@ iscc-lib     = "0.4"
 # pattern under CLAUDE.md §8 — git-pin requires founder approval (granted
 # 2026-05-25 for Sprint 5 Q1 cosign-interop fix).
 [patch.crates-io]
-sigstore = { git = "https://github.com/Attestrum/sigstore-rs.git", rev = "28bb79f44addf915fb25a0b0b80b1900ff5ad41b" }
+sigstore = { git = "https://github.com/Attestrum/sigstore-rs.git", rev = "1c5df849e67c4ce72e6c8949576c3d53757f0840" }

@@ -4345,7 +4345,7 @@ checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
 [[package]]
 name = "sigstore"
 version = "0.14.0"
-source = "git+https://github.com/Attestrum/sigstore-rs.git?rev=28bb79f44addf915fb25a0b0b80b1900ff5ad41b#28bb79f44addf915fb25a0b0b80b1900ff5ad41b"
+source = "git+https://github.com/Attestrum/sigstore-rs.git?rev=1c5df849e67c4ce72e6c8949576c3d53757f0840#1c5df849e67c4ce72e6c8949576c3d53757f0840"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
