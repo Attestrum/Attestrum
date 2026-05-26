@@ -38,3 +38,41 @@
 # Playwright MCP browser-session cache (console logs, page snapshots).
 # Local-only; never versioned.
 /.playwright-mcp/
+
+# Credential / private-key filename patterns. Hard denylist enforced by
+# git (independent of any agent reading CLAUDE.md). See CLAUDE.md §0.5
+# Publication Boundary + tools/secret-scanner/ for content-level scanning.
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt.key
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+id_dsa
+id_dsa.*
+id_ecdsa
+id_ecdsa.*
+credentials
+credentials.*
+secrets
+secrets.*
+*.token
+*.session
+*.cookie
+*-private.md
+*.private
+
+# Safety net: any path containing "internal-notes" stays out. The canonical
+# internal-only location is ~/Documents/Claude/Attestrum-internal-notes/
+# (outside this repo), but this catches a stray symlink or copy-by-mistake.
+**/internal-notes/
+**/internal-notes-*/
+*internal-notes*
+
+# Test / claude-code session artifacts that aren't already excluded
+.cursor/
+.aider*
+.continue/
