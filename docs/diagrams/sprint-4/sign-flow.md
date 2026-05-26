@@ -2,13 +2,13 @@
 title: "attestrum sign flow — DSSE-wrapped Sigstore Bundle v0.3 emission (Session 2 contract for X→Y hybrid)"
 models: "crates/attestrum-attest/src/sign.rs, crates/attestrum-attest/src/dsse_sign.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-cli/src/commands/sign.rs, crates/attestrum-cli/src/lifecycle.rs, crates/attestrum-cli/tests/sign_flow_contract.rs, dsse_sign, statement, predicate, lifecycle, TRAINING_CORPUS_PREDICATE_TYPE, in-toto Statement v1, DSSE Envelope"
 source_of_truth: code
-last_verified: 73c609d 2026-05-25
+last_verified: fb46253 2026-05-26
 diagram_type: sequenceDiagram
 ---
 
 # `attestrum sign` flow — DSSE-wrapped Sigstore Bundle v0.3 sign half
 
-Source of truth: `diagram` (Session 2 contract for the X→Y hybrid cosign-interop fix; cross-check artifacts that drove the contract are retained as local-only notes outside the public tree). The Mermaid block below describes the **contracted** DSSE-wrapped sign flow that Session 2's `crates/attestrum-attest/src/dsse_sign.rs` module + Session 2A's fork-side `SigningSession::sign_dsse` API jointly implement; the historical "What landed at Sprint 4 E3.5" section near the foot of this document describes the **shipped-but-wrong** flow this contract replaces. Source-of-truth flips back to `code` after Session 4 confirms `.github/workflows/cosign-interop.yml` is green against the implemented module.
+Source of truth: `code` per the frontmatter, flipped from `diagram` at commit `73c609d` after Session 4 confirmed `.github/workflows/cosign-interop.yml` is green against the implemented module. This file was originally authored as the Session 2 contract for the X→Y hybrid cosign-interop fix; cross-check artifacts that drove the contract are retained as local-only notes outside the public tree. The Mermaid block below describes the DSSE-wrapped sign flow that `crates/attestrum-attest/src/dsse_sign.rs` + the fork-side `SigningSession::sign_dsse` API jointly implement; the historical "What landed at Sprint 4 E3.5" section near the foot of this document describes the **shipped-but-wrong** flow this contract replaced.
 
 **Session 1+2 contract delta (2026-05-25)** — diagnosis verified V1-V7: sigstore-rs 0.14.0's `SigningSession::sign(input)` is a blob-signing primitive. It SHA-256-hashes `input`, signs the hash with the ephemeral ECDSA-P256 key, submits a `Hashedrekord` Rekor v1 entry, and returns a `SigningArtifact` whose `to_bundle()` hard-codes `Bundle v0.2` mediaType + `Content::MessageSignature` (see `bundle/sign.rs:351-382` in sigstore-rs at fork rev `ade5422`). Attestrum's `attest_sign` passed the canonical in-toto Statement JSON bytes as `input`, so the on-disk bundle's signature was over `SHA-256(canonical Statement JSON)`. `attest_verify` then asked sigstore-rs to verify against `SHA-256(manifest.parquet)`. Different byte streams → ring rejects → `PublicKeyVerificationError`. The new flow below signs **DSSE PAE bytes over RAW payload bytes** and emits **Bundle v0.3** with `dsseEnvelope` content + a **`dsse@0.0.1` Rekor v1 entry**, corresponding to what `cosign verify-blob-attestation --new-bundle-format` actually accepts.
 
@@ -26,7 +26,7 @@ Source of truth: `diagram` (Session 2 contract for the X→Y hybrid cosign-inter
 pub async fn sign_dsse(&self, payload_type: &str, payload: &[u8]) -> SigstoreResult<Bundle>
 ```
 
-…on the `Attestrum/sigstore-rs` fork's `attestrum/email-optional-for-workload-identity-tokens` branch. The method calls `SigningSession::materials()` internally — the fork's empty-emailAddress workload-identity patch at sigstore-rs `bundle/sign.rs:97-110` stays load-bearing under this code path (V5 verified). Attestrum's `crates/attestrum-attest/src/dsse_sign.rs` (Session 2B-ii) consumes the fork-method via the workspace `[patch.crates-io]` block (rev `e551bf9`). Session 6 (out-of-band, async, multi-week) upstreams the fork-method as a sigstore-rs PR — Session 5 from the original plan was reframed as Session 2A + the PR step that's now Session 6.
+…on the `Attestrum/sigstore-rs` fork's `attestrum/email-optional-for-workload-identity-tokens` branch. The method calls `SigningSession::materials()` internally — the fork's empty-emailAddress workload-identity patch at sigstore-rs `bundle/sign.rs:97-110` stays load-bearing under this code path (V5 verified). Attestrum's `crates/attestrum-attest/src/dsse_sign.rs` (Session 2B-ii) consumes the fork-method via the workspace `[patch.crates-io]` block (current rev pinned in workspace `Cargo.toml`). Session 6 (out-of-band, async, multi-week) upstreams the fork-method as a sigstore-rs PR — Session 5 from the original plan was reframed as Session 2A + the PR step that's now Session 6.
 
 **DSSE PAE byte-length semantics** (per verification report §10 + DSSE protocol spec):
 
@@ -47,7 +47,7 @@ sequenceDiagram
   autonumber
   participant U as User CLI<br/>attestrum sign manifest.parquet
   participant Cmd as attestrum_cli::commands::sign::run
-  participant Att as attestrum_attest::sign::attest_sign<br/>(wrapper, delegates to dsse_sign)
+  participant Att as attestrum_attest::sign::sign<br/>(wrapper, callsite-aliased as attest_sign, delegates to dsse_sign)
   participant Dse as attestrum_attest::dsse_sign<br/>(NEW — Session 2)
   participant Mn as attestrum_manifest::read_manifest
   participant Pred as attestrum_attest::predicate::TrainingCorpusPredicate
@@ -55,8 +55,8 @@ sequenceDiagram
   participant Schema as schemars JSON-Schema validate
   participant Oidc as sigstore::oauth::IdentityToken
   participant Ctx as sigstore::bundle::sign::SigningContext
-  participant Sess as SigningSession::sign_dsse<br/>(fork API — Session 2A fork commit e551bf9)
-  participant Fulcio as Fulcio v2 signingCert<br/>(called inside sign_dsse via materials)
+  participant Sess as SigningSession::sign_dsse<br/>(fork API — introduced Session 2A at e551bf9 — current rev pinned in workspace Cargo.toml)
+  participant Fulcio as Fulcio v2 signingCert<br/>(called during ctx.blocking_signer at session construction — cert reused by sign_dsse via self.certs)
   participant Rekor as Rekor v1 dsse@0.0.1<br/>(kind=dsse, version=0.0.1, proposedContent envelope+verifiers)
   participant Bun as Sigstore Bundle v0.3<br/>(mediaType per prose above)
   participant Fs as workspace/bundles/manifest.sigstore.json
@@ -81,17 +81,19 @@ sequenceDiagram
   Att->>Ctx: SigningContext::production()
   Ctx-->>Att: SigningContext (TUF-fetched Fulcio + Rekor + TSA trust roots)
   Att->>Dse: dsse_sign(ctx, id_token, payload_type="application/vnd.in-toto+json", payload=payload_bytes)
-  Dse->>Sess: ctx.blocking_signer(id_token).sign_dsse(payload_type, payload_bytes) via [patch.crates-io]
+  Dse->>Sess: ctx.blocking_signer(id_token) — opens SigningSession via [patch.crates-io]
 
-  Note over Sess,Fulcio: sign_dsse calls materials() internally — fork's empty-emailAddress<br/>workload-identity patch at bundle/sign.rs:97-110 stays load-bearing (V5)
+  Note over Sess,Fulcio: SigningSession::new calls Self::materials internally — fork's empty-emailAddress<br/>workload-identity patch at bundle/sign.rs:96-110 stays load-bearing (V5)
   Sess->>Fulcio: request_cert_v2(x509 CSR with ephemeral pubkey + empty emailAddress, id_token)
-  Fulcio-->>Sess: x509 cert chain bound to OIDC subject + issuer
+  Fulcio-->>Sess: x509 leaf cert bound to OIDC subject + issuer
+  Sess-->>Dse: SigningSession with (private_key, certs) populated
+  Dse->>Sess: session.sign_dsse(payload_type, payload_bytes)
   Sess->>Sess: pae = compute_pae(payload_type, payload_bytes) — raw payload bytes, NOT base64
   Sess->>Sess: signature_bytes = ecdsa_p256_sign(ephemeral_key, sha256(pae))
   Sess->>Sess: envelope = io.intoto.Envelope { payload: payload_bytes, payloadType, signatures:[{sig: signature_bytes, keyid:""}] }
   Sess->>Rekor: submit ProposedEntry::Dsse { apiVersion: "0.0.1", spec: { proposedContent: { envelope: serde_json(envelope), verifiers: [base64(cert_PEM_LF)] } } }
   Rekor-->>Sess: tlog entry { logIndex, integratedTime, kindVersion:{kind:"dsse", version:"0.0.1"}, canonicalizedBody:{spec:{envelopeHash, payloadHash, signatures}}, inclusionProof, signedEntryTimestamp }
-  Sess->>Bun: assemble { mediaType=application/vnd.dev.sigstore.bundle.v0.3+json, verificationMaterial:{X509CertificateChain[leaf], tlogEntries[0], timestampVerificationData: None}, content: DsseEnvelope { payloadType, payload, signatures:[{sig}] } }
+  Sess->>Bun: assemble { mediaType=application/vnd.dev.sigstore.bundle.v0.3+json, verificationMaterial:{ Certificate(leaf X509Certificate), tlogEntries[0], timestampVerificationData: None }, content: DsseEnvelope { payloadType, payload, signatures:[{sig}] } }
   Bun-->>Sess: Bundle v0.3
   Sess-->>Dse: Bundle (v0.3 + DsseEnvelope, NOT v0.2 + MessageSignature)
   Dse-->>Att: Bundle v0.3

@@ -9,6 +9,7 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 ### Fixed — Tooling
 
 - Diagram-linter freshness check no longer counts docs-only commits (CHANGELOG.md, SESSION-LOG.md) against the 30-commit rolling window. Three boundary-slippage incidents in the project history (each costing a docs-only fix-forward commit which itself loaded the window further) are now structurally impossible. Three new integration tests under `tools/diagram-linter/tests/freshness_pathspec.rs` pin the behavior.
+- `docs/diagrams/sprint-4/sign-flow.md` — manual semantic re-read against the currently pinned fork rev fixed three drift items the structural diagram-linter cannot catch: the `source_of_truth` prose was updated to past tense to match the frontmatter flip that already landed; the Fulcio request was relocated to session construction (where it actually happens) rather than being attributed to `sign_dsse` internals; and the bundle's `verification_material.content` shape was updated from `X509CertificateChain[leaf]` to single-leaf `Certificate(leaf)` per the Bundle v0.3 spec requirement enforced by sigstore-go validators. Stale fork-rev references at two diagram lines were rephrased to point at the workspace `Cargo.toml` so the diagram doesn't restale on the next rev bump.
 
 ### Added — Sprint 4 (signing + verification)
 
