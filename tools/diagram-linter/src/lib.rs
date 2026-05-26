@@ -877,7 +877,20 @@ pub fn check_drift(
         let Some(models) = extract_frontmatter_value(&content, "models") else {
             continue;
         };
-        let diagram_changed = changed_abs.contains(diagram);
+        // Normalize the diagram path to absolute before comparing against
+        // `changed_abs` (which is always absolute). Without this, invoking the
+        // linter via `--root docs/diagrams` (a relative path) produces relative
+        // diagram paths from walk_markdown, while changed_abs is absolute, so
+        // the contains() check always returns false and the drift check fires
+        // even when the diagram IS staged. Surfaced in 2026-05-25 protocol
+        // commit 4 (the first commit to ever change a models:-referenced code
+        // file AND its referencing diagram in the same commit under CLI mode).
+        let diagram_abs = if diagram.is_absolute() {
+            diagram.clone()
+        } else {
+            workspace_root.join(diagram)
+        };
+        let diagram_changed = changed_abs.contains(&diagram_abs);
         for token in extract_models_tokens(models) {
             if !token.contains('/') {
                 // Bare identifier — drift detection skips it (we only track file-level drift).
@@ -1337,6 +1350,65 @@ mod tests {
         assert!(
             findings2.is_empty(),
             "drift should clear when both are staged"
+        );
+
+        // Cleanup.
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    /// Regression test for the 2026-05-25 drift-check path-format bug.
+    ///
+    /// When the linter is invoked via the CLI with `--root docs/diagrams`
+    /// (a relative path), `walk_markdown` returns relative diagram paths,
+    /// while `changed_abs` contains absolute paths joined from
+    /// `workspace_root`. The contains() check needs to normalize both sides
+    /// to absolute or it always reports drift.
+    ///
+    /// Pre-fix: this test produces a false-positive drift finding even
+    /// though both files are staged. Post-fix: drift correctly clears.
+    #[test]
+    fn drift_clears_when_diagrams_root_is_relative() {
+        let workspace = std::env::temp_dir().join(format!(
+            "attestrum-drift-rel-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let diagrams_root_abs = workspace.join("docs/diagrams");
+        let code_dir = workspace.join("crates/bar/src");
+        std::fs::create_dir_all(&diagrams_root_abs).unwrap();
+        std::fs::create_dir_all(&code_dir).unwrap();
+
+        let code_file = code_dir.join("lib.rs");
+        std::fs::write(&code_file, "//! bar\n").unwrap();
+
+        let diagram_file_abs = diagrams_root_abs.join("bar.md");
+        std::fs::write(
+            &diagram_file_abs,
+            "---\ntitle: bar\nmodels: crates/bar/src/lib.rs\nsource_of_truth: code\nlast_verified: bootstrap 2026-05-23\n---\n```mermaid\nflowchart TD\n  A --> B\n```\n",
+        )
+        .unwrap();
+
+        // Stage BOTH the code file and the diagram. Production-mode trigger:
+        // invoke check_drift with a RELATIVE diagrams_root + absolute changed
+        // entries. Without the bug-fix, the comparison fails despite both
+        // being staged.
+        let cwd_before = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&workspace).unwrap();
+        let diagrams_root_rel = std::path::PathBuf::from("docs/diagrams");
+
+        let mut changed = HashSet::new();
+        changed.insert(code_file.clone()); // absolute
+        changed.insert(diagram_file_abs.clone()); // absolute
+
+        let findings = check_drift(&diagrams_root_rel, &workspace, &changed).unwrap();
+        // Restore cwd before any assertion can fail.
+        std::env::set_current_dir(&cwd_before).unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "drift should clear when both are staged even with relative diagrams_root; got: {findings:?}"
         );
 
         // Cleanup.

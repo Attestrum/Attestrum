@@ -6,10 +6,13 @@ name: ci
 #   - test:     fmt --check, clippy -D warnings, test --workspace.
 #   - audit:    cargo-deny check — license allow-list (CLAUDE.md §8),
 #               RUSTSEC advisories, source registry allow-list.
+#   - secrets:  secret-scanner --all (CLAUDE.md §0.5 publication-boundary
+#               protocol layer 6 — post-push verification that no
+#               credential patterns landed even if local hooks were
+#               disabled).
 #
-# Determinism matrix (Linux x86 + ARM + macOS + musl) per BUILD-PLAN §6.5
-# is a separate workflow (.github/workflows/determinism.yml) landing in
-# Sprint 2 commit E3.
+# Determinism matrix (Linux x86 + ARM + macOS + musl) is a separate
+# workflow (.github/workflows/determinism.yml) landing in Sprint 2 E3.
 
 on:
   push:
@@ -132,3 +135,32 @@ jobs:
         with:
           command: check
           arguments: --all-features
+
+  secrets:
+    name: secrets (secret-scanner --all)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.88.0
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-secrets-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-secrets-
+
+      # Layer 6 of the CLAUDE.md §0.5 publication-boundary protocol.
+      # Re-runs the secret-scanner on the entire working tree as a
+      # post-push verification — catches credential patterns that
+      # could land if the local .githooks/pre-commit hook was disabled
+      # (e.g., a fresh clone without `git config core.hooksPath .githooks`,
+      # or a `git commit --no-verify` that violated CLAUDE.md §0.5.4).
+      - name: Run secret-scanner --all
+        run: cargo run -p secret-scanner --release --quiet -- check --all

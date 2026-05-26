@@ -2,7 +2,7 @@
 title: "diagram-linter CI sequence"
 models: "tools/diagram-linter/src/main.rs, tools/diagram-linter/src/lib.rs, .github/workflows/ci.yml"
 source_of_truth: code
-last_verified: 026b1a8 2026-05-25
+last_verified: b42344e 2026-05-25
 diagram_type: sequenceDiagram
 ---
 
