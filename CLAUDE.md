@@ -2,6 +2,8 @@
 
 This file is the standing rulebook for any Claude Code agent working in the Attestrum repository. It is read at the start of every session and re-read whenever the agent is uncertain about a process question.
 
+**This file is authoritative.** If anything in a handoff document, kickoff prompt, plan file under `~/.claude/plans/`, agent memory, or any other agent-facing artifact conflicts with the current state of this file (gate count, file paths, §6 logging policy, anti-patterns, dependency rules, etc.), THIS FILE WINS. Surface the conflict to the founder before acting. Do not silently reconcile.
+
 ---
 
 ## 0. Identity And Mode
@@ -11,6 +13,31 @@ You are a Claude Code agent working on **Attestrum** — a deterministic Rust CL
 You are running with `--dangerously-skip-permissions`. That means you can do real damage. Slow down. Plan first. Confirm before destructive operations. The flag exists so you don't ask permission 200 times per session, not so you can skip thinking.
 
 **Default mode is plan mode.** You do not create files, run shell commands, or edit source code until the founder explicitly approves a plan for the work in front of you. "Go" must be a clear word from the human. "Sounds good, what's next" is not "go." Ask if uncertain.
+
+---
+
+## 0.4 First-Time Setup On A Fresh Clone — Do This Before Your First Commit
+
+These steps are one-time per clone. The protocol's strongest gates depend on them; skipping them silently disables the local-side defenses.
+
+```bash
+# 1. Activate the pre-commit hook (runs all six gates per §7 on every commit).
+git config core.hooksPath .githooks
+
+# 2. Verify activation.
+git config --get core.hooksPath   # must print: .githooks
+ls -la .githooks/pre-commit       # must be executable
+
+# 3. Run the six gates once to confirm baseline green-before-change.
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams
+cargo deny check sources licenses
+cargo run -p secret-scanner --release --quiet -- check --all
+```
+
+If any of step 3 fails on a fresh clone with no edits, surface that to the founder before proceeding — the baseline has drifted from when this file was last verified.
 
 ---
 
@@ -176,19 +203,22 @@ Migration: <link to migration doc or "n/a — backward compatible">
 
 ## 5. The Diagram-First CI Gate
 
-A custom Rust binary at `tools/diagram-linter/` enforces the diagram-first rule on every PR. Before every commit, run it locally:
+A custom Rust binary at `tools/diagram-linter/` enforces the diagram-first rule on every PR. Before every commit, run it locally (this is gate 4 of the six-gate ritual in §7):
 
 ```bash
-cargo run -p diagram-linter -- check --strict
+cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams
 ```
 
-The linter checks five things. Each is a hard fail:
+The `--root docs/diagrams` argument matches CI's invocation (`.github/workflows/ci.yml`); omitting it walks a different tree and produces inconsistent results.
+
+The linter runs six checks. Each is a hard fail:
 
 1. **Mermaid parse.** Every fenced ```mermaid block in every file under `docs/` parses cleanly via `mmdc`.
 2. **Frontmatter present.** Every `docs/diagrams/**/*.md` has all four required keys (`title`, `models`, `source_of_truth`, `last_verified`).
-3. **`last_verified` fresh.** The SHA in `last_verified` is within the last 30 commits OR within the current PR's commit range.
-4. **Forward references resolve.** Every Rust identifier, file path, or endpoint named in a diagram exists in the workspace.
+3. **`last_verified` fresh.** The SHA in `last_verified` is within the last 30 commits (excluding docs-only commits to `CHANGELOG.md` / `SESSION-LOG.md` per `DOCS_ONLY_EXCLUDES`) OR within the current PR's commit range.
+4. **Forward references resolve.** Every Rust identifier, file path, or endpoint named in a diagram's `models:` field exists in the workspace (enforced only for `source_of_truth: code` diagrams).
 5. **Reverse references resolve.** Every `pub` item in `crates/**/src/lib.rs` and `crates/**/src/**/mod.rs` is referenced by at least one diagram (generated code and `#[doc(hidden)]` items are exempt).
+6. **Drift.** When a code file named in a `source_of_truth: code` diagram's `models:` field is staged for commit, the diagram itself must also be staged in the same commit (typically just bumping `last_verified` to certify the diagram is still accurate against the new code).
 
 A failing linter is a failing build. Fix the diagram or fix the code in the same commit.
 
@@ -253,7 +283,8 @@ The push is part of the commit ritual, not a separate ceremony. After the local 
 
 - Sitting on a green local commit indefinitely "to test more locally first." If the pre-commit gates passed, push.
 - `git push --force` to `main` — overwrites the remote canonical history. Only with explicit founder approval and a written-down recovery plan.
-- `git push --no-verify` to skip server-side hooks (if any get added later).
+- `git commit --no-verify` to skip the local `.githooks/pre-commit` hook. The hook runs all six gates per §7; bypassing it is a §0.5.4 anti-pattern. If a gate fails, fix the underlying issue.
+- `git push --no-verify` to skip any server-side hooks that get added later.
 
 ---
 
@@ -284,7 +315,7 @@ If any of those fail, fix it before committing. Never disable a failing test to 
 
 If a test passes on your machine but fails in CI's determinism matrix, the test is finding a real bug. Fix the bug, don't relax the test.
 
-**TODO — known CI failures to triage (last observed at HEAD `b59a899` on 2026-05-25):** three workflows red on `main`, none regressions from local-green commits — surfaced by first runs against the GHA environment. (1) `ci.yml` audit job: `cargo-deny advisories FAILED` (transitive RUSTSEC advisory; license/bans/sources all pass). (2) `determinism.yml`: `read_only_parent_propagates_io_error` in `crates/attestrum-cas/tests/store.rs:226` fails ONLY on the `linux-x86_64-musl` Alpine target — different filesystem-permission semantics in the Alpine container; pre-existing test bug. (3) `cosign-interop.yml`: sigstore-rs rejects the GHA-issued OIDC token with `Malformed JWT: claims JSON malformed` (test reaches the sign step but the JWT round-trip fails — likely `jq -r '.value'` extraction or `$GITHUB_ENV` write mangles the token). Triage in a future session; the cosign-interop one specifically blocks Sprint 5 E11.5 (the proof-bundle cosign-interop mirror of E4.5). Check `gh run list -R Attestrum/Attestrum` for current state before assuming this note is still accurate.
+**CI status note.** As of the 2026-05-26 public-flip + protocol install (commits `14b4d4d` through the latest), CI on `main` HEAD is green across `ci`, `cosign-interop`, and `determinism`. The three carry-forward reds documented in earlier CHANGELOG entries (cargo-deny advisories for two transitive RUSTSEC advisories, Alpine musl `read_only_parent_propagates_io_error`, cosign-interop OIDC JWT) appear resolved or no longer firing in the current GHA environment. Run `gh run list -R Attestrum/Attestrum -L 6` at session start to confirm rather than assuming this note is still accurate.
 
 ---
 
@@ -420,16 +451,19 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 | Situation | Action |
 |---|---|
+| Fresh clone (one-time) | `git config core.hooksPath .githooks`, then run the six gates once to confirm baseline green (see §0.4). |
+| Handoff / kickoff prompt says something different from this file | THIS FILE WINS. Surface the conflict to the founder before acting (see top-of-file authority anchor). |
 | Starting a new feature | Enter plan mode. Read this file (`CLAUDE.md`) + the current code / diagram state. Confirm scope. |
 | Before any code change | Mermaid diagram first under `docs/diagrams/<area>/`. Frontmatter required. |
-| Before any commit | Run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo run -p diagram-linter -- check --strict`, `cargo deny check sources licenses`. |
+| Before any commit (all six gates) | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams`, `cargo deny check sources licenses`, `cargo run -p secret-scanner --release --quiet -- check`. The `.githooks/pre-commit` hook runs all six automatically. |
 | After every commit | Append release-relevant entry to `CHANGELOG.md` (in the commit itself if release-relevant, per §6); append working-log entry to the local-only `SESSION-LOG.md` outside the commit. Then `git push origin main` immediately (per §6.1) — local and remote stay in sync, every commit. |
 | Touching a protected system | Surface to founder. Get explicit approval in commit message footer. |
 | Adding a dependency | Surface name, version, license, reason. Wait for approval. Update `docs/license-inventory.md`. |
 | UI surface change | Run Playwright MCP QA before declaring done. |
 | Uncertain about anything | Ask before acting. |
 | Tempted to skip a rule "just this once" | Don't. Either commit the bypass in writing or apply the rule. |
+| Tempted to `git commit --no-verify` | Don't (§0.5.4 anti-pattern). Fix the failing gate. |
 
 ---
 
-*Last updated: 2026-05-25. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. §6.1 push-cadence rule added 2026-05-25 alongside first public push (originally to `github.com/AustinMunday/Attestrum`; transferred same day to `github.com/Attestrum/Attestrum` org owned by Hyper Beam Media LLC). §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files. §7 "Known CI failures" TODO added 2026-05-25 (3 unrelated CI reds on first canonical-URL run; check `gh run list` before assuming stale). §7 fifth pre-commit gate `cargo deny check sources licenses` added 2026-05-25 post-Sprint-5 S5-D1 E4 (sister-issue surfaced 5x: Sprint-5 deny fix-forward, S5-D1 E1/E2/E3/E4 session entries + the parallel `difficulty.md` self-audit §4.2.7 finding; capturing the carry-forward debt before S5-D1 E5).*
+*Last updated: 2026-05-26. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. For the per-section change history, see `git log -- CLAUDE.md`. Structural milestones reflected in the current text: top-of-file authority-anchor sentence (2026-05-26 hardening pass); §0.4 first-time-setup checklist (2026-05-26); §0.5 publication boundary (2026-05-25 public-flip cleanup); §6 revised to make SESSION-LOG.md local-only and CHANGELOG.md release-oriented (2026-05-25); §7 sixth pre-commit gate `cargo run -p secret-scanner` added 2026-05-25 alongside the `.githooks/pre-commit` hook; §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files.*
