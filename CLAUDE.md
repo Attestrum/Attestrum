@@ -135,7 +135,7 @@ For any new module, CLI subcommand, public data structure, error path, or multi-
 
 **Rules:**
 
-- **Mermaid is the source of truth.** No PlantUML, no draw.io, no SVG. Mermaid is the only authoring format for diagram files under `docs/diagrams/`. GitHub renders Mermaid natively in PRs — that's the canonical review path. **PNG renders MAY be generated as derived local artifacts in `/diagrams-png/` (gitignored, never committed, never hand-edited)** for use in slides, partner emails, or print. The renderer is `tools/render-diagrams.sh`; run it after adding or modifying any `docs/diagrams/**/*.md` so your local PNGs stay in sync with the Mermaid sources. PNGs are never the source of truth and never gate the build — the Mermaid file is.
+- **Mermaid is the source of truth.** No PlantUML, no draw.io, no SVG. Mermaid is the only authoring format for diagram files under `docs/diagrams/`. GitHub renders Mermaid natively in PRs — that's the canonical review path. **PNG renders MUST be generated as derived local artifacts in `/diagrams-png/` (gitignored, never committed, never hand-edited)** every time you add or modify a file under `docs/diagrams/**/*.md`. The renderer is `tools/render-diagrams.sh`; run `bash tools/render-diagrams.sh` from the repo root after your diagram edits land but before you declare the task done. The founder uses the PNGs for visual review in internal notes; if you skip the render, the founder sees stale or missing images. PNGs are never the source of truth and never gate the build — the Mermaid file is — but generating them is no longer optional for agents.
 - **Right diagram type for the situation:**
   - `flowchart` for pipelines, dependency graphs, decision trees.
   - `stateDiagram-v2` for state machines, lifecycles, signing flows.
@@ -185,7 +185,7 @@ You start every feature, fix, or refactor in plan mode. In plan mode:
    - "Which 10-star moves deliver 10x value for 2x effort?"
    - "Name the user for each addition. If the user is 'everyone' or 'future enterprise,' cut it."
 4. Revise the plan based on the ladder answers.
-5. Draft the Mermaid diagrams the work requires. Place each in `docs/diagrams/<sprint-or-area>/`.
+5. Draft the Mermaid diagrams the work requires. Place each in `docs/diagrams/<sprint-or-area>/`. Then run `bash tools/render-diagrams.sh` to regenerate `/diagrams-png/` so the founder can visually review each diagram alongside the Mermaid source.
 6. Run engineering review of your own plan and diagrams. Look for bugs, edge cases, missing tests, integration risks, user-surprising behavior, and diagram-vs-plan drift. Revise.
 7. Wait for human approval of the plan + diagrams.
 8. On approval, exit plan mode. Execute commits in order. Append session entry after each commit (see §6).
@@ -472,6 +472,7 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 | Handoff / kickoff prompt says something different from this file | THIS FILE WINS. Surface the conflict to the founder before acting (see top-of-file authority anchor). |
 | Starting a new feature | Enter plan mode. Read this file (`CLAUDE.md`) + the current code / diagram state. Confirm scope. |
 | Before any code change | Mermaid diagram first under `docs/diagrams/<area>/`. Frontmatter required. |
+| After adding/modifying any Mermaid diagram | Run `bash tools/render-diagrams.sh` from the repo root to refresh `/diagrams-png/` for founder visual review. PNGs stay gitignored (§2). |
 | Before any commit (all six gates) | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams`, `cargo deny check sources licenses`, `cargo run -p secret-scanner --release --quiet -- check`. The `.githooks/pre-commit` hook runs all six automatically. |
 | After every commit | Append release-relevant entry to `CHANGELOG.md` (in the commit itself if release-relevant, per §6); append working-log entry to the local-only `SESSION-LOG.md` outside the commit. Then `git push origin main` immediately (per §6.1) — local and remote stay in sync, every commit. |
 | Touching a protected system | Surface to founder. Get explicit approval in commit message footer. |
@@ -483,4 +484,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-26. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. For the per-section change history, see `git log -- CLAUDE.md`. Structural milestones reflected in the current text: top-of-file authority-anchor sentence (2026-05-26 hardening pass); §0.4 first-time-setup checklist (2026-05-26); §0.5 publication boundary (2026-05-25 public-flip cleanup); §6 revised to make SESSION-LOG.md local-only and CHANGELOG.md release-oriented (2026-05-25); §7 sixth pre-commit gate `cargo run -p secret-scanner` added 2026-05-25 alongside the `.githooks/pre-commit` hook; §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files.*
+*Last updated: 2026-05-26. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. For the per-section change history, see `git log -- CLAUDE.md`. Structural milestones reflected in the current text: top-of-file authority-anchor sentence (2026-05-26 hardening pass); §0.4 first-time-setup checklist (2026-05-26); §0.5 publication boundary (2026-05-25 public-flip cleanup); §2 PNG render tightened from MAY to MUST so the founder always has up-to-date PNGs for internal-notes visual review (2026-05-26); §3 step 5 + Quick Reference Card carry the matching agent-side instruction (2026-05-26); §6 revised to make SESSION-LOG.md local-only and CHANGELOG.md release-oriented (2026-05-25); §7 sixth pre-commit gate `cargo run -p secret-scanner` added 2026-05-25 alongside the `.githooks/pre-commit` hook; §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files.*
