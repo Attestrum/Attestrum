@@ -29,3 +29,12 @@
 # Mermaid sources under docs/diagrams/ are authoritative; PNGs are derived
 # convenience artifacts (slides, partner emails, print) and never committed.
 /diagrams-png/
+
+# Local-only brand assets (video/audio/logo source files for marketing).
+# Kept on the local filesystem only; never versioned. Safety-net entry so a
+# future `git add -A` can't accidentally sweep them in.
+/Branding Material/
+
+# Playwright MCP browser-session cache (console logs, page snapshots).
+# Local-only; never versioned.
+/.playwright-mcp/

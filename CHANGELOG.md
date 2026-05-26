@@ -1,6 +1,6 @@
 # Changelog
 
-All notable user-facing changes to Attestrum. Format follows [Keep a Changelog](https://keepachangelog.com/).
+All notable user-facing changes to Attestrum.
 
 Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagged release will be `v0.1.0` at the end of Sprint 6. Until then this file tracks landed milestones.
 

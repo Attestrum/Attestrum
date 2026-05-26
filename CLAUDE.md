@@ -165,7 +165,7 @@ SESSION-LOG.md entry shape (working log, local-only):
 
 Every local commit is pushed to `origin/main` immediately after the local commit lands. No commit sits unpushed except briefly during a deliberate multi-commit landing sequence.
 
-**Current remote**: `https://github.com/Attestrum/Attestrum.git` (private). Hosted by the `Attestrum` GitHub org (created 2026-05-25, owned by Hyper Beam Media LLC). The repo was originally pushed to `AustinMunday/Attestrum` (personal account) and transferred to the org on 2026-05-25 — refs and history survived the transfer cleanly.
+**Current remote**: `https://github.com/Attestrum/Attestrum.git`. Hosted by the `Attestrum` GitHub org (created 2026-05-25, owned by Hyper Beam Media LLC).
 
 **Workflow per commit, in order:**
 

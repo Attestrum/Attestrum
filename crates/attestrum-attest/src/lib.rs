@@ -14,8 +14,7 @@
 //! the URI strings or to the JSON-Schema shape of any predicate payload
 //! requires a v0.4 URI bump + a published migration document + an in-toto
 //! vetted-catalog re-submission. The shapes were originally locked in the
-//! Annex-era v0.1/v0.2 cross-check; that resolution doc was preserved at
-//! `/Users/austinmunday/Documents/Claude/Annex/docs/cross-checks/e1.5/resolution.md`.
+//! Annex-era v0.1/v0.2 cross-check (resolution doc retained local-only).
 //!
 //! See `docs/diagrams/sprint-4/predicate-three-types.md` for the class diagram
 //! (now `source_of_truth: code` — this file is authoritative).
