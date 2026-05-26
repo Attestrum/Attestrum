@@ -1,8 +1,8 @@
 ---
 title: "attestrum sign flow — DSSE-wrapped Sigstore Bundle v0.3 emission (Session 2 contract for X→Y hybrid)"
-models: "crates/attestrum-attest/src/sign.rs, crates/attestrum-attest/src/dsse_sign.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-cli/src/commands/sign.rs, crates/attestrum-cli/src/lifecycle.rs, crates/attestrum-cli/tests/sign_flow_contract.rs, attest_sign, dsse_sign, sign_dsse, compute_pae, statement, predicate, lifecycle, TRAINING_CORPUS_PREDICATE_TYPE, sigstore::bundle::sign::SigningContext, sigstore::bundle::sign::SigningSession, in-toto Statement v1, DSSE Envelope, application/vnd.in-toto+json, application/vnd.dev.sigstore.bundle.v0.3+json"
-source_of_truth: diagram
-last_verified: ff7f41c 2026-05-25
+models: "crates/attestrum-attest/src/sign.rs, crates/attestrum-attest/src/dsse_sign.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-cli/src/commands/sign.rs, crates/attestrum-cli/src/lifecycle.rs, crates/attestrum-cli/tests/sign_flow_contract.rs, dsse_sign, statement, predicate, lifecycle, TRAINING_CORPUS_PREDICATE_TYPE, in-toto Statement v1, DSSE Envelope"
+source_of_truth: code
+last_verified: 220bd7c 2026-05-25
 diagram_type: sequenceDiagram
 ---
 
