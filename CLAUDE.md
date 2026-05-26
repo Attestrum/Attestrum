@@ -1,6 +1,6 @@
 # CLAUDE.md — Attestrum Project Standing Rules
 
-This file is the standing rulebook for any Claude Code agent working in the Attestrum repository. It is read at the start of every session and re-read whenever the agent is uncertain about a process question. If a rule here conflicts with a rule in `BUILD-PLAN.md` or `PATH-A-BRIEF.md`, the more specific document wins for its scope; for anything outside those scopes, this file wins.
+This file is the standing rulebook for any Claude Code agent working in the Attestrum repository. It is read at the start of every session and re-read whenever the agent is uncertain about a process question.
 
 ---
 
@@ -14,15 +14,13 @@ You are running with `--dangerously-skip-permissions`. That means you can do rea
 
 ---
 
-## 1. The Three Documents That Govern This Project
+## 1. The Document That Governs This Project
 
-Read these three in this exact order at the start of every session:
+This file (`CLAUDE.md`) is the canonical rulebook: process rules, not technical content. Diagram-first, plan-first, session-logging, protected systems, what-not-to-touch.
 
-1. **`BUILD-PLAN.md`** (v0.1.1) — the original technical kickoff document. Sets the language (Rust), the cryptographic primitives (BLAKE3, RFC 6962 Merkle, Sigstore Bundle v0.3, in-toto Statement v1), the workspace layout, the determinism testing harness, and the signal parsers. Everything in here is canonical unless `PATH-A-BRIEF.md` explicitly overrides it.
-2. **`PATH-A-BRIEF.md`** (v0.3.0) — the Path A delta. Adds the `attestrum prove` workflow, the fingerprinting crate, the Hugging Face publish flow, two new attestation predicate types, and the diagram-first CI gate. Sprint 6 of `BUILD-PLAN.md` is fully replaced by Sprint 6 in this document.
-3. **This file (`CLAUDE.md`)** — process rules, not technical content. Diagram-first, plan-first, session-logging, protected systems, what-not-to-touch.
+Technical context — the cryptographic primitives (BLAKE3, RFC 6962 Merkle, Sigstore Bundle v0.3, in-toto Statement v1), workspace layout, sprint schedule, signal parsers — is derivable from the current code, the `docs/diagrams/` tree, and `CHANGELOG.md`. The original kickoff document and the Path A pivot brief are retained as local-only notes outside the repo for project memory; they are not part of the public source-of-truth set.
 
-If you find a contradiction between the three documents, stop and surface it. Do not silently pick one. The founder decides.
+If you find a contradiction between this file and the current code, stop and surface it. Do not silently pick one. The founder decides.
 
 ---
 
@@ -135,9 +133,21 @@ A failing linter is a failing build. Fix the diagram or fix the code in the same
 
 ---
 
-## 6. Session Records — CHANGELOG.md And SESSION-LOG.md
+## 6. Session Records — CHANGELOG.md (tracked) + SESSION-LOG.md (local-only)
 
-At every commit, append a session entry to BOTH `CHANGELOG.md` and `SESSION-LOG.md`. Same entry, both files.
+`CHANGELOG.md` is the user-facing release narrative tracked in the public repo. Append a release-relevant entry at every commit that lands user-visible behavior, dependency changes, or notable architectural moves. Routine refactors and internal cleanups can be omitted from CHANGELOG.md; rely on the commit message + git log for those.
+
+`SESSION-LOG.md` is the working log — same shape as the prior tracked SESSION-LOG.md, but now kept LOCAL-ONLY at `~/Documents/Claude/Attestrum-internal-notes/SESSION-LOG.md`. It preserves the raw session-by-session record including dead ends, deferred work, token usage, and decisions that didn't make the changelog. Append to it at every commit so future-you and future agents have the full context. It is not pushed to GitHub.
+
+CHANGELOG.md entry shape (release-oriented):
+
+```markdown
+## [version or YYYY-MM-DD] — <user-facing summary>
+- <bullet of what changed for users / contributors>
+- <bullet of what changed for users / contributors>
+```
+
+SESSION-LOG.md entry shape (working log, local-only):
 
 ```markdown
 ## [YYYY-MM-DD] — <task or commit subject>
@@ -148,8 +158,6 @@ At every commit, append a session entry to BOTH `CHANGELOG.md` and `SESSION-LOG.
 - **Open questions**: <anything you want the next session to address>
 - **Tokens used**: <approximate, if known>
 ```
-
-**Why both files?** `CHANGELOG.md` is the user-facing release narrative; entries get consolidated into release notes at each version bump. `SESSION-LOG.md` is the working log; it preserves the raw session-by-session record including dead ends, deferred work, and decisions that didn't make the changelog. Future-you and future agents read both for context.
 
 **Never delete history from either file.** Append-only. If a decision was wrong, write a new entry explaining the reversal — don't rewrite the old one.
 
@@ -163,7 +171,7 @@ Every local commit is pushed to `origin/main` immediately after the local commit
 
 1. Run pre-commit gates (§7).
 2. `git add <specific paths>` (never `-A` or `.`).
-3. `git commit -m '...'` (with CHANGELOG + SESSION-LOG entries staged in the same commit per §6).
+3. `git commit -m '...'` (with CHANGELOG.md entry staged in the same commit if the change is release-relevant per §6; the local-only SESSION-LOG.md gets appended outside the commit).
 4. `git push origin <current-branch>` (today this is always `main`).
 
 The push is part of the commit ritual, not a separate ceremony. After the local commit lands, push immediately.
@@ -220,7 +228,7 @@ If a test passes on your machine but fails in CI's determinism matrix, the test 
 
 ## 8. Dependency Discipline
 
-Do not add a crate without explicit approval. The dependency list in `BUILD-PLAN.md` §6.2 and `PATH-A-BRIEF.md` Part 2 is the canonical set. If you need a crate not listed there:
+Do not add a crate without explicit approval. The canonical dependency set is whatever is currently in the workspace `Cargo.toml` lockfile plus what's recorded in `docs/license-inventory.md`. If you need a crate not already present:
 
 1. Surface the need in the plan, not in code.
 2. Propose the crate by name, version, license, and reason.
@@ -230,7 +238,7 @@ Do not add a crate without explicit approval. The dependency list in `BUILD-PLAN
 
 - No GPL or AGPL dependencies. Apache-2.0, MIT, BSD, MPL-2.0, Unlicense, CC0 only. Anything else stops the PR. **Approved transitive-only exception**: `Unicode-3.0` is allowed for transitive Unicode-Consortium data tables (used industry-wide by `unicode-ident` via `serde_derive`). The exception applies only to transitive dependencies, not to direct workspace deps. Any other transitive license not on the base list still stops the PR — surface to the founder.
 - No `unsafe` outside of FFI shims to vetted C libraries. If you find yourself wanting `unsafe`, surface it.
-- No git-pinned dependencies except where the brief explicitly approves one (the `hf-hub` upload API pin is the only currently approved git rev; see `PATH-A-BRIEF.md` Part 2.3).
+- No git-pinned dependencies except where explicitly approved by the founder (the `hf-hub` upload API pin is the only currently approved git rev — recorded in the workspace `Cargo.toml` `[patch.crates-io]` + the `deny.toml` `allow-git` list).
 - No alpha / pre-release versions. Crates must have at least one stable release, and we pin minor versions in the workspace `Cargo.toml`.
 
 **License inventory.** When you add a dependency, append a row to `docs/license-inventory.md` with crate name, version, license SPDX ID, and the date added.
@@ -337,7 +345,7 @@ These have burned the founder before. Don't repeat them.
 The default response when you don't know what to do is **ask before acting**. Specific patterns:
 
 - Don't know which approach the founder prefers? Lay out two options with trade-offs and ask which.
-- Don't know if a change is in scope? Quote the relevant sentence from `BUILD-PLAN.md` or `PATH-A-BRIEF.md` and ask.
+- Don't know if a change is in scope? Quote the relevant sentence from this file (`CLAUDE.md`) or point at the current code / diagram state and ask.
 - Don't know if a dependency is approved? Cite the dependency list location and ask.
 - Don't know if you're in plan mode or execution mode? Assume plan mode. Ask.
 - Don't understand why a test is failing? Show the test output and ask before "fixing" the test.
@@ -350,10 +358,10 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 | Situation | Action |
 |---|---|
-| Starting a new feature | Enter plan mode. Read `BUILD-PLAN.md`, `PATH-A-BRIEF.md`, this file. Confirm scope. |
+| Starting a new feature | Enter plan mode. Read this file (`CLAUDE.md`) + the current code / diagram state. Confirm scope. |
 | Before any code change | Mermaid diagram first under `docs/diagrams/<area>/`. Frontmatter required. |
 | Before any commit | Run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo run -p diagram-linter -- check --strict`, `cargo deny check sources licenses`. |
-| After every commit | Append session entry to `CHANGELOG.md` AND `SESSION-LOG.md` (in the commit itself, per §6). Then `git push origin main` immediately (per §6.1) — local and remote stay in sync, every commit. |
+| After every commit | Append release-relevant entry to `CHANGELOG.md` (in the commit itself if release-relevant, per §6); append working-log entry to the local-only `SESSION-LOG.md` outside the commit. Then `git push origin main` immediately (per §6.1) — local and remote stay in sync, every commit. |
 | Touching a protected system | Surface to founder. Get explicit approval in commit message footer. |
 | Adding a dependency | Surface name, version, license, reason. Wait for approval. Update `docs/license-inventory.md`. |
 | UI surface change | Run Playwright MCP QA before declaring done. |

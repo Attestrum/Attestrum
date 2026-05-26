@@ -2,7 +2,7 @@
 title: "Sprint 1 workspace layout — frozen snapshot at Sprint 1 close (E12)"
 models: "Cargo.toml, rust-toolchain.toml, .cargo/config.toml, rustfmt.toml, clippy.toml, crates/, tools/diagram-linter/, docs/, .github/workflows/ci.yml"
 source_of_truth: diagram
-last_verified: bootstrap 2026-05-24
+last_verified: 73c609d 2026-05-25
 diagram_type: flowchart
 ---
 
@@ -22,6 +22,8 @@ Source of truth: `diagram` — this is a **frozen historical snapshot** of the w
 - Sprint 4 (in progress): `crates/attestrum-attest` remains stub; will flip to real code at E2.
 
 **A current-state workspace-layout diagram** could be added later (e.g., `docs/diagrams/sprint-4/workspace-layout-current.md`) if the founder finds it useful for orientation. Not currently planned.
+
+**Note on the public-release cleanup** (2026-05-25): the Mermaid block below preserves the Sprint 1 close state of the workspace tree, which at that time included `BUILD-PLAN.md`, `PATH-A-BRIEF.md`, and `SESSION-LOG.md` at the repo root. Those three files were removed from the public tree during the public-release cleanup (retained as local-only notes outside the repo); the rest of the snapshot is unaffected.
 
 ```mermaid
 flowchart TD

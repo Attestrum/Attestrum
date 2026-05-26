@@ -1,8 +1,8 @@
 ---
 title: "attestrum-attest three predicate types — v0.3 schema bump (f32 → u32 PPM at E3.6 for cross-target byte determinism)"
-models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/canonicalize.rs, crates/attestrum-attest/src/json.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/tests/api_surface.rs, crates/attestrum-attest/tests/schema_derive.rs, docs/schemas/training-corpus-v0.3.schema.json, docs/schemas/inclusion-proof-v0.3.schema.json, docs/schemas/non-inclusion-proof-v0.3.schema.json, docs/migration/v0.2-to-v0.3-attestrum-rebrand.md, TRAINING_CORPUS_PREDICATE_TYPE, INCLUSION_PROOF_PREDICATE_TYPE, NON_INCLUSION_PROOF_PREDICATE_TYPE, ALL_PREDICATE_TYPES, AttestrumAttestError, canonicalize, json, in-toto Statement v1, Sigstore Bundle v0.3, PATH-A-BRIEF.md Part 3"
+models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/canonicalize.rs, crates/attestrum-attest/src/json.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/tests/api_surface.rs, crates/attestrum-attest/tests/schema_derive.rs, docs/schemas/training-corpus-v0.3.schema.json, docs/schemas/inclusion-proof-v0.3.schema.json, docs/schemas/non-inclusion-proof-v0.3.schema.json, docs/migration/v0.2-to-v0.3-attestrum-rebrand.md, TRAINING_CORPUS_PREDICATE_TYPE, INCLUSION_PROOF_PREDICATE_TYPE, NON_INCLUSION_PROOF_PREDICATE_TYPE, ALL_PREDICATE_TYPES, AttestrumAttestError, canonicalize, json, in-toto Statement v1, Sigstore Bundle v0.3"
 source_of_truth: code
-last_verified: 026b1a8 2026-05-25
+last_verified: 73c609d 2026-05-25
 diagram_type: classDiagram
 ---
 
@@ -12,9 +12,9 @@ Source of truth: `code` — flipped from `diagram` at Sprint 4 commit E2 (`<this
 
 **Three predicates, three publication states, one common wrapper.** All three are wrapped in the same `InTotoStatement` (in-toto v1 spec — `_type` + `subject[]` + `predicateType` + `predicate`) and the same `SigstoreBundleV03` (Sigstore Bundle v0.3 wire format, `application/vnd.dev.sigstore.bundle.v0.3+json` media type). The DIFFERENCE between the three is purely the `predicate` payload shape and the `predicateType` URI string.
 
-- **`TrainingCorpusPredicate`** — fully populated in Sprint 4. Built by `attestrum sign` from a sealed manifest. Per `PATH-A-BRIEF.md §3.1`.
-- **`InclusionProofPredicate`** — type defined + URI locked in Sprint 4 (frozen shape, no `pub fn build()` constructor yet); payload populated in Sprint 5 by `attestrum prove` when a fingerprint match is found. Per `PATH-A-BRIEF.md §3.2`.
-- **`NonInclusionProofPredicate`** — type defined + URI locked in Sprint 4; payload populated in Sprint 5 by `attestrum prove` when no match is found, using the sorted-Merkle adjacent-leaves technique. Per `PATH-A-BRIEF.md §3.3`.
+- **`TrainingCorpusPredicate`** — fully populated in Sprint 4. Built by `attestrum sign` from a sealed manifest.
+- **`InclusionProofPredicate`** — type defined + URI locked in Sprint 4 (frozen shape, no `pub fn build()` constructor yet); payload populated in Sprint 5 by `attestrum prove` when a fingerprint match is found.
+- **`NonInclusionProofPredicate`** — type defined + URI locked in Sprint 4; payload populated in Sprint 5 by `attestrum prove` when no match is found, using the sorted-Merkle adjacent-leaves technique.
 
 **URI placeholders at E1** (literal `attestrum.com/attestation/.../v0.1` strings ship in a later commit per `CLAUDE.md §4`): `PLACEHOLDER_TRAINING_CORPUS_URI_v0.1`, `PLACEHOLDER_INCLUSION_PROOF_URI_v0.1`, `PLACEHOLDER_NON_INCLUSION_PROOF_URI_v0.1`. The literal strings are already defined in `PATH-A-BRIEF.md §3.1 / §3.2 / §3.3` and don't change at the cross-check — the cross-check confirms the JSON-Schema *shape* of each predicate's payload, not the URI string.
 
