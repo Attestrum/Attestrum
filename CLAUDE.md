@@ -14,6 +14,67 @@ You are running with `--dangerously-skip-permissions`. That means you can do rea
 
 ---
 
+## 0.5 Publication Boundary — What Goes In The Public Repo, What Stays Local
+
+**This repo is PUBLIC at `github.com/Attestrum/Attestrum`.** Every commit you make is immediately visible to the world. Internal research, session transcripts, strategic positioning, audit deliberations, founder personal data, and other-business portfolio content stay LOCAL, outside this repo.
+
+This section is the canonical policy. The protocol layers below (`.gitignore`, the `tools/secret-scanner/` pre-commit gate, the `.githooks/pre-commit` hook, the CI verification job, and GitHub server-side push protection) enforce it mechanically. **Do not rely on the layers being perfect. Re-read this section at every session start and apply judgment.**
+
+### 0.5.1 Public surface (in this repo, anyone can read)
+
+| Path | Class |
+|---|---|
+| `/crates/`, `/tools/`, `/tests/` | Rust source + linter tests + test fixtures |
+| `/docs/diagrams/` | Mermaid architecture diagrams |
+| `/docs/migration/`, `/docs/schemas/`, `/docs/license-inventory.md` | Migration / schema / license docs |
+| `/.github/workflows/` | CI definitions |
+| `/Cargo.toml`, `/Cargo.lock`, `/rust-toolchain.toml`, `/rustfmt.toml`, `/clippy.toml`, `/deny.toml` | Build / lint / dep config |
+| `/LICENSE-APACHE`, `/LICENSE-MIT` | License files |
+| `/README.md`, `/SECURITY.md`, `/CHANGELOG.md`, `/CLAUDE.md`, `/DIAGRAMS-OVERVIEW.md` | Public docs |
+| `/.gitignore`, `/.githooks/` | Repo config |
+
+### 0.5.2 Internal-only (NEVER in this repo, ever)
+
+| Path | Class |
+|---|---|
+| `~/Documents/Claude/Attestrum-internal-notes/` | **The canonical internal-only working directory.** Session reports, audit deliberations, removed historical docs, the verbose pre-public CHANGELOG, the original `BUILD-PLAN.md` + `PATH-A-BRIEF.md`, etc. |
+| `~/.claude/plans/` | Claude Code session plan files |
+| `~/.claude/projects/-Users-austinmunday-Documents-Claude-Attestrum/memory/` | Claude Code per-project memory |
+| `~/Documents/Claude/Annex/` | Annex-era historical repo (pre-rebrand) |
+| `Branding Material/` (in-repo, untracked + gitignored) | Brand asset source files (video / audio / logo) |
+| `.playwright-mcp/` (in-repo, untracked + gitignored) | Browser MCP session cache |
+| `.attestrum/`, `.claude/`, `/diagrams-png/` (gitignored) | Local working dirs / generated artifacts |
+
+### 0.5.3 Categorically forbidden in any tracked file
+
+Even if a file is otherwise public-surface, these patterns must never appear in its content:
+
+- **Absolute filesystem paths**: anything matching `/Users/<name>/...` or `/home/<name>/...`. Use repo-relative paths only.
+- **Personal email addresses**: `austindmunday@gmail.com` and any other personal email. Use organizational / project email (`security@attestrum.com`) or no email at all.
+- **Founder's other-business domains**: `austinmundayrealestate.com`, `loadhog.pro`, `austinsidxcombinator.com`, `austinsradar.com`, `haultickets.com`, `img.tokenmaxxen.com`, and similar. These reveal the founder's broader portfolio; they belong in internal notes, not public docs.
+- **Localhost URLs**: `http://127.0.0.1:*`, `http://localhost:*`, and similar — reveal local dev-setup details. If a diagram needs to describe local infrastructure abstractly, do so without naming a specific port.
+- **Session transcripts, handoff docs, GTM docs, multi-reviewer audit deliberations, decision-process meta-narrative**. These belong in internal-notes.
+- **Real API keys / tokens / private keys / JWTs / certificates**. The `tools/secret-scanner/` pre-commit gate (CLAUDE.md §7 sixth gate) catches the known patterns; do not rely solely on it.
+
+### 0.5.4 Anti-patterns specifically forbidden for agents
+
+- **`git add -A` / `git add .` is forbidden.** Always name files explicitly. The most common failure mode is an agent staging an untracked file that was never meant to be in the repo.
+- **Never copy a file from outside the repo into the repo.** If an internal-note becomes interesting enough to publish, rewrite it from scratch as a public-facing doc, then commit the new file — do not `cp` from `~/Documents/Claude/Attestrum-internal-notes/`.
+- **Never echo a secret or path into a tracked file**. If you need to demonstrate a credential format, use an obvious placeholder (`<API_KEY>`, `sk-...REPLACE_ME...`).
+- **Never bypass the pre-commit hook.** The `.githooks/pre-commit` hook intentionally has no env-var override. To skip it requires editing the hook file, which is a deliberate act subject to founder review.
+- **Never reference `~/.claude/plans/<file>.md` paths in tracked files.** Plan files live outside the repo; they are session-internal context, not project documentation.
+
+### 0.5.5 If you find a leak
+
+If you discover a file or piece of content that violates §0.5.1-§0.5.4 already in the public tree:
+
+1. **Stop other work.** Surface to the founder before doing anything destructive.
+2. **For new leaks** (would land in your current commit): edit the file before committing.
+3. **For already-committed leaks** (in `main`): do NOT `git filter-repo` without explicit founder approval. The default is to `git rm` from current state + accept that history retains the content. `git filter-repo` rewrites SHAs and breaks every diagram-linter `last_verified` reference in the repo.
+4. **For credential leaks** specifically: rotate the credential first, then handle the repo cleanup. The credential is the priority, not the file.
+
+---
+
 ## 1. The Document That Governs This Project
 
 This file (`CLAUDE.md`) is the canonical rulebook: process rules, not technical content. Diagram-first, plan-first, session-logging, protected systems, what-not-to-touch.
