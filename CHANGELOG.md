@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Fixed — Tooling
+
+- Diagram-linter freshness check no longer counts docs-only commits (CHANGELOG.md, SESSION-LOG.md) against the 30-commit rolling window. Three boundary-slippage incidents in the project history (each costing a docs-only fix-forward commit which itself loaded the window further) are now structurally impossible. Three new integration tests under `tools/diagram-linter/tests/freshness_pathspec.rs` pin the behavior.
+
 ### Added — Sprint 4 (signing + verification)
 
 - `attestrum sign` — emits a DSSE-wrapped Sigstore Bundle v0.3 over an in-toto Statement v1 payload, with the signing identity recorded in a Rekor v1 transparency-log entry (kind = `dsse`, version = `0.0.1`). The bundle round-trips through `cosign v3+ verify-blob-attestation --new-bundle-format` end-to-end without Attestrum installed (CI-verified).

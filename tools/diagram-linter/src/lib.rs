@@ -15,6 +15,18 @@ use std::process::{Command, Stdio};
 pub const REQUIRED_FRONTMATTER_KEYS: &[&str] =
     &["title", "models", "source_of_truth", "last_verified"];
 
+/// Pathspecs excluded from the freshness rolling window. These two files
+/// change on every commit by CLAUDE.md §6 convention (and historically
+/// SESSION-LOG.md changed on every commit pre-public-flip; it is now
+/// local-only but is retained here defensively in case it is re-created
+/// locally against policy). A commit that touched ONLY these files has
+/// changed nothing the diagrams could need to re-verify against, so it
+/// should not push pre-existing diagram SHAs out of the 30-commit window.
+///
+/// See `FreshnessOracle::from_git` for the pathspec mechanics. This const
+/// is the production exclude list passed at the single caller site.
+pub const DOCS_ONLY_EXCLUDES: &[&str] = &["CHANGELOG.md", "SESSION-LOG.md"];
+
 #[derive(Debug, Clone)]
 pub struct Failure {
     pub file: PathBuf,
@@ -125,7 +137,7 @@ pub fn run_check(
     let workspace_root = workspace_root
         .map(Path::to_path_buf)
         .unwrap_or_else(|| find_workspace_root(root));
-    let oracle = FreshnessOracle::from_git(&workspace_root, 30)?;
+    let oracle = FreshnessOracle::from_git(&workspace_root, 30, DOCS_ONLY_EXCLUDES)?;
 
     for file in &files {
         let content =
@@ -489,21 +501,52 @@ pub fn extract_frontmatter_value<'a>(content: &'a str, key: &str) -> Option<&'a 
 /// the bootstrap token indefinitely — they describe contracted-but-not-yet-implemented
 /// or externally-authoritative state. `source_of_truth: code` diagrams MUST
 /// carry a real short-SHA from the recent commit window.
+///
+/// The recent commit window is built from `git log -- . :!<exclude>` so that
+/// commits which touched ONLY the excluded paths do not push pre-existing
+/// diagram SHAs out of the window. Default excludes are
+/// [`DOCS_ONLY_EXCLUDES`] — files that change on every commit by convention
+/// (CLAUDE.md §6) but don't change what diagrams describe. See
+/// [`FreshnessOracle::from_git`] for the pathspec mechanics.
 pub struct FreshnessOracle {
     pub recent_shas: HashSet<String>,
 }
 
 impl FreshnessOracle {
-    /// Build an oracle by shelling out to `git log` in `repo_root`. `window` controls
-    /// how many recent commits are accepted (PATH-A-BRIEF §0.3 specifies 30).
-    pub fn from_git(repo_root: &Path, window: usize) -> Result<Self, String> {
-        let output = Command::new("git")
-            .arg("-C")
+    /// Build an oracle by shelling out to `git log` in `repo_root`. `window`
+    /// controls how many recent commits are accepted (PATH-A-BRIEF §0.3
+    /// specifies 30; retained as the default at the single caller site).
+    ///
+    /// `exclude_paths` is a list of pathspecs that become `:!path` negative
+    /// pathspecs on the `git log` invocation. Commits that touched ONLY
+    /// excluded paths do not count toward the window. Pathspec matching is
+    /// OR-based — a "mixed" commit that touched at least one non-excluded
+    /// file still qualifies. Pass `&[]` for the legacy "count every commit"
+    /// behavior.
+    ///
+    /// The default exclude list at the production caller is
+    /// [`DOCS_ONLY_EXCLUDES`], which prevents pure-docs commits
+    /// (CHANGELOG.md / SESSION-LOG.md per CLAUDE.md §6) from aging pre-existing
+    /// diagram SHAs out of the rolling window — a boundary-slippage failure
+    /// mode that surfaced three times across Sessions 3+4 of project history.
+    pub fn from_git(
+        repo_root: &Path,
+        window: usize,
+        exclude_paths: &[&str],
+    ) -> Result<Self, String> {
+        let window_str = window.to_string();
+        let mut cmd = Command::new("git");
+        cmd.arg("-C")
             .arg(repo_root)
             .args(["log", "--pretty=format:%h", "-n"])
-            .arg(window.to_string())
-            .output()
-            .map_err(|e| format!("git log failed: {e}"))?;
+            .arg(&window_str);
+        if !exclude_paths.is_empty() {
+            cmd.arg("--").arg(".");
+            for path in exclude_paths {
+                cmd.arg(format!(":!{path}"));
+            }
+        }
+        let output = cmd.output().map_err(|e| format!("git log failed: {e}"))?;
         if !output.status.success() {
             // No git repo, or no commits yet. Treat as empty window — bootstrap-only
             // diagrams still pass; SHA-bearing diagrams fail closed.

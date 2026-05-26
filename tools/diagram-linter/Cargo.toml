@@ -7,3 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+# Used by tests/freshness_pathspec.rs to create ephemeral git repos for
+# the rolling-window pathspec-exclusion integration tests. Already
+# transitively in Cargo.lock via other workspace deps; promoted to a
+# direct dev-dep here. MIT OR Apache-2.0 (both allow-listed per CLAUDE.md §8).
+tempfile = "3"
