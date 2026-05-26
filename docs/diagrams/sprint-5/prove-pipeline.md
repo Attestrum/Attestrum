@@ -2,7 +2,7 @@
 title: "Sprint 5 attestrum-prove pipeline — exact + fuzzy match (E1-E5) + non-inclusion (E6) + alternate manifest sources (E7) + CLI + API freeze (E8)"
 models: "crates/attestrum-prove/src/lib.rs, crates/attestrum-prove/Cargo.toml, crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-merkle/src/lib.rs, crates/attestrum-manifest/src/lib.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/sign.rs, crates/attestrum-cli/src/commands/prove.rs, prove, ProofTarget, ManifestSource, ProveOpts, ProofArtifact, ProofKind, AttestrumProveError, InclusionProofPredicate, NonInclusionProofPredicate, MatchEvidence, IsccEvidence, PerceptualEvidence, MinHashEvidence, CorpusRef, MerkleTree, audit_path, FingerprintBundle, fingerprint_text, fingerprint_image, ManifestEntry"
 source_of_truth: diagram
-last_verified: d407778 2026-05-26
+last_verified: d5ce6e5 2026-05-26
 diagram_type: flowchart
 ---
 
@@ -12,7 +12,7 @@ Source of truth: **`diagram`** through S5-D2 E1-E7. This diagram is the contract
 
 **This is the ONLY sprint-5 diagram for S5-D2** per the D1 cadence precedent (one diagram per deliverable; per-E-commit updates bump `last_verified` + flip branch nodes from grey-deferred to green-shipped rather than creating a new diagram per commit).
 
-**Branch state pre-E1** (this draft, all deferred): every node is grey. Each subsequent E-commit flips a sub-graph from grey to green, with PROTECTED nodes turning red. The current commit being planned is **E1: scaffold + types** (the eight `pub` types in the API surface block); E2 onward fills in functional behavior.
+**Branch state at E1** (this commit, types-only): the public API surface lands (`ProofTarget`, `PerceptualHashes`, `ManifestSource`, `ProveOpts`, `ProofArtifact`, `ProofKind`, `AttestrumProveError`, plus the `pub fn prove()` contract); every Mermaid node remains grey because no functional behavior is wired yet. The `prove()` body is `unimplemented!("S5-D2 E2+ fills this in")`. Each subsequent E-commit flips a sub-graph from grey to green, with PROTECTED nodes turning red. E2 onward fills in functional behavior.
 
 **Parent overview**: `docs/diagrams/overview/prove-pipeline.md` carries the architectural-overview view (sourced from PATH-A-BRIEF Part 1.3 verbatim). This sprint-5 diagram is the implementation-detail view: specific Rust function calls, internal helpers, error edges to typed variants, and the per-E-commit progress tracker. Different audiences.
 

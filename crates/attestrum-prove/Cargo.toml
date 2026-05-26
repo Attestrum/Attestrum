@@ -7,3 +7,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Sprint 5 D2 E1 — minimal dep set per CLAUDE.md §14 (eager-generalization
+# anti-pattern). Each subsequent E-commit adds its own deps as functional
+# code lands: parquet + arrow + attestrum-manifest + attestrum-merkle at
+# E2, hf-hub + url at E7.
+attestrum-core         = { path = "../attestrum-core",         version = "0.0.1" }
+attestrum-attest       = { path = "../attestrum-attest",       version = "0.0.1" }
+attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
+serde                  = { workspace = true }
+thiserror              = { workspace = true }
