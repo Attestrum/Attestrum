@@ -2,7 +2,7 @@
 title: "Hugging Face Hub publish flow"
 models: "crates/attestrum-publish/src/huggingface.rs, crates/attestrum-emit/src/croissant.rs, crates/attestrum-emit/src/dataset_card.rs, crates/attestrum-emit/src/verify_html.rs"
 source_of_truth: diagram
-last_verified: bootstrap 2026-05-24
+last_verified: a8e49bd 2026-05-27
 diagram_type: sequenceDiagram
 ---
 

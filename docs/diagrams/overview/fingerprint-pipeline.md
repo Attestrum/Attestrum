@@ -2,7 +2,7 @@
 title: "fingerprint generation pipeline"
 models: "crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-fingerprint/src/text.rs, crates/attestrum-fingerprint/src/image.rs, crates/attestrum-fingerprint/src/audio.rs, crates/attestrum-fingerprint/src/video.rs"
 source_of_truth: diagram
-last_verified: bootstrap 2026-05-24
+last_verified: a8e49bd 2026-05-27
 diagram_type: flowchart
 ---
 

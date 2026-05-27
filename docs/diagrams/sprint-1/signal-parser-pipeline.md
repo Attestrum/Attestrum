@@ -2,7 +2,7 @@
 title: "signal parser pipeline (Sprint 1 — top three signals)"
 models: "crates/attestrum-signals/src/lib.rs::SignalParser, crates/attestrum-signals/src/robots.rs, crates/attestrum-signals/src/ai_txt.rs, crates/attestrum-signals/src/tdmrep.rs, crates/attestrum-signals/src/decision.rs"
 source_of_truth: diagram
-last_verified: bootstrap 2026-05-24
+last_verified: a8e49bd 2026-05-27
 diagram_type: flowchart
 ---
 
