@@ -164,6 +164,17 @@ pub struct ProveOpts {
     /// manifests (E7) and the emitted Bundle JSON (E4) are written.
     /// `None` defaults to `$PWD/.attestrum/prove/` at E8.
     pub workspace: Option<PathBuf>,
+    /// Path to the corpus's signed in-toto Statement bundle (Sigstore
+    /// Bundle v0.3 JSON, typically produced by `attestrum sign`). When
+    /// `Some(_)`, [`prove`] reads and digests the file via
+    /// [`attestrum_cas::stream_hash_path`] and populates
+    /// `predicate.corpus.attestation_digest` with the real BLAKE3 +
+    /// SHA-256 of the bundle bytes. When `None`, `attestation_digest`
+    /// stays at the E2 zeros-hex placeholder — the caller hasn't
+    /// supplied the corpus's bundle reference, so the field reserves
+    /// the schema slot without binding a concrete digest. Added at
+    /// S5-D2 E4.
+    pub corpus_bundle_path: Option<PathBuf>,
 }
 
 /// The result of a successful [`prove`] call. Either an inclusion or a
@@ -256,7 +267,7 @@ pub enum AttestrumProveError {
 /// Build an inclusion or non-inclusion proof for `target` against
 /// `manifest`.
 ///
-/// **S5-D2 E2-E3 implement the exact-hash dispatch** ([`ProofTarget::Blake3`],
+/// **S5-D2 E2-E4 implement the exact-hash dispatch** ([`ProofTarget::Blake3`],
 /// [`ProofTarget::Sha256`], [`ProofTarget::Bundle`]) against
 /// [`ManifestSource::Local`] only. The returned [`ProofArtifact`] carries a
 /// fully-validating [`InclusionProofPredicate`] wrapped in an
@@ -267,15 +278,39 @@ pub enum AttestrumProveError {
 /// `predicate.{leaf_hash, leaf_index, tree_size, audit_path}` alone via
 /// [`attestrum_merkle::verify_audit_path`], no manifest re-read required.
 ///
-/// Fields still stubbed pending later E-commits:
+/// **E4 wires DSSE-sign (the MVP gate).** When `opts.sign=true`, the
+/// canonicalized Statement is signed via [`attestrum_attest::sign`] —
+/// Sigstore Bundle v0.3, DSSE envelope, Fulcio ephemeral cert, Rekor v1
+/// `dsse@0.0.1` transparency entry — and the resulting bundle is
+/// written to `<opts.workspace.or($PWD/.attestrum)>/prove/inclusion-
+/// proof.sigstore.json`. The path is echoed back in
+/// `ProofArtifact.bundle_path`. The bundle verifies end-to-end via
+/// `cosign v3+ verify-blob-attestation --new-bundle-format` without
+/// Attestrum installed. When `opts.sign=false`, behavior matches E3
+/// exactly: `bundle_path: None`, no network, no OIDC.
 ///
-/// - `bundle_path` is forced to `None` regardless of `opts.sign` (E4
-///   lands DSSE-sign).
-/// - `corpus.attestation_digest` is zeros-hex (refined at E4 alongside
-///   signing — the digest is of the corpus's signed in-toto Statement
-///   which isn't an E3 input).
-/// - `proof_generated_at` / `proof_generator_identity` are `None` (E4
-///   populates these from `opts.source_date_epoch` + the OIDC identity).
+/// `opts.oidc_id_token` is required when `opts.sign=true`; `None` in
+/// that combination surfaces as
+/// [`AttestrumProveError::Sign`] wrapping
+/// [`AttestrumAttestError::SigstoreIdentityToken`].
+///
+/// **E4 also populates two additional predicate fields** unconditionally
+/// (signed or unsigned):
+/// - `proof_generated_at` is derived from `opts.source_date_epoch` via
+///   [`jiff::Timestamp::from_second`] (RFC 3339, deterministic).
+/// - `corpus.attestation_digest` is populated when
+///   `opts.corpus_bundle_path = Some(_)` (BLAKE3 + SHA-256 via
+///   [`attestrum_cas::stream_hash_path`]); otherwise stays at the E2
+///   zeros-hex placeholder.
+///
+/// One field still stubbed (deferred to a hypothetical v0.4 schema bump):
+///
+/// - `proof_generator_identity` is `None` even when signed. The bundle's
+///   leaf cert is the authoritative identity binding; populating the
+///   predicate field would require pre-sign JWT parsing (new dep,
+///   redundant with the cert) or a circular two-pass sign scheme.
+///   Verifiers cross-check identity against the bundle via
+///   [`attestrum_attest::identity::extract_identity`].
 ///
 /// Variants not yet implemented panic with clear "S5-D2 E{N}+" messages:
 /// the fuzzy paths ([`ProofTarget::Iscc`], [`ProofTarget::Perceptual`],
@@ -287,13 +322,6 @@ pub fn prove(
     manifest: ManifestSource,
     opts: &ProveOpts,
 ) -> Result<ProofArtifact, AttestrumProveError> {
-    // E2 reads no `opts` fields directly — `opts.sign` is force-ignored
-    // (bundle_path is always None at E2; E4 wires DSSE-sign); the
-    // predicate's `proof_generated_at` field would consume
-    // `opts.source_date_epoch` at E4 (it stays `None` at E2). The
-    // remaining fields (`oidc_id_token`, `workspace`) are E4+/E7+ inputs.
-    let _ = opts;
-
     let manifest_path = match &manifest {
         ManifestSource::Local(p) => p.clone(),
         ManifestSource::HuggingFace { .. } | ManifestSource::Url(_) => {
@@ -340,15 +368,37 @@ pub fn prove(
 
     let matched_subject = entry_to_subject(entry);
 
+    let attestation_digest = match &opts.corpus_bundle_path {
+        Some(p) => {
+            let h = attestrum_cas::stream_hash_path(p).map_err(|e| {
+                AttestrumProveError::InvalidManifest(format!("corpus_bundle_path read: {e}"))
+            })?;
+            DigestMap {
+                blake3: attestrum_core::hex::encode_32(&h.blake3),
+                sha256: attestrum_core::hex::encode_32(&h.sha256),
+            }
+        }
+        None => DigestMap {
+            blake3: "0".repeat(64),
+            sha256: "0".repeat(64),
+        },
+    };
+
+    let proof_generated_at = jiff::Timestamp::from_second(opts.source_date_epoch)
+        .map_err(|_| {
+            AttestrumProveError::InvalidManifest(format!(
+                "invalid source_date_epoch: {}",
+                opts.source_date_epoch
+            ))
+        })?
+        .to_string();
+
     let predicate = InclusionProofPredicate {
         proof_type: InclusionProofPredicate::PROOF_TYPE_VALUE.to_string(),
         corpus: CorpusRef {
             manifest_uri: format!("file://{}", manifest_path.display()),
             merkle_root: attestrum_core::hex::encode_32(&root),
-            attestation_digest: DigestMap {
-                blake3: "0".repeat(64),
-                sha256: "0".repeat(64),
-            },
+            attestation_digest,
         },
         query_fingerprint: query_fingerprint_json(&target),
         match_evidence: evidence,
@@ -359,7 +409,7 @@ pub fn prove(
         audit_path: audit.iter().map(attestrum_core::hex::encode_32).collect(),
         leaf_index: leaf_index as u64,
         matched_subject: matched_subject.clone(),
-        proof_generated_at: None,
+        proof_generated_at: Some(proof_generated_at),
         proof_generator_identity: None,
     };
     predicate.validate()?;
@@ -372,10 +422,39 @@ pub fn prove(
         predicate_json,
     );
 
+    let bundle_path = if opts.sign {
+        let oidc_token = opts.oidc_id_token.clone().ok_or_else(|| {
+            AttestrumProveError::Sign(AttestrumAttestError::SigstoreIdentityToken(
+                "ProveOpts.oidc_id_token must be Some when ProveOpts.sign is true".into(),
+            ))
+        })?;
+        let canonical = statement.canonical_json().map_err(|e| {
+            AttestrumProveError::InvalidManifest(format!("statement canonical_json: {e}"))
+        })?;
+        let workspace_dir = opts.workspace.clone().unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|p| p.join(".attestrum"))
+                .unwrap_or_else(|_| PathBuf::from(".attestrum"))
+        });
+        let bundle_dir = workspace_dir.join("prove");
+        std::fs::create_dir_all(&bundle_dir).map_err(|e| {
+            AttestrumProveError::InvalidManifest(format!("create workspace prove dir: {e}"))
+        })?;
+        let bundle_out = bundle_dir.join("inclusion-proof.sigstore.json");
+        let signed = attestrum_attest::sign(attestrum_attest::SignRequest {
+            statement_payload: canonical.as_bytes(),
+            bundle_output_path: &bundle_out,
+            oidc_id_token: oidc_token,
+        })?;
+        Some(signed.bundle_path)
+    } else {
+        None
+    };
+
     Ok(ProofArtifact {
         kind: ProofKind::Inclusion,
         statement,
-        bundle_path: None,
+        bundle_path,
         confidence: 1.0,
         matched_subject: Some(matched_subject),
     })
@@ -521,6 +600,7 @@ mod tests {
             source_date_epoch: 0,
             oidc_id_token: None,
             workspace: None,
+            corpus_bundle_path: None,
         };
         assert!(!opts.sign);
         assert_eq!(opts.source_date_epoch, 0);

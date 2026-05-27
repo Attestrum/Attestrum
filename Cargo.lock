@@ -509,10 +509,12 @@ name = "attestrum-prove"
 version = "0.1.0"
 dependencies = [
  "attestrum-attest",
+ "attestrum-cas",
  "attestrum-core",
  "attestrum-fingerprint",
  "attestrum-manifest",
  "attestrum-merkle",
+ "jiff",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

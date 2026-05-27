@@ -97,6 +97,7 @@ fn default_opts() -> ProveOpts {
         source_date_epoch: 1_700_000_000,
         oidc_id_token: None,
         workspace: None,
+        corpus_bundle_path: None,
     }
 }
 
@@ -303,7 +304,11 @@ fn corpus_merkle_root_matches_external_compute() {
     assert_eq!(
         pred.corpus.attestation_digest.blake3,
         "0".repeat(64),
-        "E2 placeholder for attestation_digest"
+        "default_opts has corpus_bundle_path=None → zeros-hex placeholder"
+    );
+    assert!(
+        pred.proof_generated_at.is_some(),
+        "E4 populates proof_generated_at unconditionally from source_date_epoch"
     );
 }
 

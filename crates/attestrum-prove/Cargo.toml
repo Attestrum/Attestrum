@@ -16,11 +16,16 @@ repository.workspace = true
 # E2: + attestrum-manifest, attestrum-merkle, serde_json (local-Parquet
 #     manifest read + RFC 6962 Merkle-root recompute + predicate
 #     JSON-serialization for the in-toto Statement wrapping).
+# E4: + attestrum-cas, jiff (corpus-bundle BLAKE3+SHA-256 digest via
+#     stream_hash_path for predicate.corpus.attestation_digest; RFC 3339
+#     proof_generated_at timestamp from opts.source_date_epoch).
 attestrum-core         = { path = "../attestrum-core",         version = "0.0.1" }
 attestrum-attest       = { path = "../attestrum-attest",       version = "0.0.1" }
 attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
 attestrum-manifest     = { path = "../attestrum-manifest",     version = "0.1.0" }
 attestrum-merkle       = { path = "../attestrum-merkle",       version = "0.1.0" }
+attestrum-cas          = { path = "../attestrum-cas",          version = "0.1.0" }
+jiff                   = { workspace = true }
 serde                  = { workspace = true }
 serde_json             = { workspace = true }
 thiserror              = { workspace = true }
