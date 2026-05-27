@@ -22,6 +22,10 @@ attestrum-pipeline     = { path = "../attestrum-pipeline", version = "0.1.0" }
 # TrainingCorpusPredicate type, deterministic_json helper, and the
 # attestrum_attest::sign() entry point the `attestrum sign` subcommand drives.
 attestrum-attest       = { path = "../attestrum-attest",   version = "0.0.1" }
+# Sprint 5 D2 E8: attestrum-prove provides the prove() entry point + the
+# six-variant AttestrumProveError that the `attestrum prove` subcommand
+# wraps. Already a workspace crate via the Sprint 5 D2 E1-E7 build-up.
+attestrum-prove        = { path = "../attestrum-prove",    version = "0.1.0" }
 # Sprint 3 E7: blake3 hashing for `attestrum plan`'s shard_id assignment.
 # Sprint 4 E3.5 also uses it for the manifest.parquet digest fed into the
 # in-toto Statement's subject + the predicate's manifest.digest_set.

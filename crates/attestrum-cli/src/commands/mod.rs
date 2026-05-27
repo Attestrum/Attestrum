@@ -5,5 +5,6 @@ pub mod build;
 pub mod inspect;
 pub mod merge;
 pub mod plan;
+pub mod prove;
 pub mod sign;
 pub mod verify;

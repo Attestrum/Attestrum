@@ -150,6 +150,59 @@ enum Command {
         print_predicate: bool,
     },
 
+    /// Prove that a document is (or isn't) part of a corpus manifest.
+    /// Reads the manifest (local, hf://, or https://), matches the
+    /// document via exact-hash or fuzzy modality, and emits an in-toto
+    /// inclusion-proof or non-inclusion-proof attestation. Default is
+    /// signed via Fulcio + Rekor (Sigstore Bundle v0.3); pass `--unsigned`
+    /// to skip signing. HuggingFace private datasets require the
+    /// `HF_TOKEN` env var.
+    Prove {
+        /// Document to prove. Either a file path (becomes
+        /// `ProofTarget::Document`) or a 64-char lowercase BLAKE3 hex
+        /// digest (becomes `ProofTarget::Blake3`).
+        #[arg(value_name = "DOC")]
+        doc: String,
+
+        /// Manifest source. Three forms:
+        ///   - filesystem path (e.g. `./manifest.parquet`)
+        ///   - `hf://repo[@revision]` (HuggingFace dataset)
+        ///   - `https://...` or `http://...` (arbitrary URL)
+        #[arg(long, value_name = "MANIFEST")]
+        against: String,
+
+        /// Workspace dir for the signed bundle (E4) and manifest cache
+        /// (E7). Default: `<cwd>/.attestrum/`.
+        #[arg(long, value_name = "PATH")]
+        workspace: Option<PathBuf>,
+
+        /// Reproducible Builds timestamp (epoch seconds) — feeds the
+        /// proof's `proof_generated_at` field. Required either via this
+        /// flag OR via the `SOURCE_DATE_EPOCH` env var (no wall-clock
+        /// fallback per CLAUDE.md §7).
+        #[arg(long, value_name = "TS")]
+        source_date_epoch: Option<i64>,
+
+        /// Path to the corpus's Sigstore Bundle v0.3 JSON. Fed into
+        /// `predicate.corpus.attestation_digest`. Optional.
+        #[arg(long, value_name = "PATH")]
+        corpus_bundle: Option<PathBuf>,
+
+        /// Path to the corpus's CAS root (typically `<corpus>/.attestrum/`).
+        /// Required by the fuzzy `Document` proof target so the prover
+        /// can re-fingerprint the document against the corpus's stored
+        /// inline fingerprints.
+        #[arg(long, value_name = "DIR")]
+        cas_root: Option<PathBuf>,
+
+        /// Skip Sigstore signing. Default is signed via Fulcio + Rekor
+        /// (the E4 MVP-gate decision). Unsigned proofs are still
+        /// cryptographically self-contained — they just don't carry a
+        /// signing-identity attestation.
+        #[arg(long)]
+        unsigned: bool,
+    },
+
     /// Sign a sealed manifest into a Sigstore Bundle v0.3 carrying an
     /// in-toto v1 Statement with a training-corpus/v0.3 predicate.
     /// Networks (Fulcio + Rekor + TUF) + requires an OIDC id_token.
@@ -276,6 +329,27 @@ fn main() -> ExitCode {
                 certificate_oidc_issuer,
                 offline,
                 print_predicate,
+            });
+            ExitCode::from(code)
+        }
+
+        Command::Prove {
+            doc,
+            against,
+            workspace,
+            source_date_epoch,
+            corpus_bundle,
+            cas_root,
+            unsigned,
+        } => {
+            let code = commands::prove::run(commands::prove::Args {
+                doc,
+                against,
+                workspace,
+                source_date_epoch,
+                corpus_bundle,
+                cas_root,
+                unsigned,
             });
             ExitCode::from(code)
         }

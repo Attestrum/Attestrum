@@ -415,6 +415,7 @@ dependencies = [
  "attestrum-manifest",
  "attestrum-merkle",
  "attestrum-pipeline",
+ "attestrum-prove",
  "blake3",
  "clap",
  "parquet",
