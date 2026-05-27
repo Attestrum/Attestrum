@@ -15,9 +15,12 @@
 //! - `no_match_panics_with_e6_message`
 //! - `huggingface_source_panics_with_e7_message`
 //! - `url_source_panics_with_e7_message`
-//! - `iscc_target_panics_with_e5_message`
-//! - `document_target_panics_with_e5_message`
 //! - `corpus_merkle_root_matches_external_compute`
+//!
+//! (Two E2 deferral tests — `iscc_target_panics_with_e5_message` and
+//! `document_target_panics_with_e5_message` — were removed at E5 when
+//! those dispatchers shipped. Equivalent coverage lives in
+//! `tests/fuzzy_match.rs`.)
 //!
 //! E3:
 //! - `single_leaf_manifest_returns_empty_audit_path`
@@ -98,6 +101,7 @@ fn default_opts() -> ProveOpts {
         oidc_id_token: None,
         workspace: None,
         corpus_bundle_path: None,
+        cas_root: None,
     }
 }
 
@@ -350,31 +354,12 @@ fn url_source_panics_with_e7_message() {
     );
 }
 
-#[test]
-#[should_panic(expected = "S5-D2 E5+")]
-fn iscc_target_panics_with_e5_message() {
-    let root = fresh_root("iscc_panic");
-    let manifest = build_test_manifest(&root, &[1]);
-
-    let _ = prove(
-        ProofTarget::Iscc(String::from("ISCC:KACT4EBWK27737D2")),
-        ManifestSource::Local(manifest),
-        &default_opts(),
-    );
-}
-
-#[test]
-#[should_panic(expected = "S5-D2 E5+")]
-fn document_target_panics_with_e5_message() {
-    let root = fresh_root("doc_panic");
-    let manifest = build_test_manifest(&root, &[1]);
-
-    let _ = prove(
-        ProofTarget::Document(PathBuf::from("/dev/null")),
-        ManifestSource::Local(manifest),
-        &default_opts(),
-    );
-}
+// Two E2-era deferral tests removed at E5 (iscc_target_panics_with_e5_message
+// and document_target_panics_with_e5_message): E5 now dispatches the ISCC
+// and Document arms, so the "S5-D2 E5+ lands fuzzy-match paths"
+// `unimplemented!()` no longer fires. Equivalent coverage at E5+:
+// crates/attestrum-prove/tests/fuzzy_match.rs::cas_root_required_for_fuzzy_dispatch
+// (no-cas-root error path) and the multi-mode Document tests in that file.
 
 // ============================================================================
 // S5-D2 E3 — real audit-path tests

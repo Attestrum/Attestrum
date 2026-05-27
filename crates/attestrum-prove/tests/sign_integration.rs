@@ -101,6 +101,7 @@ fn sign_true_without_oidc_token_returns_sign_error() {
         oidc_id_token: None,
         workspace: None,
         corpus_bundle_path: None,
+        cas_root: None,
     };
 
     let err = prove(
@@ -140,6 +141,7 @@ fn corpus_bundle_path_populates_attestation_digest() {
         oidc_id_token: None,
         workspace: None,
         corpus_bundle_path: Some(corpus_bundle.clone()),
+        cas_root: None,
     };
 
     let artifact = prove(
@@ -195,6 +197,7 @@ fn signed_prove_emits_verifiable_bundle() {
         oidc_id_token: Some(token),
         workspace: Some(workspace.clone()),
         corpus_bundle_path: None, // attestation_digest stays zeros-hex for this test
+        cas_root: None,
     };
 
     let artifact = prove(

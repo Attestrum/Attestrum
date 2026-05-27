@@ -514,6 +514,8 @@ dependencies = [
  "attestrum-fingerprint",
  "attestrum-manifest",
  "attestrum-merkle",
+ "image",
+ "iscc-lib",
  "jiff",
  "serde",
  "serde_json",

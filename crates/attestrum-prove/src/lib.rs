@@ -59,9 +59,39 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+// ============================================================================
+// S5-D2 E5 — fuzzy-match thresholds + per-mode confidence
+// ============================================================================
+//
+// Hardcoded per PATH-A-BRIEF §2.2 + the planning diagram's design-note #4.
+// No exposed knobs at v0.1; a v0.2 `ProveOpts` extension may add caller-
+// configurable thresholds.
+
+/// ISCC composite-distance threshold (Hamming bits over the decoded
+/// ISCC body). Matches with `composite_distance <= 4` count as hits.
+const FUZZY_THRESHOLD_ISCC_DISTANCE: u32 = 4;
+/// Perceptual Hamming-distance threshold (bits of difference, max 64).
+/// Matches with `hamming_distance <= 6` over either pHash or blockhash
+/// count as hits.
+const FUZZY_THRESHOLD_PERCEPTUAL_HAMMING: u32 = 6;
+/// MinHash Jaccard similarity threshold in parts-per-million.
+/// `850_000` ppm == 0.85 similarity. Matches with `jaccard >= 850_000`
+/// count as hits.
+const FUZZY_THRESHOLD_MINHASH_JACCARD_PPM: u32 = 850_000;
+
+/// Exact-hash match confidence (BLAKE3, SHA-256, Bundle).
+const CONFIDENCE_EXACT: f32 = 1.00;
+/// ISCC composite-distance match confidence.
+const CONFIDENCE_ISCC: f32 = 0.95;
+/// Perceptual Hamming-distance match confidence (pHash or blockhash).
+const CONFIDENCE_PERCEPTUAL: f32 = 0.85;
+/// MinHash Jaccard-similarity match confidence (text-only).
+const CONFIDENCE_MINHASH: f32 = 0.80;
+
 pub use attestrum_attest::{
     AttestrumAttestError, CorpusRef, DigestMap, InTotoStatement, InclusionProofPredicate,
-    MatchEvidence, NonInclusionProofPredicate, Subject,
+    IsccEvidence, MatchEvidence, MinHashEvidence, NonInclusionProofPredicate, PerceptualEvidence,
+    Subject,
 };
 pub use attestrum_fingerprint::{AttestrumFingerprintError, FingerprintBundle};
 
@@ -175,6 +205,18 @@ pub struct ProveOpts {
     /// the schema slot without binding a concrete digest. Added at
     /// S5-D2 E4.
     pub corpus_bundle_path: Option<PathBuf>,
+    /// Path to the corpus's CAS root directory (typically
+    /// `<corpus_root>/.attestrum/`, the parent of the `cas/blake3/`
+    /// subtree). **REQUIRED** when invoking any fuzzy-match
+    /// [`ProofTarget`] arm ([`ProofTarget::Iscc`],
+    /// [`ProofTarget::Perceptual`], [`ProofTarget::Document`])
+    /// because [`prove`] re-fingerprints each manifest leaf on demand
+    /// via [`attestrum_cas::CasStore::open`]: there's no precomputed
+    /// fuzzy-hash sidecar at v0.1 (a v0.2 optimization may add one).
+    /// `None` is fine for the exact-hash arms ([`ProofTarget::Blake3`],
+    /// [`ProofTarget::Sha256`], [`ProofTarget::Bundle`]) — those
+    /// don't read leaf bytes. Added at S5-D2 E5.
+    pub cas_root: Option<PathBuf>,
 }
 
 /// The result of a successful [`prove`] call. Either an inclusion or a
@@ -312,11 +354,25 @@ pub enum AttestrumProveError {
 ///   Verifiers cross-check identity against the bundle via
 ///   [`attestrum_attest::identity::extract_identity`].
 ///
-/// Variants not yet implemented panic with clear "S5-D2 E{N}+" messages:
-/// the fuzzy paths ([`ProofTarget::Iscc`], [`ProofTarget::Perceptual`],
-/// [`ProofTarget::Document`]) land at E5; the non-inclusion path (target
-/// absent from manifest) lands at E6; the alternate manifest sources
-/// ([`ManifestSource::HuggingFace`], [`ManifestSource::Url`]) land at E7.
+/// **S5-D2 E5 closes the remaining `ProofTarget` arms** — the three
+/// fuzzy paths ([`ProofTarget::Iscc`], [`ProofTarget::Perceptual`],
+/// [`ProofTarget::Document`]) — via **CAS re-fingerprint at prove time**:
+/// when invoked, [`prove`] opens `opts.cas_root` as a
+/// [`attestrum_cas::CasStore`], iterates the manifest leaves, fetches
+/// each leaf's bytes via [`attestrum_cas::CasStore::open`], runs
+/// `fingerprint_text` / `fingerprint_image` per `entry.modality`, and
+/// computes the relevant distance vs the caller's target. No
+/// precomputed fuzzy-hash sidecar exists at v0.1 — a v0.2 optimization
+/// may add one. `opts.cas_root` is REQUIRED for any fuzzy dispatch
+/// (returns `InvalidManifest` when missing). `Modality::{Audio, Video,
+/// Pdf, Other}` leaves are silently skipped during fuzzy scans
+/// (`attestrum-fingerprint` v0.1 supports only Text + Image).
+///
+/// Variants not yet implemented panic with clear "S5-D2 E{N}+"
+/// messages: zero-match outcomes (would-be non-inclusion) panic
+/// pending E6; alternate manifest sources
+/// ([`ManifestSource::HuggingFace`], [`ManifestSource::Url`]) panic
+/// pending E7.
 pub fn prove(
     target: ProofTarget,
     manifest: ManifestSource,
@@ -329,27 +385,23 @@ pub fn prove(
         }
     };
 
-    let (target_b3, target_s256) = match &target {
-        ProofTarget::Blake3(b3) => (Some(*b3), None),
-        ProofTarget::Sha256(s) => (None, Some(*s)),
-        ProofTarget::Bundle(bundle) => {
-            let b3 = attestrum_core::hex::decode_32(&bundle.blake3).map_err(|e| {
-                AttestrumProveError::InvalidManifest(format!("bundle.blake3 hex: {e}"))
-            })?;
-            let s = attestrum_core::hex::decode_32(&bundle.sha256).map_err(|e| {
-                AttestrumProveError::InvalidManifest(format!("bundle.sha256 hex: {e}"))
-            })?;
-            (Some(b3), Some(s))
-        }
-        ProofTarget::Iscc(_) | ProofTarget::Perceptual(_) | ProofTarget::Document(_) => {
-            unimplemented!("S5-D2 E5+ lands fuzzy-match paths (ISCC, Perceptual, Document)")
-        }
-    };
-
     let entries = attestrum_manifest::read_manifest(&manifest_path)
         .map_err(|e| AttestrumProveError::InvalidManifest(e.to_string()))?;
 
-    let (leaf_index, evidence) = find_exact_match(&entries, target_b3, target_s256)?;
+    let (leaf_index, evidence, confidence) = match &target {
+        ProofTarget::Blake3(_) | ProofTarget::Sha256(_) | ProofTarget::Bundle(_) => {
+            let (target_b3, target_s256) = extract_exact_targets(&target)?;
+            match find_exact_match(&entries, target_b3, target_s256)? {
+                Some((idx, evi)) => (idx, evi, CONFIDENCE_EXACT),
+                None => unimplemented!(
+                    "S5-D2 E6 lands non-inclusion path; target not found in manifest"
+                ),
+            }
+        }
+        ProofTarget::Iscc(iscc_str) => dispatch_iscc(iscc_str, &entries, opts)?,
+        ProofTarget::Perceptual(hashes) => dispatch_perceptual(hashes, &entries, opts)?,
+        ProofTarget::Document(path) => dispatch_document(path, &entries, opts)?,
+    };
     let entry = &entries[leaf_index];
 
     let tree = attestrum_merkle::MerkleTree::new(entries.iter().map(|e| e.document_id).collect());
@@ -455,7 +507,7 @@ pub fn prove(
         kind: ProofKind::Inclusion,
         statement,
         bundle_path,
-        confidence: 1.0,
+        confidence,
         matched_subject: Some(matched_subject),
     })
 }
@@ -478,7 +530,7 @@ fn find_exact_match(
     entries: &[attestrum_manifest::ManifestEntry],
     target_b3: Option<[u8; 32]>,
     target_s256: Option<[u8; 32]>,
-) -> Result<(usize, MatchEvidence), AttestrumProveError> {
+) -> Result<Option<(usize, MatchEvidence)>, AttestrumProveError> {
     if let Some(b3) = target_b3 {
         let hits: Vec<usize> = entries
             .iter()
@@ -487,7 +539,7 @@ fn find_exact_match(
             .collect();
         match hits.len() {
             0 => { /* fall through to SHA-256 fallback if Bundle target */ }
-            1 => return Ok((hits[0], MatchEvidence::ExactBlake3)),
+            1 => return Ok(Some((hits[0], MatchEvidence::ExactBlake3))),
             n => return Err(AttestrumProveError::Ambiguous(n)),
         }
     }
@@ -499,13 +551,16 @@ fn find_exact_match(
             .filter_map(|(i, e)| if e.sha256 == s256 { Some(i) } else { None })
             .collect();
         match hits.len() {
-            0 => { /* no match either way → non-inclusion path (E6) */ }
-            1 => return Ok((hits[0], MatchEvidence::ExactSha256)),
+            0 => { /* no match either way → caller (prove() exact-arm or
+                 dispatch_document) decides: panic with E6 message
+                 or fall through to fuzzy mode. */
+            }
+            1 => return Ok(Some((hits[0], MatchEvidence::ExactSha256))),
             n => return Err(AttestrumProveError::Ambiguous(n)),
         }
     }
 
-    unimplemented!("S5-D2 E6 lands non-inclusion path; target not found in manifest")
+    Ok(None)
 }
 
 /// Build a [`Subject`] from a manifest leaf. `name` is taken from
@@ -541,13 +596,386 @@ fn query_fingerprint_json(target: &ProofTarget) -> serde_json::Value {
             "blake3": bundle.blake3,
             "sha256": bundle.sha256,
         }),
-        // The fuzzy variants are unreachable here — `prove()` panics
-        // on them via `unimplemented!()` before reaching this helper.
-        // Listed for exhaustiveness so the compiler enforces coverage
-        // when E5 fills them in.
-        ProofTarget::Iscc(_) | ProofTarget::Perceptual(_) | ProofTarget::Document(_) => {
-            unreachable!("E5 fills the fuzzy-path query_fingerprint shape")
+        ProofTarget::Iscc(iscc) => serde_json::json!({ "iscc": iscc }),
+        ProofTarget::Perceptual(p) => serde_json::json!({
+            "phash": encode_hex_8(&p.phash),
+            "blockhash": encode_hex_8(&p.blockhash),
+        }),
+        ProofTarget::Document(path) => serde_json::json!({
+            "documentPath": path.to_string_lossy(),
+        }),
+    }
+}
+
+// ============================================================================
+// S5-D2 E5 — exact-target extraction helper (factored out of the dispatch
+// match so the four arms share a uniform `(idx, evi, confidence)` shape).
+// ============================================================================
+
+/// `(blake3, sha256)` exact-hash target pair extracted from a
+/// `ProofTarget`. `None` on either side means "no target for that
+/// column" (e.g., `ProofTarget::Blake3` carries Some BLAKE3, None
+/// SHA-256). Type alias suppresses clippy::type_complexity on the
+/// `extract_exact_targets` return.
+type ExactTargets = (Option<[u8; 32]>, Option<[u8; 32]>);
+
+/// Extract `(target_b3, target_s256)` from the three exact-hash arms of
+/// [`ProofTarget`]. Errors on hex-parse failure for the Bundle arm.
+/// Returns `(None, None)` for fuzzy arms, which the caller must never
+/// reach.
+fn extract_exact_targets(target: &ProofTarget) -> Result<ExactTargets, AttestrumProveError> {
+    match target {
+        ProofTarget::Blake3(b3) => Ok((Some(*b3), None)),
+        ProofTarget::Sha256(s) => Ok((None, Some(*s))),
+        ProofTarget::Bundle(bundle) => {
+            let b3 = attestrum_core::hex::decode_32(&bundle.blake3).map_err(|e| {
+                AttestrumProveError::InvalidManifest(format!("bundle.blake3 hex: {e}"))
+            })?;
+            let s = attestrum_core::hex::decode_32(&bundle.sha256).map_err(|e| {
+                AttestrumProveError::InvalidManifest(format!("bundle.sha256 hex: {e}"))
+            })?;
+            Ok((Some(b3), Some(s)))
         }
+        ProofTarget::Iscc(_) | ProofTarget::Perceptual(_) | ProofTarget::Document(_) => {
+            unreachable!("extract_exact_targets called on fuzzy variant — dispatcher bug")
+        }
+    }
+}
+
+// ============================================================================
+// S5-D2 E5 — distance helpers (hand-rolled; ~5 LOC each).
+// ============================================================================
+//
+// Kept private to `attestrum-prove` rather than adding to PROTECTED
+// `attestrum-fingerprint`. Stateless arithmetic; not load-bearing
+// crate-public surface.
+
+/// ISCC composite distance: Hamming bits over the body bytes of two
+/// decoded ISCC strings. Both inputs must decode to bodies of equal
+/// length (a length mismatch indicates the two ISCC codes have
+/// different MainType / SubType / length headers and aren't
+/// distance-comparable).
+fn iscc_composite_distance(a: &str, b: &str) -> Result<u32, AttestrumProveError> {
+    let (_, _, _, _, a_body) = iscc_lib::iscc_decode(a)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("iscc decode target: {e}")))?;
+    let (_, _, _, _, b_body) = iscc_lib::iscc_decode(b)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("iscc decode leaf: {e}")))?;
+    if a_body.len() != b_body.len() {
+        return Err(AttestrumProveError::InvalidManifest(format!(
+            "iscc body length mismatch: {} vs {}",
+            a_body.len(),
+            b_body.len()
+        )));
+    }
+    Ok(a_body
+        .iter()
+        .zip(b_body.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum())
+}
+
+/// Decode a 16-char lowercase hex string into the 8-byte hash it
+/// represents (used for pHash + blockhash). Errors on length / hex
+/// parse violations.
+fn decode_hex_8(s: &str) -> Result<[u8; 8], AttestrumProveError> {
+    if s.len() != 16 {
+        return Err(AttestrumProveError::InvalidManifest(format!(
+            "expected 16-char hex, got {} chars",
+            s.len()
+        )));
+    }
+    let mut out = [0u8; 8];
+    for (i, byte) in out.iter_mut().enumerate() {
+        let hex_byte = &s[i * 2..i * 2 + 2];
+        *byte = u8::from_str_radix(hex_byte, 16)
+            .map_err(|e| AttestrumProveError::InvalidManifest(format!("hex parse: {e}")))?;
+    }
+    Ok(out)
+}
+
+/// Lowercase-hex encode an 8-byte hash (the inverse of [`decode_hex_8`]).
+fn encode_hex_8(bytes: &[u8; 8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(16);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+/// 64-bit Hamming distance over two 16-char lowercase hex strings.
+/// Returns `0..=64`.
+fn hamming_distance_hex64(a: &str, b: &str) -> Result<u32, AttestrumProveError> {
+    let a_b = decode_hex_8(a)?;
+    let b_b = decode_hex_8(b)?;
+    Ok(a_b
+        .iter()
+        .zip(b_b.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum())
+}
+
+/// MinHash Jaccard similarity in parts-per-million (0..=1_000_000).
+/// Both slices must be of length 128 (PROTECTED `attestrum-fingerprint`
+/// v0.1 lock).
+fn minhash_jaccard_ppm(a: &[u64], b: &[u64]) -> u32 {
+    debug_assert_eq!(a.len(), 128, "MinHash v0.1 schema is 128 perms");
+    debug_assert_eq!(b.len(), 128, "MinHash v0.1 schema is 128 perms");
+    let matches = a.iter().zip(b.iter()).filter(|(x, y)| x == y).count();
+    ((matches as u64) * 1_000_000 / 128) as u32
+}
+
+// ============================================================================
+// S5-D2 E5 — fuzzy-match dispatchers.
+//
+// Each iterates `entries`, opens the corpus CAS via opts.cas_root,
+// fetches per-leaf bytes by `entry.document_id`, fingerprints per
+// `entry.modality`, computes distance vs target, and returns the
+// best-match `(leaf_index, MatchEvidence, confidence)`. Zero-match
+// outcomes panic with the E6 message (non-inclusion is deferred).
+// Modality::{Audio,Video,Pdf,Other} leaves are silently skipped
+// (fingerprint crate supports only Text + Image at v0.1).
+// ============================================================================
+
+/// Open the corpus's CAS or surface a clear "cas_root required" error.
+fn open_cas(opts: &ProveOpts) -> Result<attestrum_cas::CasStore, AttestrumProveError> {
+    let root = opts.cas_root.as_ref().ok_or_else(|| {
+        AttestrumProveError::InvalidManifest(
+            "cas_root required for fuzzy-match dispatch (ISCC / Perceptual / Document)".into(),
+        )
+    })?;
+    attestrum_cas::CasStore::new(root)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("open cas: {e}")))
+}
+
+/// Fetch one leaf's bytes from the CAS by its BLAKE3 document_id.
+fn read_leaf_bytes(
+    cas: &attestrum_cas::CasStore,
+    document_id: &[u8; 32],
+) -> Result<Vec<u8>, AttestrumProveError> {
+    use std::io::Read;
+    let mut file = cas
+        .open(document_id)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("cas open leaf: {e}")))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("cas read leaf: {e}")))?;
+    Ok(bytes)
+}
+
+/// Fingerprint one leaf's bytes per its declared modality. Returns
+/// `Ok(None)` for unsupported modalities (Audio / Video / Pdf / Other)
+/// so the caller can silently skip; returns `Ok(Some(bundle))` for
+/// Text / Image; returns `Err(_)` only on real fingerprint failure
+/// (e.g. invalid UTF-8 in a text-marked leaf, undecodable image bytes).
+fn fingerprint_leaf(
+    bytes: &[u8],
+    modality: attestrum_fingerprint::Modality,
+    source_date_epoch: i64,
+) -> Result<Option<FingerprintBundle>, AttestrumProveError> {
+    let fp_opts = attestrum_fingerprint::FingerprintOpts { source_date_epoch };
+    match modality {
+        attestrum_fingerprint::Modality::Text => Ok(Some(attestrum_fingerprint::fingerprint_text(
+            bytes, &fp_opts,
+        )?)),
+        attestrum_fingerprint::Modality::Image => Ok(Some(
+            attestrum_fingerprint::fingerprint_image(bytes, &fp_opts)?,
+        )),
+        _ => Ok(None),
+    }
+}
+
+fn dispatch_iscc(
+    target_iscc: &str,
+    entries: &[attestrum_manifest::ManifestEntry],
+    opts: &ProveOpts,
+) -> Result<(usize, MatchEvidence, f32), AttestrumProveError> {
+    let cas = open_cas(opts)?;
+    let mut best: Option<(usize, u32)> = None;
+    for (idx, entry) in entries.iter().enumerate() {
+        let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
+        let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
+            Some(b) => b,
+            None => continue,
+        };
+        let leaf_iscc = match bundle.iscc.as_ref() {
+            Some(iscc) => &iscc.composite,
+            None => continue,
+        };
+        let dist = iscc_composite_distance(target_iscc, leaf_iscc)?;
+        if dist <= FUZZY_THRESHOLD_ISCC_DISTANCE && best.map(|(_, d)| dist < d).unwrap_or(true) {
+            best = Some((idx, dist));
+        }
+    }
+    match best {
+        Some((idx, dist)) => Ok((
+            idx,
+            MatchEvidence::Iscc(attestrum_attest::IsccEvidence {
+                composite_distance: dist,
+            }),
+            CONFIDENCE_ISCC,
+        )),
+        None => unimplemented!(
+            "S5-D2 E6 lands non-inclusion path; ISCC target had no leaf with composite_distance <= {}",
+            FUZZY_THRESHOLD_ISCC_DISTANCE
+        ),
+    }
+}
+
+fn dispatch_perceptual(
+    target: &PerceptualHashes,
+    entries: &[attestrum_manifest::ManifestEntry],
+    opts: &ProveOpts,
+) -> Result<(usize, MatchEvidence, f32), AttestrumProveError> {
+    let cas = open_cas(opts)?;
+    let mut best: Option<(usize, u32)> = None;
+    for (idx, entry) in entries.iter().enumerate() {
+        if !matches!(entry.modality, attestrum_fingerprint::Modality::Image) {
+            continue;
+        }
+        let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
+        let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
+            Some(b) => b,
+            None => continue,
+        };
+        let image = match bundle.image.as_ref() {
+            Some(i) => i,
+            None => continue,
+        };
+        let dist_phash = hamming_distance_hex64(&encode_hex_8(&target.phash), &image.phash)?;
+        let dist_blockhash =
+            hamming_distance_hex64(&encode_hex_8(&target.blockhash), &image.blockhash)?;
+        let leaf_min = dist_phash.min(dist_blockhash);
+        if leaf_min <= FUZZY_THRESHOLD_PERCEPTUAL_HAMMING
+            && best.map(|(_, d)| leaf_min < d).unwrap_or(true)
+        {
+            best = Some((idx, leaf_min));
+        }
+    }
+    match best {
+        Some((idx, dist)) => Ok((
+            idx,
+            MatchEvidence::Perceptual(attestrum_attest::PerceptualEvidence {
+                hamming_distance: dist,
+                threshold: FUZZY_THRESHOLD_PERCEPTUAL_HAMMING,
+            }),
+            CONFIDENCE_PERCEPTUAL,
+        )),
+        None => unimplemented!(
+            "S5-D2 E6 lands non-inclusion path; Perceptual target had no image leaf within hamming <= {}",
+            FUZZY_THRESHOLD_PERCEPTUAL_HAMMING
+        ),
+    }
+}
+
+fn dispatch_document(
+    path: &std::path::Path,
+    entries: &[attestrum_manifest::ManifestEntry],
+    opts: &ProveOpts,
+) -> Result<(usize, MatchEvidence, f32), AttestrumProveError> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("document read: {e}")))?;
+    let fp_opts = attestrum_fingerprint::FingerprintOpts {
+        source_date_epoch: opts.source_date_epoch,
+    };
+    let (input_modality, input_bundle) = if std::str::from_utf8(&bytes).is_ok() {
+        let bundle = attestrum_fingerprint::fingerprint_text(&bytes, &fp_opts)?;
+        (attestrum_fingerprint::Modality::Text, bundle)
+    } else if image::guess_format(&bytes).is_ok() {
+        let bundle = attestrum_fingerprint::fingerprint_image(&bytes, &fp_opts)?;
+        (attestrum_fingerprint::Modality::Image, bundle)
+    } else {
+        return Err(AttestrumProveError::InvalidManifest(format!(
+            "unsupported document modality at {path:?}: not UTF-8 and not a recognized image format"
+        )));
+    };
+
+    // 1. Try exact BLAKE3 / SHA-256 first (highest confidence, fastest —
+    //    no CAS scan). Note: this works for image Documents (where both
+    //    BLAKE3 inputs are raw bytes), but NOT for text Documents
+    //    (fingerprint_text hashes the normalized bytes per the PROTECTED
+    //    v0.1 pipeline; the manifest stores raw-bytes BLAKE3 via
+    //    stream_hash). Text Documents reliably fall through to the
+    //    ISCC / MinHash fuzzy fallbacks below.
+    let input_b3 = attestrum_core::hex::decode_32(&input_bundle.blake3)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("document blake3 hex: {e}")))?;
+    let input_s256 = attestrum_core::hex::decode_32(&input_bundle.sha256)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("document sha256 hex: {e}")))?;
+    if let Some((idx, evi)) = find_exact_match(entries, Some(input_b3), Some(input_s256))? {
+        return Ok((idx, evi, CONFIDENCE_EXACT));
+    }
+
+    // 2. Fall back to the fuzzy modes in confidence order (ISCC > Perceptual > MinHash).
+    if let Some(iscc) = input_bundle.iscc.as_ref() {
+        if let Ok(hit) = dispatch_iscc(&iscc.composite, entries, opts) {
+            return Ok(hit);
+        }
+    }
+    if matches!(input_modality, attestrum_fingerprint::Modality::Image) {
+        if let Some(image) = input_bundle.image.as_ref() {
+            let p = PerceptualHashes {
+                phash: decode_hex_8(&image.phash)?,
+                blockhash: decode_hex_8(&image.blockhash)?,
+            };
+            if let Ok(hit) = dispatch_perceptual(&p, entries, opts) {
+                return Ok(hit);
+            }
+        }
+    }
+    if matches!(input_modality, attestrum_fingerprint::Modality::Text) {
+        if let Some(text) = input_bundle.text.as_ref() {
+            if let Ok(hit) = dispatch_minhash(&text.minhash, entries, opts) {
+                return Ok(hit);
+            }
+        }
+    }
+
+    unimplemented!("S5-D2 E6 lands non-inclusion path; Document target had no match in any mode")
+}
+
+/// MinHash dispatcher — only invoked from `dispatch_document` for the
+/// text-modality path (MinHash isn't exposed as its own `ProofTarget`
+/// variant; per PATH-A-BRIEF §2.2 it's reached via Document).
+fn dispatch_minhash(
+    target_minhash: &[u64],
+    entries: &[attestrum_manifest::ManifestEntry],
+    opts: &ProveOpts,
+) -> Result<(usize, MatchEvidence, f32), AttestrumProveError> {
+    let cas = open_cas(opts)?;
+    let mut best: Option<(usize, u32)> = None;
+    for (idx, entry) in entries.iter().enumerate() {
+        if !matches!(entry.modality, attestrum_fingerprint::Modality::Text) {
+            continue;
+        }
+        let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
+        let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
+            Some(b) => b,
+            None => continue,
+        };
+        let text = match bundle.text.as_ref() {
+            Some(t) => t,
+            None => continue,
+        };
+        let jaccard = minhash_jaccard_ppm(target_minhash, &text.minhash);
+        if jaccard >= FUZZY_THRESHOLD_MINHASH_JACCARD_PPM
+            && best.map(|(_, j)| jaccard > j).unwrap_or(true)
+        {
+            best = Some((idx, jaccard));
+        }
+    }
+    match best {
+        Some((idx, jaccard)) => Ok((
+            idx,
+            MatchEvidence::MinHash(attestrum_attest::MinHashEvidence {
+                jaccard,
+                ngram_size: 5,
+            }),
+            CONFIDENCE_MINHASH,
+        )),
+        None => unimplemented!(
+            "S5-D2 E6 lands non-inclusion path; MinHash target had no text leaf within jaccard >= {} ppm",
+            FUZZY_THRESHOLD_MINHASH_JACCARD_PPM
+        ),
     }
 }
 
@@ -601,6 +1029,7 @@ mod tests {
             oidc_id_token: None,
             workspace: None,
             corpus_bundle_path: None,
+            cas_root: None,
         };
         assert!(!opts.sign);
         assert_eq!(opts.source_date_epoch, 0);

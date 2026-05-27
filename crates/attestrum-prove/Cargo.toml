@@ -19,12 +19,18 @@ repository.workspace = true
 # E4: + attestrum-cas, jiff (corpus-bundle BLAKE3+SHA-256 digest via
 #     stream_hash_path for predicate.corpus.attestation_digest; RFC 3339
 #     proof_generated_at timestamp from opts.source_date_epoch).
+# E5: + iscc-lib, image (ISCC composite-distance via iscc_decode on the
+#     hashes inside each FingerprintBundle; image::guess_format for the
+#     Document dispatcher's MIME detection; CAS re-fingerprint at prove
+#     time so manifest leaves don't need pre-computed fuzzy hashes).
 attestrum-core         = { path = "../attestrum-core",         version = "0.0.1" }
 attestrum-attest       = { path = "../attestrum-attest",       version = "0.0.1" }
 attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
 attestrum-manifest     = { path = "../attestrum-manifest",     version = "0.1.0" }
 attestrum-merkle       = { path = "../attestrum-merkle",       version = "0.1.0" }
 attestrum-cas          = { path = "../attestrum-cas",          version = "0.1.0" }
+iscc-lib               = { workspace = true }
+image                  = { workspace = true }
 jiff                   = { workspace = true }
 serde                  = { workspace = true }
 serde_json             = { workspace = true }
