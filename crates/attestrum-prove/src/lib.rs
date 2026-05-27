@@ -89,9 +89,10 @@ const CONFIDENCE_PERCEPTUAL: f32 = 0.85;
 const CONFIDENCE_MINHASH: f32 = 0.80;
 
 pub use attestrum_attest::{
-    AttestrumAttestError, CorpusRef, DigestMap, InTotoStatement, InclusionProofPredicate,
-    IsccEvidence, MatchEvidence, MinHashEvidence, NonInclusionProofPredicate, PerceptualEvidence,
-    Subject,
+    AttestrumAttestError, BoundaryCase, CorpusRef, DigestMap, InTotoStatement,
+    InclusionProofPredicate, IsccEvidence, MatchEvidence, MinHashEvidence, Neighbor,
+    NonInclusionProofPredicate, PerceptualEvidence, SortedAssertion, Subject,
+    INCLUSION_PROOF_PREDICATE_TYPE, NON_INCLUSION_PROOF_PREDICATE_TYPE,
 };
 pub use attestrum_fingerprint::{AttestrumFingerprintError, FingerprintBundle};
 
@@ -389,13 +390,31 @@ pub fn prove(
         .map_err(|e| AttestrumProveError::InvalidManifest(e.to_string()))?;
 
     let (leaf_index, evidence, confidence) = match &target {
-        ProofTarget::Blake3(_) | ProofTarget::Sha256(_) | ProofTarget::Bundle(_) => {
+        ProofTarget::Blake3(_) | ProofTarget::Bundle(_) => {
             let (target_b3, target_s256) = extract_exact_targets(&target)?;
             match find_exact_match(&entries, target_b3, target_s256)? {
                 Some((idx, evi)) => (idx, evi, CONFIDENCE_EXACT),
-                None => unimplemented!(
-                    "S5-D2 E6 lands non-inclusion path; target not found in manifest"
-                ),
+                None => {
+                    // E6 non-inclusion: Blake3 + Bundle both always carry a
+                    // BLAKE3 target. Route through the sorted-Merkle
+                    // adjacent-leaves helper.
+                    let tb3 = target_b3
+                        .expect("Blake3/Bundle ProofTarget always extracts a BLAKE3 target");
+                    return dispatch_non_inclusion(&target, tb3, &entries, &manifest_path, opts);
+                }
+            }
+        }
+        ProofTarget::Sha256(_) => {
+            let (target_b3, target_s256) = extract_exact_targets(&target)?;
+            match find_exact_match(&entries, target_b3, target_s256)? {
+                Some((idx, evi)) => (idx, evi, CONFIDENCE_EXACT),
+                None => {
+                    return Err(AttestrumProveError::InvalidManifest(
+                        "Sha256 non-inclusion is v0.2 work \
+                         — use Blake3 target for non-inclusion proofs"
+                            .into(),
+                    ));
+                }
             }
         }
         ProofTarget::Iscc(iscc_str) => dispatch_iscc(iscc_str, &entries, opts)?,
@@ -815,10 +834,11 @@ fn dispatch_iscc(
             }),
             CONFIDENCE_ISCC,
         )),
-        None => unimplemented!(
-            "S5-D2 E6 lands non-inclusion path; ISCC target had no leaf with composite_distance <= {}",
-            FUZZY_THRESHOLD_ISCC_DISTANCE
-        ),
+        None => Err(AttestrumProveError::InvalidManifest(
+            "fuzzy non-inclusion is v0.2 work \
+             — exhaustive-search proof shape not yet specified"
+                .into(),
+        )),
     }
 }
 
@@ -861,10 +881,11 @@ fn dispatch_perceptual(
             }),
             CONFIDENCE_PERCEPTUAL,
         )),
-        None => unimplemented!(
-            "S5-D2 E6 lands non-inclusion path; Perceptual target had no image leaf within hamming <= {}",
-            FUZZY_THRESHOLD_PERCEPTUAL_HAMMING
-        ),
+        None => Err(AttestrumProveError::InvalidManifest(
+            "fuzzy non-inclusion is v0.2 work \
+             — exhaustive-search proof shape not yet specified"
+                .into(),
+        )),
     }
 }
 
@@ -930,7 +951,11 @@ fn dispatch_document(
         }
     }
 
-    unimplemented!("S5-D2 E6 lands non-inclusion path; Document target had no match in any mode")
+    Err(AttestrumProveError::InvalidManifest(
+        "fuzzy non-inclusion is v0.2 work \
+         — exhaustive-search proof shape not yet specified"
+            .into(),
+    ))
 }
 
 /// MinHash dispatcher — only invoked from `dispatch_document` for the
@@ -972,11 +997,217 @@ fn dispatch_minhash(
             }),
             CONFIDENCE_MINHASH,
         )),
-        None => unimplemented!(
-            "S5-D2 E6 lands non-inclusion path; MinHash target had no text leaf within jaccard >= {} ppm",
-            FUZZY_THRESHOLD_MINHASH_JACCARD_PPM
-        ),
+        None => Err(AttestrumProveError::InvalidManifest(
+            "fuzzy non-inclusion is v0.2 work \
+             — exhaustive-search proof shape not yet specified"
+                .into(),
+        )),
     }
+}
+
+// ============================================================================
+// S5-D2 E6 — non-inclusion proof dispatcher
+// ============================================================================
+//
+// Reached from `prove()` when `find_exact_match` returns `Ok(None)` for
+// a `ProofTarget::Blake3` or `ProofTarget::Bundle` query. Both variants
+// always carry a BLAKE3 digest, which is also the sort key for the
+// manifest's leaf set — so the same binary-search adjacency lookup
+// works for both. Sha256 + fuzzy non-inclusion are deferred to v0.2 per
+// the founder-approved E6 scope (see commit footer).
+//
+// The verifier independently re-verifies each neighbor's inclusion via
+// `attestrum_merkle::verify_audit_path` against the corpus root, then
+// confirms the boundary-case invariant (`leftIndex + 1 == rightIndex`).
+
+/// Duplicate-leaf policy string for the v0.1 `SortedAssertion`.
+/// Documents the multiset behavior at adjacency boundaries so the
+/// verifier can correctly interpret a non-inclusion proof when the
+/// reported neighbor sits adjacent to a hash-equal sibling.
+const DUPLICATE_LEAF_POLICY_V0_1: &str =
+    "duplicate adjacent leaves at the boundary are reported as a single neighbor by minimum \
+     input_ordinal; the verifier MUST treat hash-equal adjacent leaves at boundary indices as a \
+     multiset and confirm none equals the query";
+
+/// Build a [`Neighbor`] for `entries[idx]` against `tree`. The
+/// `ordering_key` at v0.1 is the same value as `leaf_hash` because the
+/// manifest is sorted by BLAKE3 digest, which IS the leaf hash (per
+/// `SortedAssertion.ordering = "blake3-bytewise-ascending"`).
+fn build_neighbor(
+    tree: &attestrum_merkle::MerkleTree,
+    entries: &[attestrum_manifest::ManifestEntry],
+    idx: usize,
+) -> Result<Neighbor, AttestrumProveError> {
+    let audit = tree.audit_path(idx).map_err(|e| {
+        // Unreachable by construction: idx is sourced from
+        // find_adjacent_leaves over the same entries the tree was built
+        // from. Map to InvalidManifest defensively rather than unwrap.
+        AttestrumProveError::InvalidManifest(format!(
+            "neighbor audit_path: leaf_index={idx} tree_size={}: {e}",
+            tree.len()
+        ))
+    })?;
+    let leaf_hex = attestrum_core::hex::encode_32(&entries[idx].document_id);
+    Ok(Neighbor {
+        leaf_hash: leaf_hex.clone(),
+        ordering_key: leaf_hex,
+        leaf_index: idx as u64,
+        inclusion_proof_audit_path: audit.iter().map(attestrum_core::hex::encode_32).collect(),
+    })
+}
+
+/// Emit a `ProofKind::NonInclusion` artifact for `target_b3` absent from
+/// `entries`. Called from `prove()`'s exact-arm when `find_exact_match`
+/// returns `Ok(None)` for Blake3 / Bundle targets.
+fn dispatch_non_inclusion(
+    target: &ProofTarget,
+    target_b3: [u8; 32],
+    entries: &[attestrum_manifest::ManifestEntry],
+    manifest_path: &std::path::Path,
+    opts: &ProveOpts,
+) -> Result<ProofArtifact, AttestrumProveError> {
+    let leaves: Vec<[u8; 32]> = entries.iter().map(|e| e.document_id).collect();
+    let tree = attestrum_merkle::MerkleTree::new(leaves.clone());
+    let root = tree.root();
+
+    let (boundary_case, left_neighbor, right_neighbor) =
+        match attestrum_merkle::find_adjacent_leaves(&leaves, &target_b3) {
+            attestrum_merkle::AdjacencyResult::Found { leaf_index } => {
+                unreachable!(
+                    "dispatch_non_inclusion called after find_exact_match returned Ok(None), \
+                     but find_adjacent_leaves reported Found at leaf_index={leaf_index}"
+                )
+            }
+            attestrum_merkle::AdjacencyResult::Empty => {
+                return Err(AttestrumProveError::InvalidManifest(
+                    "empty manifest — non-inclusion proof undefined".into(),
+                ));
+            }
+            attestrum_merkle::AdjacencyResult::Interior { left, right } => (
+                BoundaryCase::Interior,
+                Some(build_neighbor(&tree, entries, left)?),
+                Some(build_neighbor(&tree, entries, right)?),
+            ),
+            attestrum_merkle::AdjacencyResult::BeforeFirst { right } => (
+                BoundaryCase::BeforeFirst,
+                None,
+                Some(build_neighbor(&tree, entries, right)?),
+            ),
+            attestrum_merkle::AdjacencyResult::AfterLast { left } => (
+                BoundaryCase::AfterLast,
+                Some(build_neighbor(&tree, entries, left)?),
+                None,
+            ),
+        };
+
+    let attestation_digest = match &opts.corpus_bundle_path {
+        Some(p) => {
+            let h = attestrum_cas::stream_hash_path(p).map_err(|e| {
+                AttestrumProveError::InvalidManifest(format!("corpus_bundle_path read: {e}"))
+            })?;
+            DigestMap {
+                blake3: attestrum_core::hex::encode_32(&h.blake3),
+                sha256: attestrum_core::hex::encode_32(&h.sha256),
+            }
+        }
+        None => DigestMap {
+            blake3: "0".repeat(64),
+            sha256: "0".repeat(64),
+        },
+    };
+
+    let proof_generated_at = jiff::Timestamp::from_second(opts.source_date_epoch)
+        .map_err(|_| {
+            AttestrumProveError::InvalidManifest(format!(
+                "invalid source_date_epoch: {}",
+                opts.source_date_epoch
+            ))
+        })?
+        .to_string();
+
+    let target_hex = attestrum_core::hex::encode_32(&target_b3);
+
+    let predicate = NonInclusionProofPredicate {
+        proof_type: NonInclusionProofPredicate::PROOF_TYPE_VALUE.to_string(),
+        corpus: CorpusRef {
+            manifest_uri: format!("file://{}", manifest_path.display()),
+            merkle_root: attestrum_core::hex::encode_32(&root),
+            attestation_digest,
+        },
+        query_fingerprint: query_fingerprint_json(target),
+        tree_size: entries.len() as u64,
+        hash_algorithm: "blake3-rfc6962".to_string(),
+        query_key: target_hex.clone(),
+        boundary_case,
+        left_neighbor,
+        right_neighbor,
+        sorted_assertion: SortedAssertion {
+            ordering: SortedAssertion::ORDERING_V0_1.to_string(),
+            adjacency_invariant: SortedAssertion::ADJACENCY_INVARIANT_V0_1.to_string(),
+            duplicate_leaf_policy: DUPLICATE_LEAF_POLICY_V0_1.to_string(),
+        },
+        proof_generated_at: Some(proof_generated_at),
+        proof_generator_identity: None,
+    };
+    predicate.validate()?;
+
+    let predicate_json = serde_json::to_value(&predicate)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("predicate serialize: {e}")))?;
+
+    // Synthetic "absent" subject: in-toto Statement v1 recommends a
+    // non-empty subject array; for non-inclusion there's no matched
+    // leaf, so we name the absent query. The `absent:` prefix is the
+    // semantic flag for any reader.
+    let absent_subject = Subject {
+        name: format!("absent:{target_hex}"),
+        digest: DigestMap {
+            blake3: target_hex.clone(),
+            sha256: "0".repeat(64),
+        },
+    };
+
+    let statement = InTotoStatement::new(
+        NON_INCLUSION_PROOF_PREDICATE_TYPE,
+        vec![absent_subject],
+        predicate_json,
+    );
+
+    let bundle_path = if opts.sign {
+        let oidc_token = opts.oidc_id_token.clone().ok_or_else(|| {
+            AttestrumProveError::Sign(AttestrumAttestError::SigstoreIdentityToken(
+                "ProveOpts.oidc_id_token must be Some when ProveOpts.sign is true".into(),
+            ))
+        })?;
+        let canonical = statement.canonical_json().map_err(|e| {
+            AttestrumProveError::InvalidManifest(format!("statement canonical_json: {e}"))
+        })?;
+        let workspace_dir = opts.workspace.clone().unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|p| p.join(".attestrum"))
+                .unwrap_or_else(|_| PathBuf::from(".attestrum"))
+        });
+        let bundle_dir = workspace_dir.join("prove");
+        std::fs::create_dir_all(&bundle_dir).map_err(|e| {
+            AttestrumProveError::InvalidManifest(format!("create workspace prove dir: {e}"))
+        })?;
+        let bundle_out = bundle_dir.join("non-inclusion-proof.sigstore.json");
+        let signed = attestrum_attest::sign(attestrum_attest::SignRequest {
+            statement_payload: canonical.as_bytes(),
+            bundle_output_path: &bundle_out,
+            oidc_id_token: oidc_token,
+        })?;
+        Some(signed.bundle_path)
+    } else {
+        None
+    };
+
+    Ok(ProofArtifact {
+        kind: ProofKind::NonInclusion,
+        statement,
+        bundle_path,
+        confidence: 1.0,
+        matched_subject: None,
+    })
 }
 
 #[cfg(test)]

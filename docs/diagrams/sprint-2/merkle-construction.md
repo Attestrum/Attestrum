@@ -2,7 +2,7 @@
 title: "RFC 6962 binary Merkle tree construction over BLAKE3"
 models: "crates/attestrum-merkle/src/lib.rs"
 source_of_truth: code
-last_verified: f720a0c 2026-05-26
+last_verified: 32dde42 2026-05-26
 diagram_type: flowchart
 ---
 

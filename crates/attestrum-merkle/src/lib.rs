@@ -207,6 +207,61 @@ impl core::fmt::Display for AuditPathError {
 
 impl core::error::Error for AuditPathError {}
 
+/// Where a query target falls in a sorted-ascending slice of leaf hashes,
+/// per [`find_adjacent_leaves`]. Drives the `boundary_case` decision in
+/// [`attestrum_attest::NonInclusionProofPredicate`] (E6 caller).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdjacencyResult {
+    /// Target equals `sorted_leaves[leaf_index]`. The caller should emit
+    /// an inclusion proof, not a non-inclusion proof.
+    Found { leaf_index: usize },
+    /// `sorted_leaves[left] < target < sorted_leaves[right]` with
+    /// `right == left + 1` (interior of the sort range).
+    Interior { left: usize, right: usize },
+    /// Target is smaller than every leaf in the slice;
+    /// `right == 0` is the first leaf.
+    BeforeFirst { right: usize },
+    /// Target is larger than every leaf in the slice;
+    /// `left == sorted_leaves.len() - 1` is the last leaf.
+    AfterLast { left: usize },
+    /// `sorted_leaves` is empty — degenerate corpus.
+    Empty,
+}
+
+/// Binary-search `target` against `sorted_leaves` and return where it
+/// falls relative to the sort order. **`sorted_leaves` MUST be sorted
+/// bytewise-ascending; the function does NOT validate sort order.**
+/// Attestrum's manifest pipeline (`assign_input_ordinals` + `sort_entries`
+/// in `attestrum-manifest`) guarantees this invariant; this helper is
+/// the leaf-side primitive for the `NonInclusionProofPredicate` builder
+/// (Sprint 5 D2 E6).
+///
+/// When `sorted_leaves` contains duplicate-hash leaves (the manifest's
+/// multiset policy permits this) and `target` equals one of them,
+/// `binary_search` returns *some* equal index — the caller documents
+/// the duplicate-leaf handling convention in the predicate's
+/// `SortedAssertion.duplicate_leaf_policy` field.
+pub fn find_adjacent_leaves(sorted_leaves: &[[u8; 32]], target: &[u8; 32]) -> AdjacencyResult {
+    if sorted_leaves.is_empty() {
+        return AdjacencyResult::Empty;
+    }
+    match sorted_leaves.binary_search(target) {
+        Ok(idx) => AdjacencyResult::Found { leaf_index: idx },
+        Err(idx) => {
+            if idx == 0 {
+                AdjacencyResult::BeforeFirst { right: 0 }
+            } else if idx == sorted_leaves.len() {
+                AdjacencyResult::AfterLast { left: idx - 1 }
+            } else {
+                AdjacencyResult::Interior {
+                    left: idx - 1,
+                    right: idx,
+                }
+            }
+        }
+    }
+}
+
 /// Generate the RFC 6962 audit path (inclusion proof) for `leaf_index`
 /// in `tree`.
 ///
@@ -673,5 +728,100 @@ mod tests {
         let path = tree.audit_path(2).expect("path");
         let wrong_root = [0u8; 32];
         assert!(!verify_audit_path(&wrong_root, &leaves[2], 2, 5, &path));
+    }
+
+    // ---------------------------------------------------------------
+    // Sprint 5 D2 E6: find_adjacent_leaves
+    // ---------------------------------------------------------------
+    //
+    // PROTECTED additive extension per CLAUDE.md §4 — these tests pin
+    // the boundary-case contract that
+    // `attestrum_attest::NonInclusionProofPredicate::BoundaryCase`
+    // depends on (Found, Interior, BeforeFirst, AfterLast, Empty).
+
+    #[test]
+    fn find_adjacent_leaves_empty_returns_empty() {
+        let target = [0xaau8; 32];
+        assert_eq!(find_adjacent_leaves(&[], &target), AdjacencyResult::Empty);
+    }
+
+    #[test]
+    fn find_adjacent_leaves_exact_match_returns_found() {
+        let leaves = [[0x10u8; 32], [0x20u8; 32], [0x30u8; 32]];
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0x20u8; 32]),
+            AdjacencyResult::Found { leaf_index: 1 }
+        );
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0x10u8; 32]),
+            AdjacencyResult::Found { leaf_index: 0 }
+        );
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0x30u8; 32]),
+            AdjacencyResult::Found { leaf_index: 2 }
+        );
+    }
+
+    #[test]
+    fn find_adjacent_leaves_before_first_returns_right_only() {
+        let leaves = [[0x10u8; 32], [0x20u8; 32], [0x30u8; 32]];
+        // Target [0x01;32] sorts before everything in the slice.
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0x01u8; 32]),
+            AdjacencyResult::BeforeFirst { right: 0 }
+        );
+        // All-zeros also before first.
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0x00u8; 32]),
+            AdjacencyResult::BeforeFirst { right: 0 }
+        );
+    }
+
+    #[test]
+    fn find_adjacent_leaves_after_last_returns_left_only() {
+        let leaves = [[0x10u8; 32], [0x20u8; 32]];
+        // Target [0xff;32] sorts after everything in the slice.
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0xffu8; 32]),
+            AdjacencyResult::AfterLast { left: 1 }
+        );
+        // Just-above-last also after last.
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0x21u8; 32]),
+            AdjacencyResult::AfterLast { left: 1 }
+        );
+    }
+
+    #[test]
+    fn find_adjacent_leaves_interior_returns_both() {
+        let leaves = [[0x10u8; 32], [0x30u8; 32], [0x50u8; 32]];
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0x20u8; 32]),
+            AdjacencyResult::Interior { left: 0, right: 1 }
+        );
+        assert_eq!(
+            find_adjacent_leaves(&leaves, &[0x40u8; 32]),
+            AdjacencyResult::Interior { left: 1, right: 2 }
+        );
+    }
+
+    #[test]
+    fn find_adjacent_leaves_with_duplicates_returns_found_at_some_equal_index() {
+        // Multiset policy: duplicate-hash leaves are preserved. When the
+        // target equals the duplicated hash, binary_search returns SOME
+        // equal index (which one is unspecified by the std lib but
+        // deterministic per-build). The contract the caller relies on is
+        // that the result is `Found` (not Interior), so non-inclusion is
+        // NOT emitted for a present-but-duplicated leaf.
+        let leaves = [[0x10u8; 32], [0x20u8; 32], [0x20u8; 32], [0x30u8; 32]];
+        match find_adjacent_leaves(&leaves, &[0x20u8; 32]) {
+            AdjacencyResult::Found { leaf_index } => {
+                assert!(
+                    leaf_index == 1 || leaf_index == 2,
+                    "Found leaf_index must be one of the two duplicate positions, got {leaf_index}"
+                );
+            }
+            other => panic!("expected Found, got {other:?}"),
+        }
     }
 }

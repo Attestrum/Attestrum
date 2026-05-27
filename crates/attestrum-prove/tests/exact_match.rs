@@ -12,7 +12,11 @@
 //! - `statement_predicate_type_is_inclusion_proof_v0_3`
 //! - `statement_subject_matches_predicate_matched_subject`
 //! - `predicate_round_trips_via_serde_json`
-//! - `no_match_panics_with_e6_message`
+//! - `no_match_returns_non_inclusion_artifact` (E6-updated: pre-E6 this
+//!   asserted `#[should_panic(expected = "S5-D2 E6")]`; post-E6 the
+//!   exact-arm Ok(None) branch returns a real `ProofKind::NonInclusion`
+//!   artifact and detailed boundary-case coverage lives in
+//!   `tests/non_inclusion.rs`)
 //! - `huggingface_source_panics_with_e7_message`
 //! - `url_source_panics_with_e7_message`
 //! - `corpus_merkle_root_matches_external_compute`
@@ -317,17 +321,35 @@ fn corpus_merkle_root_matches_external_compute() {
 }
 
 #[test]
-#[should_panic(expected = "S5-D2 E6")]
-fn no_match_panics_with_e6_message() {
+fn no_match_returns_non_inclusion_artifact() {
+    // E6 conversion: pre-E6 this test asserted the non-inclusion path
+    // panicked with `"S5-D2 E6"`. Post-E6 the panic is replaced with a
+    // real `ProofKind::NonInclusion` artifact. Detailed boundary-case
+    // coverage lives in `tests/non_inclusion.rs`; this test pins the
+    // smoke-level conversion of the exact-arm Ok(None) branch in
+    // `prove()` from panic to non-inclusion emission.
     let root = fresh_root("no_match");
     let manifest = build_test_manifest(&root, &[1, 2, 3]);
 
-    // digest(0x88) is not in the manifest → would-be non-inclusion path,
-    // which is E6.
-    let _ = prove(
+    // digest(0x88) is not in the manifest. With leaves sort-ascending
+    // as [1, 2, 3] (all-byte digests), 0x88 sorts after the last leaf
+    // → AfterLast boundary case.
+    let artifact = prove(
         ProofTarget::Blake3(digest(0x88)),
         ManifestSource::Local(manifest),
         &default_opts(),
+    )
+    .expect("non-inclusion path returns Ok at E6");
+
+    assert_eq!(artifact.kind, ProofKind::NonInclusion);
+    assert_eq!(artifact.confidence, 1.0);
+    assert!(
+        artifact.matched_subject.is_none(),
+        "non-inclusion has no matched leaf"
+    );
+    assert!(
+        artifact.bundle_path.is_none(),
+        "default_opts has sign=false → no bundle written"
     );
 }
 
