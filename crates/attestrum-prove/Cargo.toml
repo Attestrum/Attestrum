@@ -23,6 +23,15 @@ repository.workspace = true
 #     hashes inside each FingerprintBundle; image::guess_format for the
 #     Document dispatcher's MIME detection; CAS re-fingerprint at prove
 #     time so manifest leaves don't need pre-computed fuzzy hashes).
+# E7: + reqwest, sha2 (HuggingFace + URL manifest fetch via reqwest's
+#     blocking client; sha2 hashes the source descriptor — "huggingface:
+#     <repo>@<revision>" or "url:<url>" — to a per-source cache key
+#     directory under <workspace>/prove/manifest-cache/). reqwest is
+#     promoted from sigstore-transitive to direct workspace dep at the
+#     graph level — zero new external transitive crates. sha2 is
+#     graph-promoted from attestrum-cas-transitive to attestrum-prove-
+#     direct (it's already a workspace dep + an attestrum-cas /
+#     attestrum-cli direct dep per docs/license-inventory.md).
 attestrum-core         = { path = "../attestrum-core",         version = "0.0.1" }
 attestrum-attest       = { path = "../attestrum-attest",       version = "0.0.1" }
 attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
@@ -32,6 +41,8 @@ attestrum-cas          = { path = "../attestrum-cas",          version = "0.1.0"
 iscc-lib               = { workspace = true }
 image                  = { workspace = true }
 jiff                   = { workspace = true }
+reqwest                = { workspace = true }
 serde                  = { workspace = true }
 serde_json             = { workspace = true }
+sha2                   = { workspace = true }
 thiserror              = { workspace = true }

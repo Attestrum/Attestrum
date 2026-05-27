@@ -55,7 +55,7 @@
 //!   RFC 6962 binary Merkle over BLAKE3 (dep added at E2).
 //! - [`attestrum_fingerprint`] — frozen at v0.1 as of S5-D1 E5.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -379,12 +379,7 @@ pub fn prove(
     manifest: ManifestSource,
     opts: &ProveOpts,
 ) -> Result<ProofArtifact, AttestrumProveError> {
-    let manifest_path = match &manifest {
-        ManifestSource::Local(p) => p.clone(),
-        ManifestSource::HuggingFace { .. } | ManifestSource::Url(_) => {
-            unimplemented!("S5-D2 E7 lands HF + URL manifest fetching")
-        }
-    };
+    let manifest_path = resolve_local_manifest_path(opts, &manifest)?;
 
     let entries = attestrum_manifest::read_manifest(&manifest_path)
         .map_err(|e| AttestrumProveError::InvalidManifest(e.to_string()))?;
@@ -1208,6 +1203,165 @@ fn dispatch_non_inclusion(
         confidence: 1.0,
         matched_subject: None,
     })
+}
+
+// ============================================================================
+// S5-D2 E7 — alternate manifest sources (HuggingFace + URL) with workspace cache
+// ============================================================================
+//
+// `resolve_local_manifest_path` is the single entry point `prove()` calls to
+// turn any `ManifestSource` variant into a local `PathBuf` that
+// `attestrum_manifest::read_manifest(&Path)` can consume. `Local` returns
+// the path verbatim; `HuggingFace` and `Url` fetch (or hit the workspace
+// cache) and return the cached path.
+//
+// Cache layout: `<workspace>/prove/manifest-cache/<sha256(source-key)>/
+// manifest.parquet`. Source-key prefix (`huggingface:` vs `url:`)
+// disambiguates the two source-types so a repo name like `foo/bar` can't
+// collide with a URL string `foo/bar`. Revision pins (`HuggingFace.revision
+// = Some("v1.0")`) yield content-addressed immutable cache entries; the
+// `None` revision defaults to `main` and inherits HF's mutability there.
+//
+// **Minimal HF auth at v0.1**: when `$HF_TOKEN` is set, the request carries
+// `Authorization: Bearer $HF_TOKEN`; otherwise unauthenticated. No
+// `ProveOpts` field, no credential-helper discovery — D3 (attestrum-publish)
+// consolidates auth across the workspace. See
+// `~/.claude/projects/-Users-austinmunday-Documents-Claude-Attestrum/memory/project_d3_auth_refactor_debt.md`.
+
+/// Resolve a `ManifestSource` to a local `PathBuf` that `read_manifest`
+/// can consume. Local sources are pass-through; HuggingFace + URL
+/// sources hit the workspace cache (or fetch on miss).
+fn resolve_local_manifest_path(
+    opts: &ProveOpts,
+    source: &ManifestSource,
+) -> Result<PathBuf, AttestrumProveError> {
+    if let ManifestSource::Local(p) = source {
+        return Ok(p.clone());
+    }
+    let cache_dir = cache_dir_for_source(opts, source);
+    let cache_path = cache_dir.join("manifest.parquet");
+    if cache_path.is_file() {
+        return Ok(cache_path);
+    }
+    fetch_to_cache(source, &cache_path)?;
+    Ok(cache_path)
+}
+
+/// Build the deterministic cache-key directory name (hex-encoded SHA-256
+/// of the source descriptor). Source-type prefix prevents HF repo /
+/// URL string collisions.
+fn cache_key_for_source(source: &ManifestSource) -> String {
+    use sha2::{Digest, Sha256};
+    let descriptor = match source {
+        ManifestSource::Local(_) => unreachable!("Local has no cache key"),
+        ManifestSource::HuggingFace { repo, revision } => {
+            let rev = revision.as_deref().unwrap_or("main");
+            format!("huggingface:{repo}@{rev}")
+        }
+        ManifestSource::Url(url) => format!("url:{url}"),
+    };
+    let digest: [u8; 32] = Sha256::digest(descriptor.as_bytes()).into();
+    attestrum_core::hex::encode_32(&digest)
+}
+
+/// Resolve the cache dir for a non-local source. Workspace dir resolution
+/// mirrors the E4 inclusion-bundle pattern at L486-490: `opts.workspace`
+/// when set, else `$PWD/.attestrum/`, with the prove subdir for grouping.
+fn cache_dir_for_source(opts: &ProveOpts, source: &ManifestSource) -> PathBuf {
+    let workspace_dir = opts.workspace.clone().unwrap_or_else(|| {
+        std::env::current_dir()
+            .map(|p| p.join(".attestrum"))
+            .unwrap_or_else(|_| PathBuf::from(".attestrum"))
+    });
+    workspace_dir
+        .join("prove")
+        .join("manifest-cache")
+        .join(cache_key_for_source(source))
+}
+
+/// Build the HF Hub resolve URL for the canonical Attestrum manifest
+/// path. The `attestrum/manifest.parquet` convention matches the
+/// publisher contract in `docs/diagrams/overview/hub-publish.md`.
+fn build_hf_url(repo: &str, revision: Option<&str>) -> String {
+    let rev = revision.unwrap_or("main");
+    format!("https://huggingface.co/datasets/{repo}/resolve/{rev}/attestrum/manifest.parquet")
+}
+
+/// Read `HF_TOKEN` env var into a Bearer-token header value. `None`
+/// when unset (request goes out unauthenticated — public datasets work).
+fn hf_auth_header() -> Option<String> {
+    std::env::var("HF_TOKEN")
+        .ok()
+        .map(|t| format!("Bearer {t}"))
+}
+
+/// Fetch the manifest bytes from `source` and write them atomically to
+/// `dest`. Caller guarantees `dest`'s parent dir is the per-source
+/// cache subdir under `<workspace>/prove/manifest-cache/<key>/`.
+///
+/// All failure modes map to `AttestrumProveError::SourceUnreachable`
+/// per PATH-A-BRIEF §2.2's 6-variant lock. 401 / 403 responses get
+/// an "(private dataset? set HF_TOKEN env var)" hint to help users
+/// past the most common authn case without growing the error surface.
+fn fetch_to_cache(source: &ManifestSource, dest: &Path) -> Result<(), AttestrumProveError> {
+    let (url, auth_header) = match source {
+        ManifestSource::HuggingFace { repo, revision } => {
+            (build_hf_url(repo, revision.as_deref()), hf_auth_header())
+        }
+        ManifestSource::Url(url) => (url.clone(), None),
+        ManifestSource::Local(_) => {
+            unreachable!("Local resolved upstream; fetch_to_cache only sees HF/URL")
+        }
+    };
+
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err(AttestrumProveError::SourceUnreachable(format!(
+            "manifest URL must start with http:// or https://: {url}"
+        )));
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .build()
+        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("http client build: {e}")))?;
+
+    let mut request = client.get(&url);
+    if let Some(auth) = auth_header {
+        request = request.header("Authorization", auth);
+    }
+
+    let response = request
+        .send()
+        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("fetch {url}: {e}")))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let hint = if status.as_u16() == 401 || status.as_u16() == 403 {
+            " (private dataset? set HF_TOKEN env var)"
+        } else {
+            ""
+        };
+        return Err(AttestrumProveError::SourceUnreachable(format!(
+            "fetch {url}: HTTP {status}{hint}"
+        )));
+    }
+    let bytes = response.bytes().map_err(|e| {
+        AttestrumProveError::SourceUnreachable(format!("read response body {url}: {e}"))
+    })?;
+
+    let parent = dest
+        .parent()
+        .expect("cache dest path was built with at least one parent component");
+    std::fs::create_dir_all(parent)
+        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("create cache dir: {e}")))?;
+    // Atomic write: .tmp.<pid> + rename. Concurrent prove() invocations
+    // on the same cache key may race; the last rename wins and both
+    // callers end up reading the same final bytes. Good enough for v0.1;
+    // v0.2 may add lockfile-based serialization if needed.
+    let tmp = dest.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::write(&tmp, &bytes)
+        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("write cache tmp: {e}")))?;
+    std::fs::rename(&tmp, dest)
+        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("rename cache tmp: {e}")))?;
+    Ok(())
 }
 
 #[cfg(test)]

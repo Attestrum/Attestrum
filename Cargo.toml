@@ -139,6 +139,22 @@ blockhash    = "1"
 # 2026-05-25): the version pin + pre-processing pipelines + bit width +
 # composition shape are all part of the locked spec.
 iscc-lib     = "0.4"
+# Sprint 5 S5-D2 E7: reqwest::blocking for HuggingFace + URL manifest
+# fetch in attestrum-prove. Already in Cargo.lock at 0.13.3 transitively
+# via sigstore's rustls feature; this entry promotes reqwest to a direct
+# workspace dep so attestrum-prove can build a blocking client without
+# instantiating a tokio runtime on the prove() call stack. The
+# `blocking` feature is the only net-new bit (sigstore activates the
+# async client + rustls; the blocking wrapper reuses the same async
+# core via an internal runtime). Apache-2.0 OR MIT (pre-approved per
+# docs/license-inventory.md, version pin updated from 0.12 → 0.13 to
+# match the sigstore-induced lockfile entry). default-features = false
+# drops `default-tls` so rustls (aws-lc-rs-backed, matching sigstore's
+# crypto pin) is the only TLS implementation and cross-target build-
+# tree determinism stays predictable. NOTE: reqwest 0.13 renamed the
+# pre-0.13 `rustls-tls` feature to just `rustls` (alias for the
+# internal `__rustls-aws-lc-rs` set); we use the new name.
+reqwest      = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
 
 # Pre-Sprint-5 (2026-05-25): sigstore-rs 0.14.0 hard-requires `Claims.email`
 # (src/oauth/token.rs:31), which breaks every workload-identity OIDC flow

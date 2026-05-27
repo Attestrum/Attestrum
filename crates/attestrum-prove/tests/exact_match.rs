@@ -17,8 +17,10 @@
 //!   exact-arm Ok(None) branch returns a real `ProofKind::NonInclusion`
 //!   artifact and detailed boundary-case coverage lives in
 //!   `tests/non_inclusion.rs`)
-//! - `huggingface_source_panics_with_e7_message`
-//! - `url_source_panics_with_e7_message`
+//! - `huggingface_source_panics_with_e7_message` and
+//!   `url_source_panics_with_e7_message` (E7-removed; equivalent coverage
+//!   in `tests/manifest_sources.rs` — HF/URL fetch + cache works end-to-end
+//!   at E7, no longer panics)
 //! - `corpus_merkle_root_matches_external_compute`
 //!
 //! (Two E2 deferral tests — `iscc_target_panics_with_e5_message` and
@@ -353,28 +355,13 @@ fn no_match_returns_non_inclusion_artifact() {
     );
 }
 
-#[test]
-#[should_panic(expected = "S5-D2 E7")]
-fn huggingface_source_panics_with_e7_message() {
-    let _ = prove(
-        ProofTarget::Blake3(digest(1)),
-        ManifestSource::HuggingFace {
-            repo: String::from("allenai/c4"),
-            revision: None,
-        },
-        &default_opts(),
-    );
-}
-
-#[test]
-#[should_panic(expected = "S5-D2 E7")]
-fn url_source_panics_with_e7_message() {
-    let _ = prove(
-        ProofTarget::Blake3(digest(1)),
-        ManifestSource::Url(String::from("https://example.com/manifest.parquet")),
-        &default_opts(),
-    );
-}
+// Two E2-era deferral tests removed at E7 (huggingface_source_panics_with_e7_message
+// and url_source_panics_with_e7_message): E7 now resolves both HF and URL
+// manifest sources via reqwest::blocking + workspace cache instead of
+// panicking. Equivalent coverage lives in tests/manifest_sources.rs:
+// huggingface_source_with_cache_hit_skips_network, url_source_with_cache_hit_skips_network,
+// url_scheme_must_be_http_or_https, and the #[ignore]'d real-network smoke
+// tests gated on ATTESTRUM_HF_TEST_DATASET + ATTESTRUM_URL_TEST_MANIFEST.
 
 // Two E2-era deferral tests removed at E5 (iscc_target_panics_with_e5_message
 // and document_target_panics_with_e5_message): E5 now dispatches the ISCC
