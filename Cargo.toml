@@ -155,6 +155,32 @@ iscc-lib     = "0.4"
 # pre-0.13 `rustls-tls` feature to just `rustls` (alias for the
 # internal `__rustls-aws-lc-rs` set); we use the new name.
 reqwest      = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
+# Sprint 5 S5-D3 E2 (2026-05-28): hf-hub git-pinned (second approved workspace
+# git-pin per CLAUDE.md §8; first is sigstore added 2026-05-25). Founder
+# approval in S5-D3 E2 commit footer. Apache-2.0, crate v1.0.0, edition 2024
+# (Attestrum's rust-version 1.89 satisfies the 2024-edition MSRV; the
+# chore(toolchain) precursor bumped 1.88 → 1.89 because hf-hub 1.0.0 pulls in
+# konst@0.4.3 + redb@3.1.3 which both require rustc 1.89).
+#
+# Owns the HF Hub auth chain: env HF_TOKEN → HF_TOKEN_PATH file →
+# $HF_HOME/token, richer than D2 E7's env-only logic. Closes D3 refactor debt
+# by replacing the inline hf_auth_header() + build_hf_url() in attestrum-prove
+# with HFClientSync.dataset(owner, name).download_file(...).
+#
+# default-features = false (hf-hub ships nothing in `default = []`);
+# `blocking` gates the HFClientSync sync wrapper around the async core
+# (Attestrum's prove + publish call stacks are sync); `rustls-tls` aliases to
+# `reqwest/rustls`, matching sigstore's TLS choice for cross-target build
+# determinism.
+#
+# Rev `4cd6d8acd3...` taken from hf-hub master at 2026-05-21 (7 days old at
+# pin time, well inside the future Sprint-6 14-day freshness gate per
+# PATH-A-BRIEF Part 2.3 + OQ1). No `[patch.crates-io]` entry — hf-hub isn't
+# published to crates.io as a normal dep with the upload API we need, so we
+# pin the git source directly on the dep line rather than overriding a
+# crates.io version (the sigstore pattern is different — sigstore IS on
+# crates.io and we patch it to use our fork).
+hf-hub       = { git = "https://github.com/huggingface/hf-hub", rev = "4cd6d8acd3192021381ff85210be9192b394e0eb", default-features = false, features = ["blocking", "rustls-tls"] }
 
 # Pre-Sprint-5 (2026-05-25): sigstore-rs 0.14.0 hard-requires `Claims.email`
 # (src/oauth/token.rs:31), which breaks every workload-identity OIDC flow
@@ -174,9 +200,15 @@ reqwest      = { version = "0.13", default-features = false, features = ["blocki
 # Upstream PR pending; pin to be removed once it merges. Tracked in
 # docs/license-inventory.md "Actually-used" table.
 #
-# This is the SECOND approved git-pinned dep in the workspace (the first
-# is `hf-hub` per PATH-A-BRIEF Part 2.3). Both follow the same exception
-# pattern under CLAUDE.md §8 — git-pin requires founder approval (granted
-# 2026-05-25 for Sprint 5 Q1 cosign-interop fix).
+# This was the FIRST approved git-pinned dep in the workspace (granted
+# 2026-05-25 for Sprint 5 Q1 cosign-interop fix; hf-hub follows at S5-D3 E2
+# 2026-05-28 as the SECOND pin per PATH-A-BRIEF Part 2.3). Both follow the
+# same exception pattern under CLAUDE.md §8 — git-pin requires founder
+# approval.
 [patch.crates-io]
 sigstore = { git = "https://github.com/Attestrum/sigstore-rs.git", rev = "1c5df849e67c4ce72e6c8949576c3d53757f0840" }
+# hf-hub is NOT patched here — see the workspace.dependencies entry above for
+# its direct git-source rev pin. Patching crates-io makes sense only when a
+# crate IS published to crates.io and we want to override it (the sigstore
+# case); hf-hub's upload API isn't on crates.io yet, so we pin the git source
+# directly on its dep line.

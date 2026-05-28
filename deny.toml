@@ -188,6 +188,12 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # `[patch.crates-io]` entry in workspace `Cargo.toml` goes away at the same
 # time. Founder-approved 2026-05-25 (Sprint 5 Q1 = fix cosign-interop now).
 #
-# `hf-hub` per PATH-A-BRIEF Part 2.3 (Sprint 6) — will be added here when
-# that crate's upload API stabilizes and we pin via git.
-allow-git = ["https://github.com/Attestrum/sigstore-rs"]
+# Sprint 5 S5-D3 E2 (2026-05-28): `huggingface/hf-hub` added as the SECOND
+# entry. We pin hf-hub master because the upload API (HFRepository::upload_file
+# / commit-creation flow) needed by attestrum-publish E3+ hasn't landed on a
+# crates.io release yet. Founder-approved 2026-05-28; rev recorded in workspace
+# `Cargo.toml` [patch.crates-io] + the in-use table of docs/license-inventory.md.
+allow-git = [
+    "https://github.com/Attestrum/sigstore-rs",
+    "https://github.com/huggingface/hf-hub",
+]

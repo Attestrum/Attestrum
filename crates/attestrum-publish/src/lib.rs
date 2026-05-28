@@ -68,18 +68,35 @@ pub trait PublishTarget {
 /// `attestrum/bundle.sigstore.json` per the OpenSSF model-signing
 /// pattern documented in PATH-A-BRIEF Part 4.1).
 ///
-/// Real `publish()` impl lands at D3 E6. At E1 the type exists with
-/// `unimplemented!()` body.
-#[derive(Debug, Clone)]
+/// At E2 `new()` instantiates an `hf_hub::HFClientSync` (auto-resolves
+/// the token chain: env HF_TOKEN → HF_TOKEN_PATH file → $HF_HOME/token).
+/// The real `publish()` body lands at D3 E3-E6 — at E2 it remains
+/// `unimplemented!()`.
+#[derive(Clone)]
 pub struct HuggingFaceTarget {
     repo: String,
     branch: String,
+    client: hf_hub::HFClientSync,
+}
+
+impl std::fmt::Debug for HuggingFaceTarget {
+    // Hand-rolled Debug skips the hf-hub client (HFClientSync doesn't derive
+    // Debug). Surfaces only the publish-target identity, which is what callers
+    // typically want in logs / panic messages.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HuggingFaceTarget")
+            .field("repo", &self.repo)
+            .field("branch", &self.branch)
+            .finish_non_exhaustive()
+    }
 }
 
 impl HuggingFaceTarget {
     /// Construct a `HuggingFaceTarget` for `repo` (e.g. `"my-org/my-dataset"`)
-    /// on `branch` (typically `"main"`). At E2 this will instantiate an
-    /// `hf-hub` client; at E1 it only stores the strings.
+    /// on `branch` (typically `"main"`). Validates the repo shape, then
+    /// constructs an `hf_hub::HFClientSync` — the client's builder reads the
+    /// token chain at this point, so misconfigured token files surface as
+    /// `AttestrumPublishError::Auth` early rather than at publish() time.
     pub fn new(repo: String, branch: String) -> Result<Self, AttestrumPublishError> {
         if repo.is_empty() {
             return Err(AttestrumPublishError::Auth(
@@ -91,7 +108,13 @@ impl HuggingFaceTarget {
                 "dataset repo {repo:?} must be ORG/NAME shape (HF Hub convention)"
             )));
         }
-        Ok(Self { repo, branch })
+        let client = hf_hub::HFClientSync::new()
+            .map_err(|e| AttestrumPublishError::Auth(format!("hf-hub client init: {e}")))?;
+        Ok(Self {
+            repo,
+            branch,
+            client,
+        })
     }
 
     /// The dataset repo this target publishes to, e.g. `"my-org/my-dataset"`.
@@ -102,6 +125,14 @@ impl HuggingFaceTarget {
     /// The branch this target publishes to (typically `"main"`).
     pub fn branch(&self) -> &str {
         &self.branch
+    }
+
+    /// Access the underlying hf-hub client. Crate-private accessor for
+    /// E3-E6 (create_repo + create_commit) — kept out of the public API
+    /// surface to preserve future flexibility around the publish call shape.
+    #[allow(dead_code)] // wired at E3 — surfaces only as `_client` until then
+    pub(crate) fn client(&self) -> &hf_hub::HFClientSync {
+        &self.client
     }
 }
 

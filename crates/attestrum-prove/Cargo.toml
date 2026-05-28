@@ -32,12 +32,19 @@ repository.workspace = true
 #     graph-promoted from attestrum-cas-transitive to attestrum-prove-
 #     direct (it's already a workspace dep + an attestrum-cas /
 #     attestrum-cli direct dep per docs/license-inventory.md).
+# S5-D3 E2: + hf-hub (closes D3 refactor debt). Replaces D2 E7's inline
+#     hf_auth_header() + build_hf_url() with HFClientSync.dataset().
+#     download_file() for ManifestSource::HuggingFace. ManifestSource::Url
+#     continues using reqwest::blocking. hf-hub owns the HF Hub auth chain
+#     (env HF_TOKEN → HF_TOKEN_PATH → $HF_HOME/token), richer than E7's
+#     env-only logic. Second approved workspace git-pin per CLAUDE.md §8.
 attestrum-core         = { path = "../attestrum-core",         version = "0.0.1" }
 attestrum-attest       = { path = "../attestrum-attest",       version = "0.0.1" }
 attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
 attestrum-manifest     = { path = "../attestrum-manifest",     version = "0.1.0" }
 attestrum-merkle       = { path = "../attestrum-merkle",       version = "0.1.0" }
 attestrum-cas          = { path = "../attestrum-cas",          version = "0.1.0" }
+hf-hub                 = { workspace = true }
 iscc-lib               = { workspace = true }
 image                  = { workspace = true }
 jiff                   = { workspace = true }

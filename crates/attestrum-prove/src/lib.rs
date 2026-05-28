@@ -1222,11 +1222,15 @@ fn dispatch_non_inclusion(
 // = Some("v1.0")`) yield content-addressed immutable cache entries; the
 // `None` revision defaults to `main` and inherits HF's mutability there.
 //
-// **Minimal HF auth at v0.1**: when `$HF_TOKEN` is set, the request carries
-// `Authorization: Bearer $HF_TOKEN`; otherwise unauthenticated. No
-// `ProveOpts` field, no credential-helper discovery — D3 (attestrum-publish)
-// consolidates auth across the workspace. See
-// `~/.claude/projects/-Users-austinmunday-Documents-Claude-Attestrum/memory/project_d3_auth_refactor_debt.md`.
+// **HF auth (S5-D3 E2)**: the HF Hub source-type delegates URL construction
+// and token resolution to the `hf-hub` crate (`HFClientSync::new()` reads the
+// HF_TOKEN env, HF_TOKEN_PATH file, and $HF_HOME/token in that order). The
+// inline `hf_auth_header()` + `build_hf_url()` helpers from D2 E7 — which only
+// checked HF_TOKEN — were removed when the D3 refactor debt closed at E2. The
+// `(private dataset? set HF_TOKEN env var)` hint on 401/403 survives, now
+// triggered on `HFError::AuthRequired` + `HFError::Forbidden` rather than
+// HTTP status codes. The `ManifestSource::Url` path still uses reqwest::blocking
+// directly because hf-hub's surface is HF-specific.
 
 /// Resolve a `ManifestSource` to a local `PathBuf` that `read_manifest`
 /// can consume. Local sources are pass-through; HuggingFace + URL
@@ -1279,89 +1283,116 @@ fn cache_dir_for_source(opts: &ProveOpts, source: &ManifestSource) -> PathBuf {
         .join(cache_key_for_source(source))
 }
 
-/// Build the HF Hub resolve URL for the canonical Attestrum manifest
-/// path. The `attestrum/manifest.parquet` convention matches the
-/// publisher contract in `docs/diagrams/overview/hub-publish.md`.
-fn build_hf_url(repo: &str, revision: Option<&str>) -> String {
-    let rev = revision.unwrap_or("main");
-    format!("https://huggingface.co/datasets/{repo}/resolve/{rev}/attestrum/manifest.parquet")
-}
-
-/// Read `HF_TOKEN` env var into a Bearer-token header value. `None`
-/// when unset (request goes out unauthenticated — public datasets work).
-fn hf_auth_header() -> Option<String> {
-    std::env::var("HF_TOKEN")
-        .ok()
-        .map(|t| format!("Bearer {t}"))
-}
-
-/// Fetch the manifest bytes from `source` and write them atomically to
-/// `dest`. Caller guarantees `dest`'s parent dir is the per-source
-/// cache subdir under `<workspace>/prove/manifest-cache/<key>/`.
+/// Fetch the manifest bytes from `source` and write them to `dest`. The HF
+/// branch delegates to `hf-hub` (URL construction + auth chain + HTTP); the
+/// Url branch keeps the original reqwest::blocking + tmpfile-atomic-rename
+/// path because hf-hub's surface is HF-specific.
 ///
-/// All failure modes map to `AttestrumProveError::SourceUnreachable`
-/// per PATH-A-BRIEF §2.2's 6-variant lock. 401 / 403 responses get
-/// an "(private dataset? set HF_TOKEN env var)" hint to help users
-/// past the most common authn case without growing the error surface.
+/// All failure modes map to `AttestrumProveError::SourceUnreachable` per
+/// PATH-A-BRIEF §2.2's 6-variant lock. Auth-class failures from hf-hub
+/// (`HFError::AuthRequired`, `HFError::Forbidden`) get an
+/// `(private dataset? set HF_TOKEN env var)` hint appended; non-auth HFErrors
+/// pass through as-is.
 fn fetch_to_cache(source: &ManifestSource, dest: &Path) -> Result<(), AttestrumProveError> {
-    let (url, auth_header) = match source {
-        ManifestSource::HuggingFace { repo, revision } => {
-            (build_hf_url(repo, revision.as_deref()), hf_auth_header())
-        }
-        ManifestSource::Url(url) => (url.clone(), None),
-        ManifestSource::Local(_) => {
-            unreachable!("Local resolved upstream; fetch_to_cache only sees HF/URL")
-        }
-    };
-
-    if !url.starts_with("https://") && !url.starts_with("http://") {
-        return Err(AttestrumProveError::SourceUnreachable(format!(
-            "manifest URL must start with http:// or https://: {url}"
-        )));
-    }
-
-    let client = reqwest::blocking::Client::builder()
-        .build()
-        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("http client build: {e}")))?;
-
-    let mut request = client.get(&url);
-    if let Some(auth) = auth_header {
-        request = request.header("Authorization", auth);
-    }
-
-    let response = request
-        .send()
-        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("fetch {url}: {e}")))?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let hint = if status.as_u16() == 401 || status.as_u16() == 403 {
-            " (private dataset? set HF_TOKEN env var)"
-        } else {
-            ""
-        };
-        return Err(AttestrumProveError::SourceUnreachable(format!(
-            "fetch {url}: HTTP {status}{hint}"
-        )));
-    }
-    let bytes = response.bytes().map_err(|e| {
-        AttestrumProveError::SourceUnreachable(format!("read response body {url}: {e}"))
-    })?;
-
     let parent = dest
         .parent()
         .expect("cache dest path was built with at least one parent component");
     std::fs::create_dir_all(parent)
         .map_err(|e| AttestrumProveError::SourceUnreachable(format!("create cache dir: {e}")))?;
-    // Atomic write: .tmp.<pid> + rename. Concurrent prove() invocations
-    // on the same cache key may race; the last rename wins and both
-    // callers end up reading the same final bytes. Good enough for v0.1;
-    // v0.2 may add lockfile-based serialization if needed.
-    let tmp = dest.with_extension(format!("tmp.{}", std::process::id()));
-    std::fs::write(&tmp, &bytes)
-        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("write cache tmp: {e}")))?;
-    std::fs::rename(&tmp, dest)
-        .map_err(|e| AttestrumProveError::SourceUnreachable(format!("rename cache tmp: {e}")))?;
-    Ok(())
+
+    match source {
+        ManifestSource::HuggingFace { repo, revision } => {
+            let (owner, name) = repo.split_once('/').ok_or_else(|| {
+                AttestrumProveError::SourceUnreachable(format!(
+                    "HF repo {repo:?} must be owner/name shape"
+                ))
+            })?;
+            let client = hf_hub::HFClientSync::new().map_err(|e| {
+                AttestrumProveError::SourceUnreachable(format!(
+                    "hf-hub client init for {repo}: {e}"
+                ))
+            })?;
+            let dataset = client.dataset(owner, name);
+            // hf-hub writes to `<local_dir>/attestrum/manifest.parquet` (mirrors
+            // the repo's file hierarchy). We rename the result to
+            // `<local_dir>/manifest.parquet` to preserve the cache layout
+            // established at D2 E7 (`<workspace>/prove/manifest-cache/<key>/
+            // manifest.parquet`). The empty `attestrum/` subdir is best-effort
+            // cleaned up after the rename.
+            let downloaded = dataset
+                .download_file()
+                .filename("attestrum/manifest.parquet".to_string())
+                .maybe_local_dir(Some(parent.to_path_buf()))
+                .maybe_revision(revision.clone())
+                .send()
+                .map_err(|e| map_hf_error(e, repo))?;
+            std::fs::rename(&downloaded, dest).map_err(|e| {
+                AttestrumProveError::SourceUnreachable(format!(
+                    "rename hf-hub download {} -> {}: {e}",
+                    downloaded.display(),
+                    dest.display()
+                ))
+            })?;
+            let _ = std::fs::remove_dir(parent.join("attestrum"));
+            Ok(())
+        }
+        ManifestSource::Url(url) => {
+            if !url.starts_with("https://") && !url.starts_with("http://") {
+                return Err(AttestrumProveError::SourceUnreachable(format!(
+                    "manifest URL must start with http:// or https://: {url}"
+                )));
+            }
+            let client = reqwest::blocking::Client::builder().build().map_err(|e| {
+                AttestrumProveError::SourceUnreachable(format!("http client build: {e}"))
+            })?;
+            let response = client
+                .get(url)
+                .send()
+                .map_err(|e| AttestrumProveError::SourceUnreachable(format!("fetch {url}: {e}")))?;
+            if !response.status().is_success() {
+                let status = response.status();
+                return Err(AttestrumProveError::SourceUnreachable(format!(
+                    "fetch {url}: HTTP {status}"
+                )));
+            }
+            let bytes = response.bytes().map_err(|e| {
+                AttestrumProveError::SourceUnreachable(format!("read response body {url}: {e}"))
+            })?;
+            // Atomic write: .tmp.<pid> + rename. Concurrent prove() invocations
+            // on the same cache key may race; the last rename wins and both
+            // callers end up reading the same final bytes. Good enough for
+            // v0.1; v0.2 may add lockfile-based serialization if needed.
+            let tmp = dest.with_extension(format!("tmp.{}", std::process::id()));
+            std::fs::write(&tmp, &bytes).map_err(|e| {
+                AttestrumProveError::SourceUnreachable(format!("write cache tmp: {e}"))
+            })?;
+            std::fs::rename(&tmp, dest).map_err(|e| {
+                AttestrumProveError::SourceUnreachable(format!("rename cache tmp: {e}"))
+            })?;
+            Ok(())
+        }
+        ManifestSource::Local(_) => {
+            unreachable!("Local resolved upstream; fetch_to_cache only sees HF/URL")
+        }
+    }
+}
+
+/// Map an `hf_hub::HFError` onto `AttestrumProveError::SourceUnreachable`.
+/// Preserves the `(private dataset? set HF_TOKEN env var)` hint on auth-class
+/// failures (401-equivalent `AuthRequired`, 403-equivalent `Forbidden`).
+/// PATH-A-BRIEF §2.2's 6-variant `AttestrumProveError` lock stays intact —
+/// no new variants are introduced; everything maps to `SourceUnreachable(String)`.
+fn map_hf_error(err: hf_hub::HFError, repo: &str) -> AttestrumProveError {
+    let needs_hint = matches!(
+        err,
+        hf_hub::HFError::AuthRequired { .. } | hf_hub::HFError::Forbidden { .. }
+    );
+    let hint = if needs_hint {
+        " (private dataset? set HF_TOKEN env var)"
+    } else {
+        ""
+    };
+    AttestrumProveError::SourceUnreachable(format!("fetch hf://{repo}: {err}{hint}"))
 }
 
 #[cfg(test)]

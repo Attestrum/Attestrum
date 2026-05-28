@@ -19,12 +19,15 @@ repository.workspace = true
 #   - attestrum-emit: this crate calls attestrum-emit at E6 to render
 #     croissant.json + README.md + verify.html before uploading to the Hub.
 #
-# Deferred to E2: hf-hub (git-pinned, second approved git-pin in the
-# workspace per CLAUDE.md §8; founder approval in commit footer).
+# S5-D3 E2: + hf-hub (second approved git-pin in the workspace per
+# CLAUDE.md §8; founder approval in E2 commit footer). HuggingFaceTarget::
+# new() constructs an HFClientSync at construction time; publish() body
+# (create_repo + create_commit via HFRepositorySync) lands at E3-E6.
 # Deferred to E3 as dev-dep: wiremock (mock HF server for unit tests).
 attestrum-attest   = { path = "../attestrum-attest",   version = "0.0.1" }
 attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }
 attestrum-emit     = { path = "../attestrum-emit",     version = "0.1.0" }
+hf-hub     = { workspace = true }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 thiserror  = { workspace = true }
