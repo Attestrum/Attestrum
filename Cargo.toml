@@ -180,7 +180,7 @@ reqwest      = { version = "0.13", default-features = false, features = ["blocki
 # pin the git source directly on the dep line rather than overriding a
 # crates.io version (the sigstore pattern is different — sigstore IS on
 # crates.io and we patch it to use our fork).
-hf-hub       = { git = "https://github.com/huggingface/hf-hub", rev = "4cd6d8acd3192021381ff85210be9192b394e0eb", default-features = false, features = ["blocking", "rustls-tls"] }
+hf-hub       = { version = "1", git = "https://github.com/huggingface/hf-hub", rev = "4cd6d8acd3192021381ff85210be9192b394e0eb", default-features = false, features = ["blocking", "rustls-tls"] }
 
 # Pre-Sprint-5 (2026-05-25): sigstore-rs 0.14.0 hard-requires `Claims.email`
 # (src/oauth/token.rs:31), which breaks every workload-identity OIDC flow
