@@ -11,7 +11,7 @@ name: determinism
 #   - alpine:3.20 container musl x86_64
 #
 # E3 laid the matrix infrastructure (each target checks out + installs
-# rustc 1.88.0 + runs `cargo test --workspace`). Sprint 2 E9 wired the
+# rustc 1.89.0 + runs `cargo test --workspace`). Sprint 2 E9 wired the
 # Merkle-root byte-identity assertion: each target additionally runs
 # the `sprint-2-corpus` example (1000 deterministic in-memory documents
 # → BLAKE3 → sort → RFC 6962 Merkle root → single line of 64 lowercase
@@ -96,17 +96,17 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Setup Rust 1.88.0 (Alpine container)
+      - name: Setup Rust 1.89.0 (Alpine container)
         if: matrix.container == 'alpine:3.20'
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain 1.88.0 --profile minimal \
+            | sh -s -- -y --default-toolchain 1.89.0 --profile minimal \
                        --component rustfmt,clippy --target ${{ matrix.target }}
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Setup Rust 1.88.0 (non-Alpine)
+      - name: Setup Rust 1.89.0 (non-Alpine)
         if: matrix.container != 'alpine:3.20'
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@1.89.0
         with:
           targets: ${{ matrix.target }}
 

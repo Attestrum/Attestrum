@@ -2,4 +2,4 @@
 # Strict lints are configured in CI via `-D warnings` (PATH-A-BRIEF §10.1 step 9).
 # Per-crate overrides go in each crate's lib.rs / main.rs via `#![warn(...)]`.
 
-msrv = "1.88.0"
+msrv = "1.89.0"

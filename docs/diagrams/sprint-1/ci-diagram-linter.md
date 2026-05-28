@@ -2,13 +2,13 @@
 title: "diagram-linter CI sequence"
 models: "tools/diagram-linter/src/main.rs, tools/diagram-linter/src/lib.rs, .github/workflows/ci.yml"
 source_of_truth: code
-last_verified: bc5a104 2026-05-25
+last_verified: 457aa7e 2026-05-28
 diagram_type: sequenceDiagram
 ---
 
 # diagram-linter — CI sequence
 
-Source of truth: `code` — linter is feature-complete as of Sprint 1 E6 and the CI workflow lands at Sprint 1 E11. All six PATH-A-BRIEF §0.3 checks implemented (parse + frontmatter + freshness + reverse-refs + forward-refs + drift); CI invokes `cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams` after pinning Node 20 + `@mermaid-js/mermaid-cli@10.9.1` and Rust 1.85.0 (bumped from 1.84.0 at Sprint 2 E2).
+Source of truth: `code` — linter is feature-complete as of Sprint 1 E6 and the CI workflow lands at Sprint 1 E11. All six PATH-A-BRIEF §0.3 checks implemented (parse + frontmatter + freshness + reverse-refs + forward-refs + drift); CI invokes `cargo run -p diagram-linter --release --quiet -- check --strict --root docs/diagrams` after pinning Node 20 + `@mermaid-js/mermaid-cli@10.9.1` and Rust 1.89.0 (bumped from 1.84.0 → 1.85.0 at Sprint 2 E2 → 1.88.0 at Sprint 4 E3 → 1.89.0 at the chore(toolchain) precursor to S5-D3 E2).
 
 **Determinism CI** (4-target matrix per BUILD-PLAN §6.5) is a separate workflow at `.github/workflows/determinism.yml` (Sprint 2 E3, extended at Sprint 2 E9 with Merkle-root assertion and Sprint 3 E8 with manifest.parquet byte-identity). This diagram covers `ci.yml` only; determinism CI's flow is described in the corresponding sprint diagrams + workflow comments.
 
