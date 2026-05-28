@@ -68,10 +68,12 @@ pub trait PublishTarget {
 /// `attestrum/bundle.sigstore.json` per the OpenSSF model-signing
 /// pattern documented in PATH-A-BRIEF Part 4.1).
 ///
-/// At E2 `new()` instantiates an `hf_hub::HFClientSync` (auto-resolves
-/// the token chain: env HF_TOKEN → HF_TOKEN_PATH file → $HF_HOME/token).
-/// The real `publish()` body lands at D3 E3-E6 — at E2 it remains
-/// `unimplemented!()`.
+/// `new()` instantiates an `hf_hub::HFClientSync` (auto-resolves the token
+/// chain: env HF_TOKEN → HF_TOKEN_PATH file → $HF_HOME/token). `publish()`
+/// implements create_repo + the 6-file create_commit per
+/// `docs/diagrams/overview/hub-publish.md`. Tests construct via the
+/// crate-private `new_with_endpoint()` to point the client at a wiremock
+/// MockServer instead of `https://huggingface.co`.
 #[derive(Clone)]
 pub struct HuggingFaceTarget {
     repo: String,
@@ -98,6 +100,32 @@ impl HuggingFaceTarget {
     /// token chain at this point, so misconfigured token files surface as
     /// `AttestrumPublishError::Auth` early rather than at publish() time.
     pub fn new(repo: String, branch: String) -> Result<Self, AttestrumPublishError> {
+        Self::build(repo, branch, None)
+    }
+
+    /// Constructor that points the hf-hub client at `endpoint` instead of
+    /// resolving from `HF_ENDPOINT` / the default. Used by the integration
+    /// tests at `tests/publish_huggingface.rs` to swap in a
+    /// `wiremock::MockServer` URI; also usable by callers running a
+    /// self-hosted HF Hub mirror.
+    ///
+    /// `#[doc(hidden)]` because this is not the canonical construction
+    /// path — `new()` is. The E8 api-surface golden may include it; if so
+    /// that's accurate (the function is reachable from outside the crate).
+    #[doc(hidden)]
+    pub fn new_with_endpoint(
+        repo: String,
+        branch: String,
+        endpoint: &str,
+    ) -> Result<Self, AttestrumPublishError> {
+        Self::build(repo, branch, Some(endpoint))
+    }
+
+    fn build(
+        repo: String,
+        branch: String,
+        endpoint: Option<&str>,
+    ) -> Result<Self, AttestrumPublishError> {
         if repo.is_empty() {
             return Err(AttestrumPublishError::Auth(
                 "dataset repo is empty".to_string(),
@@ -108,8 +136,7 @@ impl HuggingFaceTarget {
                 "dataset repo {repo:?} must be ORG/NAME shape (HF Hub convention)"
             )));
         }
-        let client = hf_hub::HFClientSync::new()
-            .map_err(|e| AttestrumPublishError::Auth(format!("hf-hub client init: {e}")))?;
+        let client = build_client(endpoint)?;
         Ok(Self {
             repo,
             branch,
@@ -127,13 +154,30 @@ impl HuggingFaceTarget {
         &self.branch
     }
 
-    /// Access the underlying hf-hub client. Crate-private accessor for
-    /// E3-E6 (create_repo + create_commit) — kept out of the public API
-    /// surface to preserve future flexibility around the publish call shape.
-    #[allow(dead_code)] // wired at E3 — surfaces only as `_client` until then
+    /// Access the underlying hf-hub client. Crate-private accessor used
+    /// by `publish()`.
     pub(crate) fn client(&self) -> &hf_hub::HFClientSync {
         &self.client
     }
+}
+
+/// Construct an `HFClientSync`, optionally pointed at a custom `endpoint`
+/// (used by the wiremock tests). When `endpoint` is `None`, the client
+/// resolves from env (HF_ENDPOINT) or the default `https://huggingface.co`.
+/// The token chain (env HF_TOKEN → HF_TOKEN_PATH file → $HF_HOME/token) is
+/// read by the builder either way — misconfigured token files surface as
+/// `AttestrumPublishError::Auth` here, not at publish() time.
+fn build_client(endpoint: Option<&str>) -> Result<hf_hub::HFClientSync, AttestrumPublishError> {
+    let mut builder = hf_hub::HFClient::builder();
+    if let Some(ep) = endpoint {
+        builder = builder.endpoint(ep);
+        // Force a deterministic token so tests don't accidentally use the
+        // developer's real ~/.cache/huggingface/token if it exists.
+        builder = builder.token("test-token");
+    }
+    builder
+        .build_sync()
+        .map_err(|e| AttestrumPublishError::Auth(format!("hf-hub client init: {e}")))
 }
 
 impl PublishTarget for HuggingFaceTarget {
@@ -141,8 +185,113 @@ impl PublishTarget for HuggingFaceTarget {
         "huggingface"
     }
 
-    fn publish(&self, _plan: &PublishPlan) -> Result<PublishReceipt, AttestrumPublishError> {
-        unimplemented!("S5-D3 E2 lands hf-hub client construction; E3 lands create_repo + create_commit; E6 wires emit outputs")
+    fn publish(&self, plan: &PublishPlan) -> Result<PublishReceipt, AttestrumPublishError> {
+        for path in [
+            &plan.manifest_path,
+            &plan.merkle_root_path,
+            &plan.bundle_path,
+        ] {
+            if !path.is_file() {
+                return Err(AttestrumPublishError::BundleMissing(
+                    path.display().to_string(),
+                ));
+            }
+        }
+
+        self.client()
+            .create_repository()
+            .repo_id(self.repo.clone())
+            .repo_type(hf_hub::RepoTypeDataset)
+            .exist_ok(true)
+            .send()
+            .map_err(|e| map_hf_error(e, &self.repo, HfOp::CreateRepo))?;
+
+        let croissant_bytes = serde_json::to_vec(&plan.croissant)
+            .map_err(|e| AttestrumPublishError::CroissantInvalid(e.to_string()))?;
+
+        let mut ops: Vec<hf_hub::repository::CommitOperation> = vec![
+            hf_hub::repository::CommitOperation::add_bytes(
+                "README.md",
+                plan.readme.clone().into_bytes(),
+            ),
+            hf_hub::repository::CommitOperation::add_bytes("croissant.json", croissant_bytes),
+            hf_hub::repository::CommitOperation::add_file(
+                "attestrum/manifest.parquet",
+                plan.manifest_path.clone(),
+            ),
+            hf_hub::repository::CommitOperation::add_file(
+                "attestrum/merkle.root",
+                plan.merkle_root_path.clone(),
+            ),
+            hf_hub::repository::CommitOperation::add_file(
+                "attestrum/bundle.sigstore.json",
+                plan.bundle_path.clone(),
+            ),
+            hf_hub::repository::CommitOperation::add_bytes(
+                "attestrum/verify.html",
+                plan.verify_html.clone().into_bytes(),
+            ),
+        ];
+        for (local_path, path_in_repo) in &plan.extras {
+            ops.push(hf_hub::repository::CommitOperation::add_file(
+                path_in_repo.clone(),
+                local_path.clone(),
+            ));
+        }
+
+        let (owner, name) = self.repo.split_once('/').expect("validated in new()");
+        let commit = self
+            .client()
+            .dataset(owner, name)
+            .create_commit()
+            .operations(ops)
+            .commit_message("attestrum publish".to_string())
+            .revision(self.branch.clone())
+            .send()
+            .map_err(|e| map_hf_error(e, &self.repo, HfOp::CreateCommit))?;
+
+        Ok(PublishReceipt {
+            target: "huggingface".to_string(),
+            dataset_url: format!("https://huggingface.co/datasets/{}", self.repo),
+            verify_url: format!(
+                "https://huggingface.co/datasets/{}/blob/{}/attestrum/verify.html",
+                self.repo, self.branch
+            ),
+            commit_oid: commit.commit_oid,
+        })
+    }
+}
+
+/// Which hf-hub operation the error came from. Disambiguates `HFError::Conflict`
+/// mapping: 409 on create_repo means "exists" (swallowed upstream by
+/// `exist_ok=true`), 409 on create_commit means "parent-commit mismatch" — a
+/// transient race that maps to `Network`, not `RepoExists`.
+#[derive(Copy, Clone)]
+enum HfOp {
+    CreateRepo,
+    CreateCommit,
+}
+
+/// Map an `hf_hub::HFError` into the 10-variant `AttestrumPublishError`. Mirrors
+/// the precedent in `attestrum-prove::map_hf_error` but carries an `HfOp` so
+/// `Conflict` can map differently for create_repo vs create_commit. The
+/// `_ => Network(_)` fallback covers the `#[non_exhaustive]` arm — future hf-hub
+/// variant additions that semantically belong in `Quota` / `Auth` will silently
+/// misroute until this match is re-audited; documented here as a known caveat.
+fn map_hf_error(err: hf_hub::HFError, repo: &str, op: HfOp) -> AttestrumPublishError {
+    use hf_hub::HFError as E;
+    let msg = format!("{repo}: {err}");
+    match err {
+        E::AuthRequired { .. } | E::Forbidden { .. } => AttestrumPublishError::Auth(msg),
+        E::RepoNotFound { .. } | E::EntryNotFound { .. } | E::RevisionNotFound { .. } => {
+            AttestrumPublishError::RepoMissing(msg)
+        }
+        E::RateLimited { .. } => AttestrumPublishError::Quota(msg),
+        E::Conflict { .. } => match op {
+            HfOp::CreateRepo => AttestrumPublishError::RepoExists(msg),
+            HfOp::CreateCommit => AttestrumPublishError::Network(msg),
+        },
+        _ => AttestrumPublishError::Network(msg),
     }
 }
 
@@ -203,6 +352,19 @@ pub struct PublishPlan {
     /// Local path to the Sigstore Bundle v0.3 JSON (output of
     /// `attestrum sign`).
     pub bundle_path: PathBuf,
+
+    /// Local path to the raw Merkle root bytes (output of `attestrum build`'s
+    /// sealed-manifest finalize step). Committed verbatim to the dataset repo
+    /// at `attestrum/merkle.root` so a visitor can `git clone` the dataset
+    /// and verify the bundle's root against the manifest without Attestrum
+    /// installed.
+    ///
+    /// Added at D3 E3 (founder-approved 2026-05-28) to satisfy the 6-file
+    /// `create_commit` shape locked in
+    /// `docs/diagrams/overview/hub-publish.md`. The CLI subcommand at D3 E7
+    /// will populate this from the same finalize artifact `attestrum build`
+    /// already writes.
+    pub merkle_root_path: PathBuf,
 
     /// Croissant JSON-LD payload (output of
     /// `attestrum_emit::render_croissant`). Stored as
@@ -359,6 +521,7 @@ mod tests {
         let plan = PublishPlan {
             manifest_path: PathBuf::from("/tmp/manifest.parquet"),
             bundle_path: PathBuf::from("/tmp/bundle.sigstore.json"),
+            merkle_root_path: PathBuf::from("/tmp/merkle.root"),
             croissant: JsonValue::Null,
             readme: String::new(),
             verify_html: String::new(),
@@ -379,6 +542,7 @@ mod tests {
         let plan = PublishPlan {
             manifest_path: PathBuf::from("/tmp/manifest.parquet"),
             bundle_path: PathBuf::from("/tmp/bundle.sigstore.json"),
+            merkle_root_path: PathBuf::from("/tmp/merkle.root"),
             croissant: JsonValue::Null,
             readme: String::new(),
             verify_html: String::new(),
@@ -418,6 +582,7 @@ mod tests {
         let _plan = PublishPlan {
             manifest_path: PathBuf::from("/tmp/manifest.parquet"),
             bundle_path: PathBuf::from("/tmp/bundle.sigstore.json"),
+            merkle_root_path: PathBuf::from("/tmp/merkle.root"),
             croissant: JsonValue::Object(serde_json::Map::new()),
             readme: "# Dataset\n".to_string(),
             verify_html: "<html></html>".to_string(),

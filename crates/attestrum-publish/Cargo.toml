@@ -32,3 +32,17 @@ serde      = { workspace = true }
 serde_json = { workspace = true }
 thiserror  = { workspace = true }
 tracing    = { workspace = true }
+
+# Sprint 5 D3 E3 (2026-05-28): integration tests for HuggingFaceTarget::publish()
+# round-trip a signed bundle through a wiremock-backed mock HF dataset API.
+# wiremock is async (tokio listener); HFClientSync's blocking façade runs inside
+# the #[tokio::test(flavor = "current_thread")] runtime via internal block_on.
+# tempfile builds the per-test fixture roots (TempDir auto-cleans on drop).
+# All three are dev-only — not in the runtime binary, not in the public surface.
+# wiremock is the first introduction in the workspace (founder-approved 2026-05-28
+# per CLAUDE.md §8); tokio + tempfile pre-approved per BUILD-PLAN §6.2 +
+# docs/license-inventory.md.
+[dev-dependencies]
+wiremock = "0.6"
+tokio    = { version = "1", features = ["rt", "macros"] }
+tempfile = "3"
