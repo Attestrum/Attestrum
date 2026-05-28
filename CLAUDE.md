@@ -293,7 +293,7 @@ The push is part of the commit ritual, not a separate ceremony. After the local 
 
 **Acceptable batched-push cases** (rare):
 
-- A deliberate multi-commit landing sequence where commit B depends semantically on commit A and you want both to land at the remote together (e.g., E4.5's commit A = code + commit B = `last_verified` SHA bump that references A's SHA). Push all commits in the sequence with one `git push`, not per-commit.
+- A deliberate multi-commit landing sequence where commit B depends semantically on commit A and you want both to land at the remote together. Push all commits in the sequence with one `git push`, not per-commit.
 - A fix-forward immediately following a commit you just realised was wrong. Hold the push briefly while you draft the fix-forward commit; push both together.
 
 **Never acceptable:**
@@ -320,7 +320,7 @@ cargo run -p secret-scanner --release --quiet -- check
 
 If any of those fail, fix it before committing. Never disable a failing test to get a green light. Never `#[allow(...)]` a clippy lint without a comment explaining the specific case. Never skip the linter "just this once." Never `git commit --no-verify` to bypass the hook — that's an explicit CLAUDE.md §0.5.4 anti-pattern.
 
-**Why `cargo deny check sources licenses` is in the local pre-commit set (added 2026-05-25 after Sprint 5 S5-D1 E1 through E4 + the deny.toml fix-forward + the parallel `difficulty.md` self-audit's §4.2.7 finding all surfaced the same gap):** the `sources` check catches `[patch.crates-io]` / git-pin additions whose URL isn't in `deny.toml`'s `allow-git` list (regression seen at `60a78559` → `25e9d7e` fix-forward), and the `licenses` check catches transitive deps whose SPDX license isn't in `deny.toml`'s `allow` list (regressions seen when first-using `image` → `ravif` → `rav1e` → `libfuzzer-sys` (NCSA, E2) and `iscc-lib` → `xxhash-rust` (BSL-1.0, E4)). Both checks run sub-second locally; both are policed by CI's `audit` job. Local pre-check stops the regression at commit time rather than after a wasted push. `cargo deny check bans` is omitted from the pre-commit set because it's a "ban-list" gate that the workspace doesn't currently populate — re-add here once any `[bans].deny` entries land. `cargo deny check advisories` is deliberately CI-only — it's slow (queries the RUSTSEC index) and currently red on two carry-forward transitive advisories (RUSTSEC-2024-0436 paste-unmaintained + RUSTSEC-2023-0071 Marvin Attack); see the TODO box below for the carry-forward triage state.
+**Gate split.** `sources` catches unapproved git pins (URLs not in `deny.toml`'s `allow-git` list). `licenses` catches transitive deps whose SPDX license isn't in `deny.toml`'s `allow` list. Both run sub-second locally and are policed by CI's `audit` job. `cargo deny check bans` is omitted because the workspace doesn't populate `[bans].deny` — re-add once any entries land. `cargo deny check advisories` is CI-only because it queries the RUSTSEC index (slow) and currently carries two transitive RUSTSEC reds. Historical rationale and the regression incidents that motivated adding the local gate live in `docs/research/cargo-deny-gates-rationale.md`.
 
 **Determinism.** This project depends on byte-identical builds across Linux x86, Linux ARM, macOS, and Linux musl. Sources of non-determinism are bugs:
 
@@ -332,7 +332,7 @@ If any of those fail, fix it before committing. Never disable a failing test to 
 
 If a test passes on your machine but fails in CI's determinism matrix, the test is finding a real bug. Fix the bug, don't relax the test.
 
-**CI status note.** As of the 2026-05-26 public-flip + protocol install (commits `14b4d4d` through the latest), CI on `main` HEAD is green across `ci`, `cosign-interop`, and `determinism`. The three carry-forward reds documented in earlier CHANGELOG entries (cargo-deny advisories for two transitive RUSTSEC advisories, Alpine musl `read_only_parent_propagates_io_error`, cosign-interop OIDC JWT) appear resolved or no longer firing in the current GHA environment. Run `gh run list -R Attestrum/Attestrum -L 6` at session start to confirm rather than assuming this note is still accurate.
+**CI status check.** CI state changes commit-to-commit. Run `gh run list -R Attestrum/Attestrum -L 6` at session start to check current state rather than assuming green.
 
 ---
 
@@ -390,48 +390,43 @@ Attestrum's UI surface is small (static `verify.html` + dataset card README), bu
 
 ---
 
-## 11. What This Project Is And Is Not
+## 11. Project Scope
 
 **Attestrum IS:**
 
 - A deterministic Rust CLI that takes a training corpus and emits a cryptographically verifiable provenance bundle.
 - Sigstore-signed, in-toto-attested, Merkle-rooted over BLAKE3.
-- Open-source under Apache-2.0 OR MIT (dual-license, contributor's choice). Copyright holder: **Hyper Beam Media LLC** (the founder's LLC; also owns the `Attestrum` GitHub org). `LICENSE-APACHE` + `LICENSE-MIT` at the repo root carry the canonical copyright lines; per-file SPDX headers are NOT used (keeps source files clean; the root LICENSE files are authoritative).
-- Aimed at the willing transparent middle: AI2, Pleias, EleutherAI, Black Forest Labs, Mozilla Data Collective, Hugging Face dataset publishers.
-- Built solo with Claude Code as the implementation harness.
-- A 90-day MVP under a six-sprint plan.
+- Open-source under Apache-2.0 OR MIT (dual-license, contributor's choice). Copyright holder: **Hyper Beam Media LLC**. `LICENSE-APACHE` + `LICENSE-MIT` at the repo root carry the canonical copyright lines; per-file SPDX headers are NOT used.
 
 **Attestrum IS NOT:**
 
-- A frontier-lab compliance tool. That pitch was killed by competitive audit in May 2026 because frontier labs are litigating to keep their corpus details ambiguous and would not buy a tool that makes them auditable.
-- A registry. We don't host fingerprints, don't run a witness service in v1 (only optionally federate with Rekor or Hugging Face), don't operate a hosted SaaS in v1.
-- A two-sided market. The buyer is the publisher of the corpus, not the rightsholder asking "was my work used." That's a v2 product line.
-- An ML research project. There is no model training in scope. Fingerprinting uses published algorithms (BLAKE3, ISCC, pHash, MinHash); we do not invent new ones.
-- A litigation eDiscovery tool. That's an adjacent v2 opportunity through Thomson Reuters / RELX / Relativity, not v1.
-- A general-purpose data versioning system. We are not building Git for data, not building DVC, not building lakeFS. We're building a deterministic compiler that emits a specific kind of signed artifact.
+- A frontier-lab compliance tool.
+- A registry. v1 doesn't host fingerprints or operate a hosted SaaS (only optionally federates with Rekor or Hugging Face).
+- A two-sided market — the buyer is the publisher of the corpus, not the rightsholder asking "was my work used."
+- An ML research project. Fingerprinting uses published algorithms (BLAKE3, ISCC, pHash, MinHash); we do not invent new ones.
+- A litigation eDiscovery tool.
+- A general-purpose data versioning system. We are not building Git for data, DVC, or lakeFS — we're building a deterministic compiler that emits a specific kind of signed artifact.
 
-If asked to add something that would push the scope toward any of the "is not" items above, surface the conflict before scoping the work.
+If asked to add something that would push the scope toward any of the "IS NOT" items above, surface the conflict before scoping the work.
 
 ---
 
-## 12. Acquirer-Optionality Hygiene
+## 12. Vendor Neutrality
 
-The acquisition narrative depends on Attestrum becoming substrate, not a branded silo. Decisions that preserve optionality:
+Every artifact Attestrum emits must verify with standard public tooling — no Attestrum install required. Decisions that preserve neutrality:
 
 - **Public type URIs only.** The Sigstore bundle, the in-toto Statement, the Croissant JSON-LD, the CycloneDX ML-BOM all use their canonical public URIs. The string "Attestrum" appears only in the predicate URI prefix (`attestrum.com/`) and in the informational `builderVersion` field — never in emitted format structure.
-- **Domain ownership migratability.** The `attestrum.com` domain is registered. If an acquirer wants the predicates moved to a vendor-neutral namespace, the in-toto attestation framework's New Predicate Guidelines workflow defines a rename path.
+- **Domain ownership migratability.** The `attestrum.com` domain is registered. If a future maintainer wants the predicates moved to a vendor-neutral namespace, the in-toto attestation framework's New Predicate Guidelines workflow defines a rename path.
 - **No vendor lock-in.** Every artifact is verifiable with `cosign v3+ verify-blob-attestation --new-bundle-format` and no Attestrum install. The static `verify.html` page works without Attestrum. The Croissant JSON-LD validates against the public schema. The Article 53 template matches the Commission's exact format.
 - **Hub-publish is one target among several.** `attestrum publish` supports Hugging Face primary, GitHub Releases fallback, and static-bundle output for Zenodo or self-hosting. No single platform dependency.
 
-When in doubt: optimize for "any acquirer could run this without breaking the OSS users," not "we tightly integrate with company X."
+When in doubt: optimize for "any user can run and verify this without Attestrum installed," not "we tightly integrate with company X."
 
 ---
 
-## 13. Founder Context
+## 13. Legal & Regulatory Questions
 
-The founder is a solo developer running on a MacBook Air with Claude Code as the primary implementation tool. Existing pattern is spec-driven development: detailed `.md` prompt files, plan-first gates, CHANGELOG/SESSION-LOG entries at every commit. Strong build-system and pipeline background (the AI training-data parallels to MLS sync, photo pipelines, R2 storage, cron orchestration are direct). No ML research background needed for this project. Comfortable with Rust at a pragmatic-not-pedantic level — write idiomatic Rust, don't write `unsafe` showcases.
-
-The founder is not a lawyer. Do not generate legal opinions about Article 53, CDSM Article 4(3), or any active copyright case. When a regulatory question comes up, point to the citation, restate what the spec says, and let the founder decide what to do with it.
+When a regulatory or legal question arises (EU AI Act Article 53, CDSM Article 4(3), copyright case law, jurisdictional issues), point to the citation, restate what the specification says, and let the founder decide what to do with it. Do not generate legal opinions.
 
 ---
 
@@ -484,4 +479,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-26. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. For the per-section change history, see `git log -- CLAUDE.md`. Structural milestones reflected in the current text: top-of-file authority-anchor sentence (2026-05-26 hardening pass); §0.4 first-time-setup checklist (2026-05-26); §0.5 publication boundary (2026-05-25 public-flip cleanup); §0.5.1 `/docs/research/` formalized as a public-surface subdir alongside the existing `migration/`, `schemas/`, `license-inventory.md` siblings (2026-05-26 — first occupant is `docs/research/cross-target-determinism.md` at `f647f30`); §2 PNG render tightened from MAY to MUST so the founder always has up-to-date PNGs for internal-notes visual review (2026-05-26); §3 step 5 + Quick Reference Card carry the matching agent-side instruction (2026-05-26); §6 revised to make SESSION-LOG.md local-only and CHANGELOG.md release-oriented (2026-05-25); §7 sixth pre-commit gate `cargo run -p secret-scanner` added 2026-05-25 alongside the `.githooks/pre-commit` hook; §11 copyright-holder line added 2026-05-25 alongside the `LICENSE-APACHE` + `LICENSE-MIT` root files.*
+*Last updated: 2026-05-27. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. For the per-section change history, see `git log -- CLAUDE.md`.*
