@@ -2,7 +2,7 @@
 title: "Hugging Face Hub publish flow"
 models: "crates/attestrum-publish/src/lib.rs, crates/attestrum-publish/src/huggingface.rs, crates/attestrum-emit/src/lib.rs, crates/attestrum-emit/src/croissant.rs, crates/attestrum-emit/src/dataset_card.rs, crates/attestrum-emit/src/verify_html.rs, PublishTarget, HuggingFaceTarget, GitHubReleaseTarget, StaticBundleTarget, PublishPlan, PublishReceipt, AttestrumPublishError, render_croissant, render_readme, render_verify_html_stub, CroissantPlan, DatasetCardPlan, VerifyHtmlPlan, ManifestStats, AttestrumEmitError"
 source_of_truth: diagram
-last_verified: 4531d69 2026-05-28
+last_verified: 142e386 2026-05-28
 diagram_type: sequenceDiagram
 ---
 

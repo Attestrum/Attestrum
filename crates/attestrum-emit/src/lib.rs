@@ -21,6 +21,8 @@
 //! (local-only living document; not committed to the public repo per
 //! CLAUDE.md §0.5 publication boundary).
 
+pub mod croissant;
+
 // ============================================================================
 // Public API surface
 // ============================================================================
@@ -36,8 +38,8 @@
 /// `attestrum/bundle.sigstore.json`. The Hub's auto-generated
 /// `/croissant` endpoint will continue to serve its own Parquet-derived
 /// JSON-LD; ours is the publisher-authored authoritative one.
-pub fn render_croissant(_plan: &CroissantPlan) -> Result<String, AttestrumEmitError> {
-    unimplemented!("S5-D3 E4 lands the Croissant JSON-LD emitter")
+pub fn render_croissant(plan: &CroissantPlan) -> Result<String, AttestrumEmitError> {
+    croissant::render(plan)
 }
 
 /// Render the dataset card `README.md` for the dataset. YAML
@@ -90,6 +92,18 @@ pub struct CroissantPlan {
     /// Croissant `dateCreated` field deterministically. Matches the
     /// `--source-date-epoch` value used during `attestrum sign`.
     pub source_date_epoch: i64,
+
+    /// Single SPDX license identifier (e.g. `"Apache-2.0"`, `"MIT"`,
+    /// `"CC-BY-4.0"`) for the dataset's `license` field, OR the literal
+    /// `"mixed"` when the corpus carries multiple licenses, OR `None` when
+    /// the caller has no license info to assert. When `None` the emitter
+    /// omits the `license` field entirely rather than synthesizing a value.
+    ///
+    /// Added at D3 E4 (founder-approved 2026-05-28). Parallel to
+    /// `DatasetCardPlan.license_spdx` from E1; the CLI at D3 E7 will
+    /// populate both from the same source (CLI flag, corpus.toml field, or
+    /// manifest license-inventory if present).
+    pub license_spdx: Option<String>,
 }
 
 /// Caller-supplied inputs for `render_readme()`. The YAML frontmatter
@@ -255,6 +269,7 @@ mod tests {
                 total_bytes: 1,
             },
             source_date_epoch: 1700000000,
+            license_spdx: Some("Apache-2.0".to_string()),
         };
     }
 

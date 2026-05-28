@@ -32,3 +32,9 @@ attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 thiserror  = { workspace = true }
+# Sprint 5 D3 E4: jiff::Timestamp::from_second drives the Croissant
+# `dateCreated` field deterministically from `CroissantPlan.source_date_epoch`
+# (no wall-clock). Mirrors the precedent in attestrum-prove (S5-D2 E4) for
+# `proof_generated_at`. Pre-approved per BUILD-PLAN §6.2 + PATH-A-BRIEF §2.1;
+# already in workspace.dependencies since S5-D1 E1.
+jiff       = { workspace = true }
