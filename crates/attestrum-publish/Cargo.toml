@@ -7,3 +7,25 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Sprint 5 D3 E1: public API surface lands. PublishTarget trait + three
+# impls + PublishPlan/PublishReceipt/AttestrumPublishError. Bodies
+# `unimplemented!()` pending E2-E6 real work.
+#
+# Path-deps:
+#   - attestrum-attest: bundle JSON read + Subject + InTotoStatement types
+#     for the PublishPlan inputs (bundle_path is consumed by E6).
+#   - attestrum-manifest: ManifestStats derivation at E4-E5 (leaf_count,
+#     total_bytes, modality histogram) for Croissant + dataset card.
+#   - attestrum-emit: this crate calls attestrum-emit at E6 to render
+#     croissant.json + README.md + verify.html before uploading to the Hub.
+#
+# Deferred to E2: hf-hub (git-pinned, second approved git-pin in the
+# workspace per CLAUDE.md §8; founder approval in commit footer).
+# Deferred to E3 as dev-dep: wiremock (mock HF server for unit tests).
+attestrum-attest   = { path = "../attestrum-attest",   version = "0.0.1" }
+attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }
+attestrum-emit     = { path = "../attestrum-emit",     version = "0.1.0" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }

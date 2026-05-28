@@ -7,3 +7,28 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Sprint 5 D3 E1: public API surface lands. Three render functions
+# (Croissant JSON-LD, dataset card README.md, verify.html stub) +
+# Plan input structs + ManifestStats. Bodies `unimplemented!()`
+# pending E4-E6 real work.
+#
+# Path-deps:
+#   - attestrum-attest: cert identity / OIDC issuer extraction from the
+#     Sigstore bundle for verify.html stub (E6).
+#   - attestrum-manifest: ManifestStats derivation for Croissant + README
+#     (leaf_count, total_bytes, modality histogram) (E4-E5).
+#
+# Workspace deps:
+#   - serde / serde_json: Croissant JSON-LD assembly with sorted-key
+#     deterministic output.
+#   - thiserror: AttestrumEmitError 5-variant enum.
+#
+# Deferred: no template engine. README + verify.html are hand-rolled
+# `format!()` to keep deps minimal and output byte-deterministic (per
+# CLAUDE.md §14 "eager generalization" anti-pattern — 3 templates do
+# not justify a templating engine).
+attestrum-attest   = { path = "../attestrum-attest",   version = "0.0.1" }
+attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }

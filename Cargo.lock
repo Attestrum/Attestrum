@@ -442,6 +442,13 @@ dependencies = [
 [[package]]
 name = "attestrum-emit"
 version = "0.1.0"
+dependencies = [
+ "attestrum-attest",
+ "attestrum-manifest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "attestrum-fingerprint"
@@ -528,6 +535,15 @@ dependencies = [
 [[package]]
 name = "attestrum-publish"
 version = "0.1.0"
+dependencies = [
+ "attestrum-attest",
+ "attestrum-emit",
+ "attestrum-manifest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+]
 
 [[package]]
 name = "attestrum-signals"
