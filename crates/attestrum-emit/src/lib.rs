@@ -22,6 +22,7 @@
 //! CLAUDE.md §0.5 publication boundary).
 
 pub mod croissant;
+pub mod dataset_card;
 
 // ============================================================================
 // Public API surface
@@ -45,8 +46,8 @@ pub fn render_croissant(plan: &CroissantPlan) -> Result<String, AttestrumEmitErr
 /// Render the dataset card `README.md` for the dataset. YAML
 /// frontmatter (per PATH-A-BRIEF Part 2.3 spec) + provenance prose
 /// + verify URL. Body fills in at D3 E5.
-pub fn render_readme(_plan: &DatasetCardPlan) -> Result<String, AttestrumEmitError> {
-    unimplemented!("S5-D3 E5 lands the dataset card emitter")
+pub fn render_readme(plan: &DatasetCardPlan) -> Result<String, AttestrumEmitError> {
+    dataset_card::render(plan)
 }
 
 /// Render the v0.1 verify.html stub. A single self-contained static
