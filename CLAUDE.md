@@ -355,22 +355,23 @@ Attestrum's UI surface is small but it's the user-facing trust signal. A broken 
 
 ## 11. Project Scope
 
-**Attestrum IS:**
+**Attestrum is:**
 
 - A deterministic Rust CLI that takes a training corpus and emits a cryptographically verifiable provenance bundle.
 - Sigstore-signed, in-toto-attested, Merkle-rooted over BLAKE3.
-- Open-source under Apache-2.0 OR MIT (dual-license). Copyright holder: **Hyper Beam Media LLC**. `LICENSE-APACHE` + `LICENSE-MIT` carry the canonical copyright lines; per-file SPDX headers are NOT used.
+- A **training-data-provenance compliance tool.** It produces cryptographic, audit-ready evidence backing the EU AI Act Article 53(1)(d) training-content summary — provable corpus composition, inclusion / non-inclusion proofs. Valuable to anyone publishing a training corpus, frontier labs included.
+- Open-source under Apache-2.0 OR MIT (dual-license). Copyright holder: **Hyper Beam Media LLC**. `LICENSE-APACHE` + `LICENSE-MIT` carry the canonical copyright lines; per-file SPDX headers are not used.
 
-**Attestrum IS NOT:**
+**Attestrum is not:**
 
-- A frontier-lab compliance tool.
+- A **full GPAI compliance suite.** Attestrum covers the training-data-provenance slice only — not systemic-risk assessment, safety frameworks, the Model Documentation Form workflow, SEND submissions, retention management, or the rest of the GPAI obligation set.
 - A registry. v1 doesn't host fingerprints or operate a hosted SaaS (only optionally federates with Rekor or Hugging Face).
-- A two-sided market — the buyer is the publisher of the corpus, not the rightsholder asking "was my work used."
+- A two-sided market — the buyer is the corpus publisher, frontier labs included, not the rightsholder asking "was my work used."
 - An ML research project. Fingerprinting uses published algorithms (BLAKE3, ISCC, pHash, MinHash); we do not invent new ones.
 - A litigation eDiscovery tool.
 - A general-purpose data versioning system. Not Git for data, DVC, or lakeFS.
 
-If asked to add something that would push scope toward an "IS NOT" item, surface the conflict before scoping.
+If asked to add something that would push scope toward an "is not" item, surface the conflict before scoping.
 
 ---
 

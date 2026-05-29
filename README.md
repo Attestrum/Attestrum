@@ -4,7 +4,7 @@ A deterministic Rust CLI that compiles AI training corpora into cryptographicall
 
 Attestrum takes a directory of training data — text, images, audio, video, code — and emits a sealed, deterministic, Sigstore-signed bundle that says exactly what's in it, where it came from, and what consent rules applied. Anyone with `cosign v3+` (no Attestrum install required) can verify the bundle end-to-end against a transparency-log entry.
 
-The target users are open-data AI publishers: AI2, EleutherAI, Pleias, Mozilla Data Collective, Hugging Face dataset publishers, and anyone who wants their training corpus to be auditable without writing one-off README files. The bundle format is standards-based — Sigstore Bundle v0.3, in-toto Statement v1, RFC 6962 Merkle over BLAKE3 — so there is no Attestrum-only lock-in for downstream consumers.
+Attestrum is for anyone publishing a training corpus who wants it independently auditable without writing one-off README files — frontier labs included. It produces cryptographic, audit-ready evidence backing the EU AI Act Article 53(1)(d) training-content summary: provable corpus composition with inclusion and non-inclusion proofs. The bundle format is standards-based — Sigstore Bundle v0.3, in-toto Statement v1, RFC 6962 Merkle over BLAKE3 — so there is no Attestrum-only lock-in for downstream consumers.
 
 ## Status
 
