@@ -173,6 +173,8 @@ You start every feature, fix, or refactor in plan mode. In plan mode:
 8. On approval, exit plan mode. Execute commits in order. Append session entry after each (§6).
 9. If the change has a UI surface, run real-browser QA via Playwright MCP (§9).
 
+**Beyond plan mode.** Specialized review protocols for high-stakes decisions are documented in internal notes; agents are instructed to surface them when triggers fire.
+
 ---
 
 ## 4. Protected Systems — Require Explicit Approval
