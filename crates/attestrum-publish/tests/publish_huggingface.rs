@@ -315,20 +315,24 @@ fn publish_treats_409_on_create_repo_as_idempotent() {
 
 #[test]
 fn publish_maps_connection_refused_to_network() {
-    // Bind a MockServer, capture its URI, then drop it BEFORE constructing the
-    // target. The torn-down listener guarantees a connection-refused on the
-    // first hf-hub call. (Picking a free port via OS rather than guessing one
-    // sidesteps the determinism-matrix port-conflict risk per roadmap R3.)
-    let rt = server_runtime();
-    let uri = rt.block_on(async {
-        let server = MockServer::start().await;
-        server.uri()
-    });
+    // Target `127.0.0.1:1`. Port 1 is in the privileged range (< 1024) so
+    // no unprivileged process — including another test's `MockServer` —
+    // can bind it on Linux or macOS. `connect()` returns ECONNREFUSED
+    // immediately.
+    //
+    // The E3-era version of this test bound a wiremock `MockServer`, captured
+    // its URI, then dropped the server before issuing the request. That
+    // assumed the OS would not re-allocate the freed port to a parallel
+    // test's `MockServer` between drop and publish() — which is exactly the
+    // race that landed in CI at S5-D3 E6 (a parallel test's happy-path mocks
+    // served the supposedly-torn-down endpoint and publish() succeeded with
+    // the wrong receipt). The privileged-port form is race-free.
+    let uri = "http://127.0.0.1:1";
     let dir = TempDir::new().expect("tempdir");
     let plan = write_fixture_plan(dir.path());
     let target =
-        HuggingFaceTarget::new_with_endpoint(TEST_REPO.to_string(), TEST_BRANCH.to_string(), &uri)
-            .expect("construct target with torn-down endpoint");
+        HuggingFaceTarget::new_with_endpoint(TEST_REPO.to_string(), TEST_BRANCH.to_string(), uri)
+            .expect("construct target with unreachable endpoint");
 
     let err = target
         .publish(&plan)
