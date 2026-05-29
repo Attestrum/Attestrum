@@ -23,6 +23,7 @@
 
 pub mod croissant;
 pub mod dataset_card;
+pub mod verify_html;
 
 // ============================================================================
 // Public API surface
@@ -56,8 +57,8 @@ pub fn render_readme(plan: &DatasetCardPlan) -> Result<String, AttestrumEmitErro
 /// in-browser verifier (WASM cosign-lite per PATH-A-BRIEF Part 2.3)
 /// is deferred to v0.2 per founder scope decision SD2 at D3 planning
 /// time. Body fills in at D3 E6.
-pub fn render_verify_html_stub(_plan: &VerifyHtmlPlan) -> Result<String, AttestrumEmitError> {
-    unimplemented!("S5-D3 E6 lands the verify.html stub renderer")
+pub fn render_verify_html_stub(plan: &VerifyHtmlPlan) -> Result<String, AttestrumEmitError> {
+    verify_html::render(plan)
 }
 
 // ============================================================================

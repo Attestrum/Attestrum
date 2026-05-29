@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Verify — my-org/my-dataset</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2em auto; padding: 0 1em; color: #222; }
+  h1 { font-size: 1.4em; }
+  code, pre { background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 3px; }
+  pre { padding: 1em; overflow-x: auto; }
+  .policy { border-left: 3px solid #555; padding-left: 1em; margin: 1em 0; }
+  .policy dt { font-weight: bold; margin-top: 0.5em; }
+</style>
+</head>
+<body>
+<h1>Verify my-org/my-dataset</h1>
+<p>This dataset was published with Attestrum. The Sigstore Bundle at
+<code>attestrum/bundle.sigstore.json</code> attests that the sealed manifest at
+<code>attestrum/manifest.parquet</code> was signed by the identity below.</p>
+
+<h2>Identity policy</h2>
+<dl class="policy">
+  <dt>Certificate identity (SAN)</dt>
+  <dd><code>https://github.com/my-org/my-dataset/.github/workflows/build.yml@refs/heads/main</code></dd>
+  <dt>OIDC issuer</dt>
+  <dd><code>https://token.actions.githubusercontent.com</code></dd>
+</dl>
+
+<h2>Verify from the command line</h2>
+<p>You can verify the bundle with stock Sigstore tooling — no Attestrum install required:</p>
+<pre>cosign verify-blob-attestation \
+  --new-bundle-format \
+  --bundle attestrum/bundle.sigstore.json \
+  --certificate-identity https://github.com/my-org/my-dataset/.github/workflows/build.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  attestrum/manifest.parquet</pre>
+
+<p>For richer offline verification (Merkle-root re-derivation against the manifest), see <code>attestrum verify</code> at <a href="https://github.com/Attestrum/Attestrum">github.com/Attestrum/Attestrum</a>.</p>
+
+<p><em>Attestrum v0.1 — static verify page. In-browser WASM verifier ships in v0.2.</em></p>
+</body>
+</html>

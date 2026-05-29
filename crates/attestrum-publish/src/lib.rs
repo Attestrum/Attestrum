@@ -36,7 +36,10 @@
 
 use std::path::PathBuf;
 
-use serde_json::Value as JsonValue;
+// Re-export the three plan types attestrum-emit owns so callers can
+// construct `PublishPlan` without a separate `attestrum-emit` dep.
+// `ManifestStats` is re-exported because both plan types embed it.
+pub use attestrum_emit::{CroissantPlan, DatasetCardPlan, ManifestStats, VerifyHtmlPlan};
 
 // ============================================================================
 // Public API surface — Part 2.3 of PATH-A-BRIEF
@@ -206,15 +209,24 @@ impl PublishTarget for HuggingFaceTarget {
             .send()
             .map_err(|e| map_hf_error(e, &self.repo, HfOp::CreateRepo))?;
 
-        let croissant_bytes = serde_json::to_vec(&plan.croissant)
+        // S5-D3 E6: render the three dataset-side artifacts here rather than
+        // accepting pre-rendered strings off PublishPlan. Identity extraction
+        // for the verify.html stub stays at the CLI orchestration layer (E7)
+        // via a single `attestrum_attest::extract_identity()` call on the
+        // freshly-signed bundle — attestrum-emit gains no I/O at runtime.
+        let readme = attestrum_emit::render_readme(&plan.dataset_card_plan)
+            .map_err(|e| AttestrumPublishError::ReadmeRender(e.to_string()))?;
+        let croissant_str = attestrum_emit::render_croissant(&plan.croissant_plan)
             .map_err(|e| AttestrumPublishError::CroissantInvalid(e.to_string()))?;
+        let verify_html = attestrum_emit::render_verify_html_stub(&plan.verify_html_plan)
+            .map_err(|e| AttestrumPublishError::VerifyHtmlBuild(e.to_string()))?;
 
         let mut ops: Vec<hf_hub::repository::CommitOperation> = vec![
+            hf_hub::repository::CommitOperation::add_bytes("README.md", readme.into_bytes()),
             hf_hub::repository::CommitOperation::add_bytes(
-                "README.md",
-                plan.readme.clone().into_bytes(),
+                "croissant.json",
+                croissant_str.into_bytes(),
             ),
-            hf_hub::repository::CommitOperation::add_bytes("croissant.json", croissant_bytes),
             hf_hub::repository::CommitOperation::add_file(
                 "attestrum/manifest.parquet",
                 plan.manifest_path.clone(),
@@ -229,7 +241,7 @@ impl PublishTarget for HuggingFaceTarget {
             ),
             hf_hub::repository::CommitOperation::add_bytes(
                 "attestrum/verify.html",
-                plan.verify_html.clone().into_bytes(),
+                verify_html.into_bytes(),
             ),
         ];
         for (local_path, path_in_repo) in &plan.extras {
@@ -366,20 +378,28 @@ pub struct PublishPlan {
     /// already writes.
     pub merkle_root_path: PathBuf,
 
-    /// Croissant JSON-LD payload (output of
-    /// `attestrum_emit::render_croissant`). Stored as
-    /// `serde_json::Value` because Croissant's shape is JSON-LD with
-    /// `@context` blocks that aren't worth a Rust type at v0.1.
-    pub croissant: JsonValue,
+    /// Inputs for `attestrum_emit::render_croissant`. The CLI at D3 E7
+    /// constructs this from CLI flags + a single manifest read; `publish()`
+    /// calls the render fn at publish-time.
+    ///
+    /// Added at D3 E6 (founder-approved 2026-05-28); replaces the
+    /// `croissant: serde_json::Value` rendered-payload field from E3.
+    pub croissant_plan: CroissantPlan,
 
-    /// Dataset card README.md text (output of
-    /// `attestrum_emit::render_readme`).
-    pub readme: String,
+    /// Inputs for `attestrum_emit::render_readme`. Constructed by the CLI;
+    /// `publish()` calls the render fn at publish-time.
+    ///
+    /// Added at D3 E6 (founder-approved 2026-05-28); replaces the
+    /// `readme: String` rendered-payload field from E3.
+    pub dataset_card_plan: DatasetCardPlan,
 
-    /// verify.html stub text (output of
-    /// `attestrum_emit::render_verify_html_stub`). v0.1 stub HTML; the
-    /// real in-browser verifier ships in v0.2.
-    pub verify_html: String,
+    /// Inputs for `attestrum_emit::render_verify_html_stub`. The CLI at
+    /// D3 E7 populates `certificate_identity` + `certificate_oidc_issuer`
+    /// via `attestrum_attest::extract_identity()` on the bundle.
+    ///
+    /// Added at D3 E6 (founder-approved 2026-05-28); replaces the
+    /// `verify_html: String` rendered-payload field from E3.
+    pub verify_html_plan: VerifyHtmlPlan,
 
     /// Additional local files to commit alongside the canonical set.
     /// Tuple is `(local_path, path_in_repo)`. Empty in the
@@ -511,6 +531,51 @@ mod tests {
         assert!(matches!(err, AttestrumPublishError::Auth(_)));
     }
 
+    /// Minimal `PublishPlan` for tests that only need it to compile + pattern-
+    /// match a `NotImplemented` error. The two v0.2-deferral targets never
+    /// look at the plan, so the contents below are arbitrary stubs.
+    fn minimal_plan() -> PublishPlan {
+        PublishPlan {
+            manifest_path: PathBuf::from("/tmp/manifest.parquet"),
+            bundle_path: PathBuf::from("/tmp/bundle.sigstore.json"),
+            merkle_root_path: PathBuf::from("/tmp/merkle.root"),
+            croissant_plan: CroissantPlan {
+                dataset_name: "my-org/my-dataset".to_string(),
+                manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+                bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
+                merkle_root_path_in_repo: "attestrum/merkle.root".to_string(),
+                manifest_stats: ManifestStats {
+                    leaf_count: 1,
+                    total_bytes: 1,
+                },
+                source_date_epoch: 1_700_000_000,
+                license_spdx: None,
+            },
+            dataset_card_plan: DatasetCardPlan {
+                pretty_name: "Stub".to_string(),
+                license_spdx: "Apache-2.0".to_string(),
+                language: vec![],
+                task_categories: vec![],
+                size_category: "n<1K".to_string(),
+                tags: vec![],
+                dataset_name: "my-org/my-dataset".to_string(),
+                manifest_stats: ManifestStats {
+                    leaf_count: 1,
+                    total_bytes: 1,
+                },
+                verify_url: "https://example/verify.html".to_string(),
+            },
+            verify_html_plan: VerifyHtmlPlan {
+                dataset_name: "my-org/my-dataset".to_string(),
+                certificate_identity: "stub-identity".to_string(),
+                certificate_oidc_issuer: "stub-issuer".to_string(),
+                bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
+                manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+            },
+            extras: Vec::new(),
+        }
+    }
+
     #[test]
     fn github_release_target_is_v02_deferral() {
         let t = GitHubReleaseTarget {
@@ -518,17 +583,8 @@ mod tests {
             tag: "v0.1".to_string(),
         };
         assert_eq!(t.target_name(), "github-release");
-        let plan = PublishPlan {
-            manifest_path: PathBuf::from("/tmp/manifest.parquet"),
-            bundle_path: PathBuf::from("/tmp/bundle.sigstore.json"),
-            merkle_root_path: PathBuf::from("/tmp/merkle.root"),
-            croissant: JsonValue::Null,
-            readme: String::new(),
-            verify_html: String::new(),
-            extras: Vec::new(),
-        };
         let err = t
-            .publish(&plan)
+            .publish(&minimal_plan())
             .expect_err("GitHubReleaseTarget is deferred");
         assert!(matches!(err, AttestrumPublishError::NotImplemented(_)));
     }
@@ -539,17 +595,8 @@ mod tests {
             out_dir: PathBuf::from("/tmp/out"),
         };
         assert_eq!(t.target_name(), "static");
-        let plan = PublishPlan {
-            manifest_path: PathBuf::from("/tmp/manifest.parquet"),
-            bundle_path: PathBuf::from("/tmp/bundle.sigstore.json"),
-            merkle_root_path: PathBuf::from("/tmp/merkle.root"),
-            croissant: JsonValue::Null,
-            readme: String::new(),
-            verify_html: String::new(),
-            extras: Vec::new(),
-        };
         let err = t
-            .publish(&plan)
+            .publish(&minimal_plan())
             .expect_err("StaticBundleTarget is deferred");
         assert!(matches!(err, AttestrumPublishError::NotImplemented(_)));
     }
@@ -579,14 +626,6 @@ mod tests {
 
     #[test]
     fn publish_plan_constructs_with_minimal_inputs() {
-        let _plan = PublishPlan {
-            manifest_path: PathBuf::from("/tmp/manifest.parquet"),
-            bundle_path: PathBuf::from("/tmp/bundle.sigstore.json"),
-            merkle_root_path: PathBuf::from("/tmp/merkle.root"),
-            croissant: JsonValue::Object(serde_json::Map::new()),
-            readme: "# Dataset\n".to_string(),
-            verify_html: "<html></html>".to_string(),
-            extras: Vec::new(),
-        };
+        let _plan = minimal_plan();
     }
 }

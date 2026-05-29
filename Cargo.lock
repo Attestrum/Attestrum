@@ -560,6 +560,7 @@ dependencies = [
  "attestrum-attest",
  "attestrum-emit",
  "attestrum-manifest",
+ "base64 0.22.1",
  "hf-hub",
  "serde",
  "serde_json",

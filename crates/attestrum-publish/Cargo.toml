@@ -43,6 +43,13 @@ tracing    = { workspace = true }
 # per CLAUDE.md §8); tokio + tempfile pre-approved per BUILD-PLAN §6.2 +
 # docs/license-inventory.md.
 [dev-dependencies]
+# S5-D3 E6 (2026-05-28): the publish_commits_six_ops_with_rendered_content
+# integration test captures the create_commit NDJSON body, base64-decodes the
+# three add_bytes payloads, and asserts byte-equality against the corresponding
+# attestrum_emit::render_* outputs. base64 is already a workspace runtime dep
+# via attestrum-attest (no new workspace dep introduced); we pull it in as a
+# dev-dep here for the test asserter only.
+base64   = { workspace = true }
 wiremock = "0.6"
 tokio    = { version = "1", features = ["rt", "macros"] }
 tempfile = "3"
