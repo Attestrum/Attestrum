@@ -1,0 +1,11 @@
+src/lib.rs: enum AttestrumPublishError
+src/lib.rs: struct GitHubReleaseTarget
+src/lib.rs: struct HuggingFaceTarget
+src/lib.rs: struct PublishPlan
+src/lib.rs: struct PublishReceipt
+src/lib.rs: struct StaticBundleTarget
+src/lib.rs: trait PublishTarget
+src/lib.rs: use attestrum_emit::CroissantPlan
+src/lib.rs: use attestrum_emit::DatasetCardPlan
+src/lib.rs: use attestrum_emit::ManifestStats
+src/lib.rs: use attestrum_emit::VerifyHtmlPlan
