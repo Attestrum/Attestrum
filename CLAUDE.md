@@ -8,7 +8,7 @@ This file is the standing rulebook for any Claude Code agent working in the Atte
 
 ## 0. Identity And Mode
 
-You are a Claude Code agent working on **Attestrum** — a deterministic Rust CLI that compiles AI training corpora into cryptographically verifiable provenance bundles. The project pivoted in May 2026 from a frontier-lab compliance pitch to Path A: the trust layer for open AI training data, aimed at AI2, Pleias, EleutherAI, Black Forest Labs, Mozilla Data Collective, and Hugging Face dataset publishers.
+You are a Claude Code agent working on **Attestrum** — a deterministic Rust CLI that compiles AI training corpora into cryptographically verifiable provenance bundles.
 
 You are running with `--dangerously-skip-permissions`. That means you can do real damage. Slow down. Plan first. Confirm before destructive operations. The flag exists so you don't ask permission 200 times per session, not so you can skip thinking.
 
@@ -68,8 +68,8 @@ This section is the canonical policy. The protocol layers below (`.gitignore`, t
 |---|---|
 | `~/Documents/Claude/Attestrum-internal-notes/` | **The canonical internal-only working directory.** Session reports, audit deliberations, removed historical docs, the verbose pre-public CHANGELOG, the original `BUILD-PLAN.md` + `PATH-A-BRIEF.md`, etc. |
 | `~/.claude/plans/` | Claude Code session plan files |
-| `~/.claude/projects/-Users-austinmunday-Documents-Claude-Attestrum/memory/` | Claude Code per-project memory |
-| `~/Documents/Claude/Annex/` | Annex-era historical repo (pre-rebrand) |
+| Claude Code per-project memory store | Per-project agent memory (lives under the agent's local plans store) |
+| Pre-rebrand historical repo (sibling) | Historical working copy from before the current name |
 | `~/Documents/Claude/Attestrum-brand-assets/` | Brand asset source files (video / audio / logo) — sibling, outside repo |
 | `.playwright-mcp/` (in-repo, gitignored) | Browser MCP session cache |
 | `.attestrum/`, `.claude/`, `/diagrams-png/`, `target/` (gitignored) | Local working dirs / build artifacts |
@@ -80,8 +80,8 @@ This section is the canonical policy. The protocol layers below (`.gitignore`, t
 Even if a file is otherwise public-surface, these patterns must never appear in its content:
 
 - **Absolute filesystem paths**: anything matching `/Users/<name>/...` or `/home/<name>/...`. Use repo-relative paths only.
-- **Personal email addresses**: `austindmunday@gmail.com` and any other personal email. Use organizational / project email (`security@attestrum.com`) or no email at all.
-- **Founder's other-business domains**: `austinmundayrealestate.com`, `loadhog.pro`, `austinsidxcombinator.com`, `austinsradar.com`, `haultickets.com`, `img.tokenmaxxen.com`, and similar. These reveal the founder's broader portfolio; they belong in internal notes, not public docs.
+- **Founder's personal email addresses**. Use organizational / project email (`security@attestrum.com`) or no email at all. Literal forbidden form lives in `SENSITIVE-PATTERNS.md` (internal notes).
+- **Founder's other-business domains**. These reveal the founder's broader portfolio; they belong in internal notes, not public docs. Literal forbidden list lives in `SENSITIVE-PATTERNS.md` (internal notes).
 - **Localhost URLs**: `http://127.0.0.1:*`, `http://localhost:*`, and similar — reveal local dev-setup details. If a diagram needs to describe local infrastructure abstractly, do so without naming a specific port.
 - **Session transcripts, handoff docs, GTM docs, multi-reviewer audit deliberations, decision-process meta-narrative**. These belong in internal-notes.
 - **Real API keys / tokens / private keys / JWTs / certificates**. The `tools/secret-scanner/` pre-commit gate (CLAUDE.md §7 sixth gate) catches the known patterns; do not rely solely on it.
@@ -277,7 +277,7 @@ SESSION-LOG.md entry shape (working log, local-only):
 
 Every local commit is pushed to `origin/main` immediately after the local commit lands. No commit sits unpushed except briefly during a deliberate multi-commit landing sequence.
 
-**Current remote**: `https://github.com/Attestrum/Attestrum.git`. Hosted by the `Attestrum` GitHub org (created 2026-05-25, owned by Hyper Beam Media LLC).
+**Current remote**: `https://github.com/Attestrum/Attestrum.git`.
 
 **Workflow per commit, in order:**
 
@@ -483,4 +483,4 @@ Asking once costs 30 seconds. Building the wrong thing costs hours. The trade is
 
 ---
 
-*Last updated: 2026-05-27. Attestrum v0.3.0 (rebrand from Annex codename). Tokenmaxxing Principles v2 informs §2, §3, §6, §9. For the per-section change history, see `git log -- CLAUDE.md`.*
+*Last updated: 2026-05-28. For the per-section change history, see `git log -- CLAUDE.md`.*

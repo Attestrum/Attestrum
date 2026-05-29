@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Security — Documentation
+
+- `CLAUDE.md` scrubbed of leaked specifics that the file's own §0.5.3 forbids: the named buyer segment (§0), the username-baked Claude Code project memory path (§0.5.2), the literal personal-email + literal other-business-domain lists that §0.5.3 was meta-leaking by example, and the GitHub-org / LLC-ownership disclosure in §6.1. Forbidden-pattern detection moved to an internal-only reference so leak detection still works without the public file carrying the literal list. Quick Reference Card relocated to an internal aide-memoire to shrink the public file's per-session context surface. Git history retains the prior content per `CLAUDE.md` §0.5.6 default.
+
 ### Fixed — Tooling
 
 - Diagram-linter freshness check no longer counts docs-only commits (CHANGELOG.md, SESSION-LOG.md) against the 30-commit rolling window. Three boundary-slippage incidents in the project history (each costing a docs-only fix-forward commit which itself loaded the window further) are now structurally impossible. Three new integration tests under `tools/diagram-linter/tests/freshness_pathspec.rs` pin the behavior.
