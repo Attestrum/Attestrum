@@ -6,6 +6,12 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — Verification hardening
+
+- **Negative crypto-rejection coverage** (integrity-audit 2026-05-29): the `cosign-interop` CI job now reuses its one real signed bundle to assert that BOTH `attestrum verify` and `cosign` **reject** four forgeries — a flipped DSSE signature, a wrong manifest, an identity-regex mismatch, and a truncated bundle. Previously only the positive (round-trip) path was tested, so a regression in the rejection path could have shipped green. A signature is only meaningful if verification rejects a tampered bundle.
+- `cosign-interop` is now **fail-not-skip**: a run with no OIDC token or no `cosign` on PATH now fails loudly instead of silently passing, removing a false-green trust signal. The test stays `#[ignore]`d, so the default `cargo test` is unaffected.
+- **Offline `verify()` rejection tests** in the default suite: a missing, unparseable, empty, non-bundle, or verification-material-less bundle is now asserted to be rejected before any network/crypto step.
+
 ### Changed — Process
 
 - `CLAUDE.md` §7 — added a **boundary-slippage audit** for integration commits (commits touching code in ≥2 crates). The audit scans every diagram's `last_verified` SHA against the 30-commit freshness window and warns at position ≥27 (3-commit buffer before the linter would hard-fail). Empirically derived from the S5-D3 E6 cascade (`ea50d74` → fix-forwards `a01c80d` + `bf1fe21`): at E6 commit time, the audit would have flagged `sprint-1/attestrum-core-types.md` at position 27 and `sprint-4/sign-flow.md` at position 28 — exactly the two diagrams the fix-forwards bumped. Co-bumping inside the integration commit collapses the 3-commit cascade to a single clean commit. The §5 diagram-linter cannot warn about adjacent staleness (it only checks diagrams whose named code is staged); the audit fills that specific gap.
