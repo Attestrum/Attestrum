@@ -2,7 +2,7 @@
 title: "attestrum-core public types (Sprint 1 + Sprint 3 E2 SourceType)"
 models: "crates/attestrum-core/src/lib.rs, crates/attestrum-core/src/hex.rs"
 source_of_truth: code
-last_verified: cc066a6 2026-05-26
+last_verified: a01c80d 2026-05-28
 diagram_type: classDiagram
 ---
 
