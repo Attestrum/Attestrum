@@ -250,7 +250,8 @@ enum Command {
         workspace: Option<PathBuf>,
 
         /// Override the default Merkle-root file path. Default:
-        /// `<workspace>/manifests/merkle.root`.
+        /// `<workspace>/.attestrum/manifests/merkle.root` (matches where
+        /// `attestrum build` writes the file).
         #[arg(long, value_name = "PATH")]
         merkle_root: Option<PathBuf>,
 

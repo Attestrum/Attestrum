@@ -25,9 +25,11 @@
 //!   - verify_url   → ./attestrum/verify.html
 
 use crate::{AttestrumEmitError, DatasetCardPlan};
+use attestrum_attest::TRAINING_CORPUS_PREDICATE_TYPE;
 use std::fmt::Write;
 
-const ATTESTRUM_PREDICATE_URI: &str = "https://attestrum.com/attestation/training-corpus/v0.3";
+// Predicate URI is sourced from the canonical const in `attestrum-attest`
+// (`TRAINING_CORPUS_PREDICATE_TYPE`) — single source of truth, no drift.
 const ATTESTRUM_MANIFEST_PATH: &str = "attestrum/manifest.parquet";
 const ATTESTRUM_MERKLE_ROOT_PATH: &str = "attestrum/merkle.root";
 const ATTESTRUM_BUNDLE_PATH: &str = "attestrum/bundle.sigstore.json";
@@ -61,7 +63,18 @@ pub fn render(plan: &DatasetCardPlan) -> Result<String, AttestrumEmitError> {
     // depending on plan-field declaration order).
     writeln!(out, "dataset_name: {:?}", plan.dataset_name).unwrap();
     writeln!(out, "language: {}", yaml_flow_seq(&plan.language)).unwrap();
-    writeln!(out, "license: {:?}", plan.license_spdx).unwrap();
+    // HF Hub's dataset-card validator rejects YAML frontmatter `license:`
+    // values that aren't in its (lowercase) controlled vocabulary —
+    // SPDX-canonical capitalization like `Apache-2.0` returns HTTP 400 at
+    // commit time. The 2026-05-28 smoke test against `Attestrum/smoke-test`
+    // caught this. The HF vocab IS the lowercased SPDX identifier for
+    // common licenses (apache-2.0, mit, bsd-3-clause, cc-by-4.0, …), so a
+    // simple `to_lowercase()` covers the canonical SPDX inputs without a
+    // lookup table; exotic values that don't match HF's allowlist still
+    // surface as a Hub-side 400 (with a useful error message) for the
+    // caller to remap to `other` themselves.
+    let license_for_hub = plan.license_spdx.to_lowercase();
+    writeln!(out, "license: {license_for_hub:?}").unwrap();
     if plan.license_spdx == "mixed" {
         out.push_str("license_details: \"see attestrum/license-inventory.json\"\n");
     }
@@ -88,7 +101,7 @@ pub fn render(plan: &DatasetCardPlan) -> Result<String, AttestrumEmitError> {
     writeln!(out, "  bundle: {ATTESTRUM_BUNDLE_PATH:?}").unwrap();
     writeln!(out, "  manifest: {ATTESTRUM_MANIFEST_PATH:?}").unwrap();
     writeln!(out, "  merkle_root: {ATTESTRUM_MERKLE_ROOT_PATH:?}").unwrap();
-    writeln!(out, "  predicate: {ATTESTRUM_PREDICATE_URI:?}").unwrap();
+    writeln!(out, "  predicate: {TRAINING_CORPUS_PREDICATE_TYPE:?}").unwrap();
     writeln!(out, "  verify_url: {ATTESTRUM_VERIFY_HTML_PATH:?}").unwrap();
 
     // YAML frontmatter — closing delimiter.
@@ -110,23 +123,28 @@ pub fn render(plan: &DatasetCardPlan) -> Result<String, AttestrumEmitError> {
         plan.verify_url, plan.verify_url
     )
     .unwrap();
-    out.push_str(
+    writeln!(
+        out,
         "- CLI: `cosign verify-blob-attestation --new-bundle-format \
-         --bundle attestrum/bundle.sigstore.json attestrum/manifest.parquet`\n\n",
-    );
+         --type {TRAINING_CORPUS_PREDICATE_TYPE} \
+         --bundle attestrum/bundle.sigstore.json attestrum/manifest.parquet`\n"
+    )
+    .unwrap();
 
     out.push_str("## Corpus stats\n\n");
     writeln!(out, "- Documents: {}", plan.manifest_stats.leaf_count).unwrap();
     writeln!(out, "- Total bytes: {}\n", plan.manifest_stats.total_bytes).unwrap();
 
     out.push_str("## Attestrum metadata\n\n");
-    out.push_str(
+    writeln!(
+        out,
         "The provenance descriptor (Croissant JSON-LD) lives at `croissant.json`; \
          the sealed manifest at `attestrum/manifest.parquet`; the Merkle root at \
          `attestrum/merkle.root`; the Sigstore bundle at \
          `attestrum/bundle.sigstore.json`. The signing predicate is \
-         `https://attestrum.com/attestation/training-corpus/v0.3`.\n",
-    );
+         `{TRAINING_CORPUS_PREDICATE_TYPE}`."
+    )
+    .unwrap();
 
     Ok(out)
 }

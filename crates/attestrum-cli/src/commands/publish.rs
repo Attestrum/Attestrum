@@ -126,7 +126,8 @@ pub struct Args {
     pub workspace: Option<PathBuf>,
 
     /// `--merkle-root <PATH>`. Override the default Merkle-root file path.
-    /// None → `<workspace>/manifests/merkle.root`.
+    /// None → `<workspace>/.attestrum/manifests/merkle.root` (matches where
+    /// `attestrum build` writes the file alongside `manifest.parquet`).
     pub merkle_root: Option<PathBuf>,
 
     /// `--token-file <PATH>`. Optional path to a file holding the HF Hub
@@ -350,17 +351,17 @@ fn read_bundle_identity(
 }
 
 /// Resolve the Merkle-root path. CLI `--merkle-root` override wins; the
-/// default points at `<workspace>/manifests/merkle.root` (the path
-/// `attestrum build` writes; see hub-publish.md).
+/// default points at `<workspace>/.attestrum/manifests/merkle.root` (the
+/// path `attestrum build` writes alongside `manifest.parquet`).
 fn resolve_merkle_root_path(args: &Args) -> PathBuf {
     if let Some(p) = args.merkle_root.clone() {
         return p;
     }
-    let workspace = args
-        .workspace
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(".attestrum"));
-    workspace.join("manifests").join("merkle.root")
+    let workspace = args.workspace.clone().unwrap_or_else(|| PathBuf::from("."));
+    workspace
+        .join(".attestrum")
+        .join("manifests")
+        .join("merkle.root")
 }
 
 /// Derive the dataset card `pretty_name` from `--dataset ORG/NAME`. The
@@ -577,7 +578,7 @@ mod tests {
         args.workspace = Some(PathBuf::from("/some/work"));
         assert_eq!(
             resolve_merkle_root_path(&args),
-            PathBuf::from("/some/work/manifests/merkle.root")
+            PathBuf::from("/some/work/.attestrum/manifests/merkle.root")
         );
     }
 

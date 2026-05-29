@@ -105,6 +105,50 @@ fn build_happy_path_returns_exit_0_with_summary() {
         "expected manifest at {}",
         manifest.display()
     );
+
+    // The Merkle-root sidecar must land next to manifest.parquet so
+    // `attestrum publish` can commit it as `attestrum/merkle.root` per
+    // docs/diagrams/overview/hub-publish.md. Format contract: 64 lowercase
+    // hex chars + trailing newline = exactly 65 bytes. The hex value must
+    // also match the merkle_root line in the stdout summary.
+    let merkle_root_file = workspace
+        .join(".attestrum")
+        .join("manifests")
+        .join("merkle.root");
+    assert!(
+        merkle_root_file.exists(),
+        "expected merkle.root sidecar at {}",
+        merkle_root_file.display()
+    );
+    let merkle_root_bytes = fs::read(&merkle_root_file).expect("read merkle.root");
+    assert_eq!(
+        merkle_root_bytes.len(),
+        65,
+        "merkle.root must be 64 hex chars + newline (got {} bytes)",
+        merkle_root_bytes.len()
+    );
+    let merkle_root_str = String::from_utf8(merkle_root_bytes).expect("merkle.root is utf-8");
+    assert!(
+        merkle_root_str.ends_with('\n'),
+        "merkle.root must end with newline"
+    );
+    let hex_only = merkle_root_str.trim_end_matches('\n');
+    assert_eq!(
+        hex_only.len(),
+        64,
+        "trimmed hex must be exactly 64 chars (got {})",
+        hex_only.len()
+    );
+    assert!(
+        hex_only
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "merkle.root must be lowercase hex; got {hex_only:?}"
+    );
+    assert!(
+        stdout.contains(hex_only),
+        "stdout merkle_root line must match merkle.root file contents (hex={hex_only:?}, stdout:\n{stdout})"
+    );
 }
 
 #[test]

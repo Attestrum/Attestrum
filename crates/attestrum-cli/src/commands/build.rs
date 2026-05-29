@@ -122,7 +122,20 @@ pub fn run(args: Args) -> Result<(), BuildCliError> {
 
     let output = build_corpus(&ctx, &cas, &entries, &manifest_dir)?;
 
-    print_summary(&output);
+    // Sibling artifact to manifest.parquet so `attestrum publish` can commit
+    // the corpus's Merkle root verbatim under `attestrum/merkle.root` (per
+    // docs/diagrams/overview/hub-publish.md). Format: 64 lowercase hex chars +
+    // trailing newline (matches the stdout summary line and is `git diff`-
+    // friendly). Visitors who `git clone` a published dataset can re-derive
+    // the root from the manifest and string-compare against this file.
+    let merkle_root_path = manifest_dir.join("merkle.root");
+    let merkle_root_text = format!("{}\n", hex_64(&output.merkle_root));
+    fs::write(&merkle_root_path, &merkle_root_text).map_err(|source| BuildCliError::Workspace {
+        path: merkle_root_path.clone(),
+        source,
+    })?;
+
+    print_summary(&output, &merkle_root_path);
     Ok(())
 }
 
@@ -174,10 +187,11 @@ fn resolve_local_path(
     }
 }
 
-fn print_summary(output: &attestrum_pipeline::BuildOutput) {
+fn print_summary(output: &attestrum_pipeline::BuildOutput, merkle_root_path: &Path) {
     println!("attestrum build: ok");
     println!("  merkle_root:  {}", hex_64(&output.merkle_root));
     println!("  manifest:     {}", output.manifest_path.display());
+    println!("  merkle_file:  {}", merkle_root_path.display());
     println!("  leaf_count:   {}", output.leaf_count);
     println!("  total_bytes:  {}", output.total_bytes);
 }

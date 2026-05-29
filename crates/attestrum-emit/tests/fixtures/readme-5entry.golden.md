@@ -1,7 +1,7 @@
 ---
 dataset_name: "my-org/my-dataset"
 language: ["en"]
-license: "Apache-2.0"
+license: "apache-2.0"
 pretty_name: "My Dataset (v0.1)"
 size_categories: ["n<1K"]
 task_categories: ["text-generation"]
@@ -25,7 +25,7 @@ This dataset's provenance is cryptographically verifiable. The corpus's training
 ## Verification
 
 - Hosted verify page: [https://huggingface.co/datasets/my-org/my-dataset/blob/main/attestrum/verify.html](https://huggingface.co/datasets/my-org/my-dataset/blob/main/attestrum/verify.html)
-- CLI: `cosign verify-blob-attestation --new-bundle-format --bundle attestrum/bundle.sigstore.json attestrum/manifest.parquet`
+- CLI: `cosign verify-blob-attestation --new-bundle-format --type https://attestrum.com/attestation/training-corpus/v0.3 --bundle attestrum/bundle.sigstore.json attestrum/manifest.parquet`
 
 ## Corpus stats
 

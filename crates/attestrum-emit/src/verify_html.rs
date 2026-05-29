@@ -19,6 +19,7 @@
 //! recommended HTML-context characters: `& < > " '`.
 
 use crate::{AttestrumEmitError, VerifyHtmlPlan};
+use attestrum_attest::TRAINING_CORPUS_PREDICATE_TYPE;
 
 const HTML_TEMPLATE: &str = r#"<!doctype html>
 <html lang="en">
@@ -52,6 +53,7 @@ const HTML_TEMPLATE: &str = r#"<!doctype html>
 <p>You can verify the bundle with stock Sigstore tooling — no Attestrum install required:</p>
 <pre>cosign verify-blob-attestation \
   --new-bundle-format \
+  --type {predicate_type} \
   --bundle {bundle_path} \
   --certificate-identity {san} \
   --certificate-oidc-issuer {issuer} \
@@ -98,6 +100,9 @@ pub fn render(plan: &VerifyHtmlPlan) -> Result<String, AttestrumEmitError> {
     let issuer = html_escape(&plan.certificate_oidc_issuer);
     let bundle_path = html_escape(&plan.bundle_path_in_repo);
     let manifest_path = html_escape(&plan.manifest_path_in_repo);
+    // Predicate-type URI is a fixed const (PROTECTED `attestrum-attest`); no
+    // attacker-controlled input. Escape anyway for templating uniformity.
+    let predicate_type = html_escape(TRAINING_CORPUS_PREDICATE_TYPE);
 
     // Sequential `.replace` instead of `format!` keeps the template literal
     // readable + avoids `format!`-arg-order surprises. The replace order
@@ -110,7 +115,8 @@ pub fn render(plan: &VerifyHtmlPlan) -> Result<String, AttestrumEmitError> {
         .replace("{san}", &san)
         .replace("{issuer}", &issuer)
         .replace("{bundle_path}", &bundle_path)
-        .replace("{manifest_path}", &manifest_path);
+        .replace("{manifest_path}", &manifest_path)
+        .replace("{predicate_type}", &predicate_type);
 
     Ok(out)
 }

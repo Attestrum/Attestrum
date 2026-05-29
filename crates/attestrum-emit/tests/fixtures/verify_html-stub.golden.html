@@ -30,6 +30,7 @@
 <p>You can verify the bundle with stock Sigstore tooling — no Attestrum install required:</p>
 <pre>cosign verify-blob-attestation \
   --new-bundle-format \
+  --type https://attestrum.com/attestation/training-corpus/v0.3 \
   --bundle attestrum/bundle.sigstore.json \
   --certificate-identity https://github.com/my-org/my-dataset/.github/workflows/build.yml@refs/heads/main \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
