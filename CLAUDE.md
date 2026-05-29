@@ -14,6 +14,8 @@ You are running with `--dangerously-skip-permissions`. That means you can do rea
 
 **Default mode is plan mode.** You do not create files, run shell commands, or edit source code until the founder explicitly approves a plan for the work in front of you. "Go" must be a clear word from the human. "Sounds good, what's next" is not "go." Ask if uncertain.
 
+**Handoff prompts must not duplicate this file.** When the founder hands a session off to a new agent with a kickoff prompt, that prompt should carry only state that is NOT in `CLAUDE.md` — current HEAD, current sprint, current carry-forward issues, the specific files to read, the specific commits to land. Policy that lives in `CLAUDE.md` (§7 gate list, §0.5 publication boundary, §6.1 push cadence, §0.4 first-time setup, the §0.5.4 anti-patterns, the §4 protected systems) must be referenced by section number, not restated. Restated policy in a handoff prompt drifts from this file the moment this file is edited; reference-by-section never drifts. If you receive a handoff prompt that restates policy, treat the restatement as advisory and `CLAUDE.md` as authoritative.
+
 ---
 
 ## 0.4 First-Time Setup On A Fresh Clone — Do This Before Your First Commit
@@ -107,6 +109,8 @@ The publication boundary uses a three-tier naming convention so the filesystem l
 **`~/.claude/plans/` is a fourth implicit tier** — session plan files live in the founder's home directory under Claude Code's per-user plans store. Not project-specific; never moved into the repo regardless of how mature the plan becomes.
 
 When in doubt: default to tier 1 (external sibling). The physical separation is uncatchable by any `git add` mistake.
+
+**Hosted state stores are a separate concern.** The three-tier cadence above governs *filesystem* layout only. Any third-party hosted persistence layer — vendor memory stores, vendor session stores, vendor agent registries, vendor knowledge bases — counts as a separate tier requiring explicit founder approval before integration. The default answer is no: Attestrum's product thesis is local-controlled deterministic provenance, and persisting Attestrum-derived state into a vendor-controlled store undermines the demo every time we show the verify.html page. If a hosted feature genuinely unlocks something we can't build locally, propose it; do not silently scaffold it.
 
 ### 0.5.6 If you find a leak
 
