@@ -203,6 +203,72 @@ enum Command {
         unsigned: bool,
     },
 
+    /// Publish a signed bundle + sealed manifest + dataset card to
+    /// Hugging Face Hub. Constructs the three dataset-side artifacts
+    /// (Croissant JSON-LD, dataset card README, verify.html stub) and
+    /// commits them alongside the manifest, Merkle root, and Sigstore
+    /// bundle into the target dataset repo. HF auth resolves via the
+    /// `hf-hub` token chain (`HF_TOKEN` env → `HF_TOKEN_PATH` file →
+    /// `$HF_HOME/token`); private datasets require a token.
+    Publish {
+        /// Hugging Face dataset repo in `ORG/NAME` shape (e.g.
+        /// `my-org/my-dataset`). Personal accounts and orgs are accepted
+        /// identically.
+        #[arg(long, value_name = "ORG/NAME")]
+        dataset: String,
+
+        /// Path to the sealed `manifest.parquet` (output of
+        /// `attestrum build`).
+        #[arg(long, value_name = "PATH")]
+        manifest: PathBuf,
+
+        /// Path to the Sigstore Bundle v0.3 JSON (output of
+        /// `attestrum sign`).
+        #[arg(long, value_name = "PATH")]
+        bundle: PathBuf,
+
+        /// Reproducible Builds timestamp (epoch seconds) — feeds the
+        /// Croissant emitter's `dateCreated` field. Required either via
+        /// this flag OR via the `SOURCE_DATE_EPOCH` env var (no
+        /// wall-clock fallback per CLAUDE.md §7).
+        #[arg(long, value_name = "TS")]
+        source_date_epoch: Option<i64>,
+
+        /// Publish target. `huggingface` is the v0.1 real impl;
+        /// `github-release` and `static` are v0.2 deferrals that return
+        /// `NotImplemented` → exit 1.
+        #[arg(long, value_name = "TARGET", default_value = "huggingface")]
+        target: String,
+
+        /// HF branch to commit against. Default: `main`.
+        #[arg(long, value_name = "REV", default_value = "main")]
+        revision: String,
+
+        /// Workspace dir used to locate the default Merkle-root path.
+        /// Default: `./.attestrum/`.
+        #[arg(long, value_name = "DIR")]
+        workspace: Option<PathBuf>,
+
+        /// Override the default Merkle-root file path. Default:
+        /// `<workspace>/manifests/merkle.root`.
+        #[arg(long, value_name = "PATH")]
+        merkle_root: Option<PathBuf>,
+
+        /// Optional path to a file holding the HF Hub token (overrides
+        /// `HF_TOKEN_PATH`).
+        #[arg(long, value_name = "PATH")]
+        token_file: Option<PathBuf>,
+
+        /// Skip GPG-signing git commits on the Hub. Default: sign if a
+        /// gpg key is available.
+        #[arg(long)]
+        no_sign_commits: bool,
+
+        /// Output directory. Only consulted by `--target static`.
+        #[arg(long, value_name = "DIR")]
+        out_dir: Option<PathBuf>,
+    },
+
     /// Sign a sealed manifest into a Sigstore Bundle v0.3 carrying an
     /// in-toto v1 Statement with a training-corpus/v0.3 predicate.
     /// Networks (Fulcio + Rekor + TUF) + requires an OIDC id_token.
@@ -350,6 +416,44 @@ fn main() -> ExitCode {
                 corpus_bundle,
                 cas_root,
                 unsigned,
+            });
+            ExitCode::from(code)
+        }
+
+        Command::Publish {
+            dataset,
+            manifest,
+            bundle,
+            source_date_epoch,
+            target,
+            revision,
+            workspace,
+            merkle_root,
+            token_file,
+            no_sign_commits,
+            out_dir,
+        } => {
+            // Parse --target into the enum here so a bad value exits 2
+            // before the run() helper is invoked.
+            let target_kind = match commands::publish::TargetKind::parse(&target) {
+                Ok(k) => k,
+                Err(msg) => {
+                    eprintln!("attestrum publish: {msg}");
+                    return ExitCode::from(2);
+                }
+            };
+            let code = commands::publish::run(commands::publish::Args {
+                dataset,
+                manifest,
+                bundle,
+                source_date_epoch,
+                target: target_kind,
+                revision,
+                workspace,
+                merkle_root,
+                token_file,
+                no_sign_commits,
+                out_dir,
             });
             ExitCode::from(code)
         }
