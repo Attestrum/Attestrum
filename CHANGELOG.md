@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Changed — Process
+
+- `CLAUDE.md` §7 — added a **boundary-slippage audit** for integration commits (commits touching code in ≥2 crates). The audit scans every diagram's `last_verified` SHA against the 30-commit freshness window and warns at position ≥27 (3-commit buffer before the linter would hard-fail). Empirically derived from the S5-D3 E6 cascade (`ea50d74` → fix-forwards `a01c80d` + `bf1fe21`): at E6 commit time, the audit would have flagged `sprint-1/attestrum-core-types.md` at position 27 and `sprint-4/sign-flow.md` at position 28 — exactly the two diagrams the fix-forwards bumped. Co-bumping inside the integration commit collapses the 3-commit cascade to a single clean commit. The §5 diagram-linter cannot warn about adjacent staleness (it only checks diagrams whose named code is staged); the audit fills that specific gap.
+
 ### Security — Documentation
 
 - `CLAUDE.md` scrubbed of leaked specifics that the file's own §0.5.3 forbids: the named buyer segment (§0), the username-baked Claude Code project memory path (§0.5.2), the literal personal-email + literal other-business-domain lists that §0.5.3 was meta-leaking by example, and the GitHub-org / LLC-ownership disclosure in §6.1. Forbidden-pattern detection moved to an internal-only reference so leak detection still works without the public file carrying the literal list. Quick Reference Card relocated to an internal aide-memoire to shrink the public file's per-session context surface. Git history retains the prior content per `CLAUDE.md` §0.5.6 default.

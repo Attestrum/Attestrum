@@ -279,6 +279,22 @@ cargo run -p secret-scanner --release --quiet -- check
 
 If any fail, fix before committing. Never disable a failing test for green light. Never `#[allow(...)]` a clippy lint without an explaining comment. Never `git commit --no-verify` to bypass the hook.
 
+**Boundary-slippage audit (integration commits only).** When staged changes touch ≥2 crates (`git diff --staged --name-only | grep -oE '^crates/[^/]+/' | sort -u | wc -l`), run:
+
+```bash
+window=$(git log -30 --pretty=format:'%h')
+for d in $(find docs/diagrams -name '*.md'); do
+  lv=$(awk '/^last_verified:/ { print $2; exit }' "$d")
+  case "$lv" in ''|bootstrap) continue;; esac
+  pos=$(printf '%s\n' "$window" | grep -nF "$lv" | head -1 | cut -d: -f1)
+  if [ -z "$pos" ]; then echo "STALE: $d (lv $lv)"
+  elif [ "$pos" -ge 27 ]; then echo "WARN:  $d (pos $pos/30)"
+  fi
+done
+```
+
+For each WARN/STALE: re-read the diagram, confirm it still describes the post-commit code, then bump its `last_verified` to `<HEAD short-SHA> <today>` and stage it in the same commit. The §5 linter catches drift only when the diagram's named code is staged — it cannot warn about adjacent diagrams approaching staleness. E6 (`ea50d74`) is the canonical cascade this prevents.
+
 **Gate split.** `sources` catches unapproved git pins; `licenses` catches transitive deps whose SPDX license isn't in `deny.toml`'s `allow` list. `cargo deny check bans` is omitted because `[bans].deny` is empty. `cargo deny check advisories` is CI-only (RUSTSEC index queries are slow; two transitive RUSTSEC reds currently). Historical rationale lives in `docs/research/cargo-deny-gates-rationale.md`.
 
 **Determinism.** Byte-identical builds across Linux x86, Linux ARM, macOS, and Linux musl. Sources of non-determinism are bugs: all map iteration through `BTreeMap` or explicitly sorted `Vec`; timestamps from a single `--source-date-epoch`; no floating-point in any hash or Merkle path; `serde_json` with sorted-keys; Parquet writer pinned to `zstd` level 3, no dictionary heuristics. If a test passes locally but fails CI's determinism matrix, the test is finding a real bug.
