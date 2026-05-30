@@ -38,10 +38,10 @@ use std::process::Command;
 use base64::Engine;
 
 use attestrum_attest::{
-    sign as attest_sign, verify as attest_verify, AttestrumAttestError, DeterminismFields,
-    DigestMap, InTotoStatement, LicensingPosture, ManifestRef, RulesetMode, SignRequest,
-    SignalCoverage, Subject, TrainingCorpusPredicate, VerifiedAttestation, VerifyRequest,
-    TRAINING_CORPUS_PREDICATE_TYPE,
+    sign as attest_sign, verify as attest_verify, verify_statement, AttestrumAttestError,
+    DeterminismFields, DigestMap, InTotoStatement, LicensingPosture, ManifestRef, RulesetMode,
+    SignRequest, SignalCoverage, Subject, TrainingCorpusPredicate, VerifiedAttestation,
+    VerifyRequest, MODEL_BINDING_PREDICATE_TYPE, TRAINING_CORPUS_PREDICATE_TYPE,
 };
 use attestrum_cas::{stream_hash, CasStore};
 use attestrum_core::BuildContext;
@@ -152,8 +152,41 @@ fn cosign_interop() {
         identity_regex: &identity_pattern,
         issuer_regex: &issuer_pattern,
         offline: false,
+        expected_predicate_type: None,
     })
     .expect("attestrum_attest::verify self-verify sanity gate");
+
+    // verify() widening (Commit 3): the lower-level verify_statement() must
+    // accept this training-corpus bundle when the expected predicate type is
+    // pinned explicitly to training-corpus...
+    verify_statement(VerifyRequest {
+        bundle_path: &bundle_path,
+        manifest_path: &manifest_path,
+        identity_regex: &identity_pattern,
+        issuer_regex: &issuer_pattern,
+        offline: false,
+        expected_predicate_type: Some(TRAINING_CORPUS_PREDICATE_TYPE),
+    })
+    .expect("verify_statement accepts a training-corpus bundle when expected");
+
+    // ...and REJECT it (post-crypto, at the predicate-type gate) when a
+    // different family is expected. This proves the widening gate discriminates
+    // by predicateType on a real signed bundle, not just structurally.
+    let wrong_family = verify_statement(VerifyRequest {
+        bundle_path: &bundle_path,
+        manifest_path: &manifest_path,
+        identity_regex: &identity_pattern,
+        issuer_regex: &issuer_pattern,
+        offline: false,
+        expected_predicate_type: Some(MODEL_BINDING_PREDICATE_TYPE),
+    });
+    assert!(
+        matches!(
+            wrong_family,
+            Err(AttestrumAttestError::PredicateValidationFailed(_))
+        ),
+        "verify_statement must reject a training-corpus bundle when model-binding is expected, got {wrong_family:?}"
+    );
 
     // Shell out to cosign. The OIDC issuer is passed as a literal
     // (cosign supports both `--certificate-oidc-issuer` literal and
@@ -330,6 +363,7 @@ fn attest_verify_result(
         identity_regex,
         issuer_regex,
         offline: false,
+        expected_predicate_type: None,
     })
 }
 

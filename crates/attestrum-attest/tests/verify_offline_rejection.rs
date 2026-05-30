@@ -52,6 +52,7 @@ fn verify_bundle(bundle: &Path, manifest: &Path) -> Result<(), AttestrumAttestEr
         identity_regex: ".*",
         issuer_regex: ".*",
         offline: true,
+        expected_predicate_type: None,
     })
     .map(|_| ())
 }

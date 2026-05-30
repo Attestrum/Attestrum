@@ -45,7 +45,7 @@ pub use predicate::{
 };
 pub use sign::{sign, SignRequest, SignedAttestation};
 pub use statement::{InTotoStatement, IN_TOTO_STATEMENT_V1_TYPE_URI};
-pub use verify::{verify, VerifiedAttestation, VerifyRequest};
+pub use verify::{verify, verify_statement, VerifiedAttestation, VerifiedStatement, VerifyRequest};
 
 // ============================================================================
 // PROTECTED — predicate type URIs (CLAUDE.md §4)

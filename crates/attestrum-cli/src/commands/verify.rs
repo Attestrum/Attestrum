@@ -87,6 +87,7 @@ pub fn run(args: Args) -> u8 {
         identity_regex: &args.certificate_identity,
         issuer_regex: &args.certificate_oidc_issuer,
         offline: args.offline,
+        expected_predicate_type: None,
     }) {
         Ok(v) => {
             state = verify_transition(state, VerifyEvent::BundleReadOk);

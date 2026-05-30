@@ -54,5 +54,7 @@ src/sign.rs: struct SignedAttestation
 src/statement.rs: const IN_TOTO_STATEMENT_V1_TYPE_URI
 src/statement.rs: struct InTotoStatement
 src/verify.rs: fn verify
+src/verify.rs: fn verify_statement
 src/verify.rs: struct VerifiedAttestation
+src/verify.rs: struct VerifiedStatement
 src/verify.rs: struct VerifyRequest

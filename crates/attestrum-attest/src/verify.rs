@@ -55,6 +55,13 @@ pub struct VerifyRequest<'a> {
     /// embedded inclusion promise + signed entry timestamp. TUF root
     /// refresh still requires network unless the on-disk cache is fresh.
     pub offline: bool,
+    /// The in-toto `predicateType` URI the caller expects. `None` defaults to
+    /// [`TRAINING_CORPUS_PREDICATE_TYPE`], preserving every pre-binding caller.
+    /// [`verify_statement`] gates on this value; [`verify`] always pins it to
+    /// training-corpus (so its concrete-predicate deserialize stays coherent),
+    /// while a binding/proof verifier passes e.g.
+    /// [`crate::MODEL_BINDING_PREDICATE_TYPE`].
+    pub expected_predicate_type: Option<&'a str>,
 }
 
 /// Result of a successful verify operation. Carries enough material for
@@ -89,16 +96,51 @@ pub struct VerifiedAttestation {
     pub bundle_path: PathBuf,
 }
 
-/// Verify `req.bundle_path` against `req.manifest_path` using the
-/// operator's identity-regex policy. Returns the [`VerifiedAttestation`]
-/// on success; one of the [`AttestrumAttestError`] variants on failure.
+/// Result of a successful crypto + identity verify, **before** any
+/// concrete-predicate typing. Identical to [`VerifiedAttestation`] minus the
+/// typed `predicate` field — the predicate stays untyped (read it off
+/// [`InTotoStatement::predicate`], a `serde_json::Value`) so this path serves
+/// the proof + binding predicate families, not just training-corpus.
+///
+/// Produced by [`verify_statement`]; the caller deserializes the predicate
+/// into whatever concrete type the (already-checked) `predicateType` implies.
+#[derive(Debug, Clone)]
+pub struct VerifiedStatement {
+    /// First Sigstore-relevant SAN value from the leaf cert (matched the
+    /// `identity_regex` policy).
+    pub identity: String,
+    /// OIDC issuer URL from the Fulcio cert extension (matched the
+    /// `issuer_regex` policy).
+    pub oidc_issuer: String,
+    /// in-toto `predicateType` URI — already checked against
+    /// `req.expected_predicate_type`.
+    pub predicate_type: String,
+    /// Parsed in-toto v1 Statement (including the un-typed
+    /// `predicate: serde_json::Value`).
+    pub statement: InTotoStatement,
+    /// Rekor tlog wall-clock integration time (Unix seconds).
+    pub integrated_time: i64,
+    /// Rekor global log ingest order.
+    pub log_index: i64,
+    /// Absolute path the bundle was read from.
+    pub bundle_path: PathBuf,
+}
+
+/// Crypto + identity verify + `predicateType` gate, **without** deserializing a
+/// concrete predicate. Returns a [`VerifiedStatement`] whose `predicate` stays
+/// untyped, so this is the shared core that the proof + binding predicate
+/// families verify through. [`verify`] is the typed training-corpus wrapper
+/// over this.
+///
+/// The `predicateType` is checked against
+/// `req.expected_predicate_type.unwrap_or(`[`TRAINING_CORPUS_PREDICATE_TYPE`]`)`.
 ///
 /// **Network required for TUF refresh** unless the on-disk cache at
 /// `~/.sigstore` is fresh. **Rekor inclusion-proof re-check is skipped
 /// when `req.offline` is true** — the verifier still validates the bundle's
 /// embedded signed inclusion proof + RFC3161 timestamp against the cached
 /// trusted root.
-pub fn verify(req: VerifyRequest<'_>) -> Result<VerifiedAttestation, AttestrumAttestError> {
+pub fn verify_statement(req: VerifyRequest<'_>) -> Result<VerifiedStatement, AttestrumAttestError> {
     // 1. Read bundle bytes + parse JSON twice (once as serde_json::Value
     //    for identity extraction + tlog navigation; once as the sigstore
     //    proto Bundle for crypto verification). The two parses each
@@ -157,44 +199,77 @@ pub fn verify(req: VerifyRequest<'_>) -> Result<VerifiedAttestation, AttestrumAt
     //    bundle.dsseEnvelope.payload) and parse it.
     let statement = extract_in_toto_statement(&bundle_value)?;
 
-    // 8. Validate the predicate_type URI matches the only Attestrum-emitted
-    //    type at E4 (`training-corpus/v0.3`). Inclusion / non-inclusion
-    //    arrive at Sprint 5; until then, any other URI is a bundle
-    //    attestrum doesn't emit and shouldn't verify.
-    if statement.predicate_type != TRAINING_CORPUS_PREDICATE_TYPE {
+    // 8. Validate the predicate_type URI matches the caller's expectation
+    //    (default training-corpus). A binding/proof verifier passes its own
+    //    expected URI; any other URI is a bundle this call shouldn't accept.
+    let expected = req
+        .expected_predicate_type
+        .unwrap_or(TRAINING_CORPUS_PREDICATE_TYPE);
+    if statement.predicate_type != expected {
         return Err(AttestrumAttestError::PredicateValidationFailed(format!(
-            "unsupported predicateType {:?}; this build of attestrum only verifies {}",
-            statement.predicate_type, TRAINING_CORPUS_PREDICATE_TYPE
+            "unexpected predicateType {:?}; this verify call expected {}",
+            statement.predicate_type, expected
         )));
     }
 
-    // 9. Light-weight Exit-8 path: attempt-deserialise the predicate as
-    //    a TrainingCorpusPredicate. The Rust type IS the v0.3 schema
-    //    (schemars-derived from the same struct), so deserialise
-    //    success ⇔ schema-validation success. No `jsonschema-rs` dep.
-    let predicate: TrainingCorpusPredicate = serde_json::from_value(statement.predicate.clone())
+    // 9. Pull integratedTime + logIndex from the Rekor tlog entry. Both
+    //    are required fields in Bundle v0.3 for a valid Rekor entry; if
+    //    missing the bundle was malformed in a way sigstore-rs should
+    //    have caught — surface defensively.
+    let (integrated_time, log_index) = extract_tlog_fields(&bundle_value)?;
+
+    Ok(VerifiedStatement {
+        identity: extracted.san,
+        oidc_issuer: extracted.oidc_issuer,
+        predicate_type: statement.predicate_type.clone(),
+        statement,
+        integrated_time,
+        log_index,
+        bundle_path: req.bundle_path.to_path_buf(),
+    })
+}
+
+/// Verify `req.bundle_path` against `req.manifest_path` using the
+/// operator's identity-regex policy, pinned to the training-corpus predicate.
+/// Returns the [`VerifiedAttestation`] (with the concrete
+/// [`TrainingCorpusPredicate`]) on success; one of the [`AttestrumAttestError`]
+/// variants on failure.
+///
+/// A thin typed wrapper over [`verify_statement`]: it forces
+/// `expected_predicate_type = `[`TRAINING_CORPUS_PREDICATE_TYPE`] (regardless of
+/// what the caller passed, so the concrete-predicate deserialize is always
+/// coherent), then runs the light-weight Exit-8 schema gate. Every pre-binding
+/// caller keeps its exact behavior.
+///
+/// **Network required for TUF refresh** unless the on-disk cache at
+/// `~/.sigstore` is fresh. **Rekor inclusion-proof re-check is skipped
+/// when `req.offline` is true.**
+pub fn verify(req: VerifyRequest<'_>) -> Result<VerifiedAttestation, AttestrumAttestError> {
+    let vs = verify_statement(VerifyRequest {
+        expected_predicate_type: Some(TRAINING_CORPUS_PREDICATE_TYPE),
+        ..req
+    })?;
+
+    // Light-weight Exit-8 path: attempt-deserialise the predicate as a
+    // TrainingCorpusPredicate. The Rust type IS the v0.3 schema
+    // (schemars-derived from the same struct), so deserialise success ⇔
+    // schema-validation success. No `jsonschema-rs` dep.
+    let predicate: TrainingCorpusPredicate = serde_json::from_value(vs.statement.predicate.clone())
         .map_err(|e| {
             AttestrumAttestError::PredicateValidationFailed(format!(
                 "predicate does not satisfy TrainingCorpusPredicate v0.3 schema: {e}"
             ))
         })?;
 
-    // 10. Pull integratedTime + logIndex from the Rekor tlog entry. Both
-    //     are required fields in Bundle v0.3 for a valid Rekor entry; if
-    //     missing the bundle was malformed in a way sigstore-rs should
-    //     have caught — surface as RuntimeError-shaped error here for
-    //     defensiveness.
-    let (integrated_time, log_index) = extract_tlog_fields(&bundle_value)?;
-
     Ok(VerifiedAttestation {
-        identity: extracted.san,
-        oidc_issuer: extracted.oidc_issuer,
-        predicate_type: statement.predicate_type.clone(),
-        statement,
+        identity: vs.identity,
+        oidc_issuer: vs.oidc_issuer,
+        predicate_type: vs.predicate_type,
+        statement: vs.statement,
         predicate,
-        integrated_time,
-        log_index,
-        bundle_path: req.bundle_path.to_path_buf(),
+        integrated_time: vs.integrated_time,
+        log_index: vs.log_index,
+        bundle_path: vs.bundle_path,
     })
 }
 
