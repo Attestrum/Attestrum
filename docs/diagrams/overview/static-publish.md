@@ -2,7 +2,7 @@
 title: "Static-bundle publish flow (--target static)"
 models: "crates/attestrum-publish/src/lib.rs, StaticBundleTarget, PublishPlan, PublishReceipt, render_croissant, render_readme, render_verify_html_stub, AttestrumPublishError"
 source_of_truth: code
-last_verified: 5d9ec36 2026-05-30
+last_verified: fe559ab 2026-05-30
 diagram_type: flowchart
 ---
 

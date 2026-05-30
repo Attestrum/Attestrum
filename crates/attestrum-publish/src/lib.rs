@@ -657,6 +657,8 @@ mod tests {
                 },
                 source_date_epoch: 1_700_000_000,
                 license_spdx: None,
+                version: None,
+                cite_as: None,
             },
             dataset_card_plan: DatasetCardPlan {
                 pretty_name: "Stub".to_string(),

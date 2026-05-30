@@ -107,6 +107,8 @@ fn write_fixture_plan(dir: &Path) -> PublishPlan {
             manifest_stats: stats,
             source_date_epoch: 1_700_000_000,
             license_spdx: Some("Apache-2.0".to_string()),
+            version: Some("1.0.0".to_string()),
+            cite_as: None,
         },
         dataset_card_plan: DatasetCardPlan {
             pretty_name: "Test Dataset".to_string(),

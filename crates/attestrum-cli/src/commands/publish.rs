@@ -240,9 +240,11 @@ pub fn run(args: Args) -> u8 {
         merkle_root_path_in_repo: MERKLE_ROOT_PATH_IN_REPO.to_string(),
         manifest_stats,
         source_date_epoch,
-        // license_spdx omitted at v0.1 per Q1 → A. Croissant emitter
-        // skips the field entirely when None.
+        // license_spdx / version / cite_as are wired to CLI flags in the
+        // next commit; None here keeps the workspace compiling in between.
         license_spdx: None,
+        version: None,
+        cite_as: None,
     };
 
     let dataset_card_plan = DatasetCardPlan {

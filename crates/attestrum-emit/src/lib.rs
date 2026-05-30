@@ -106,6 +106,27 @@ pub struct CroissantPlan {
     /// populate both from the same source (CLI flag, corpus.toml field, or
     /// manifest license-inventory if present).
     pub license_spdx: Option<String>,
+
+    /// Semver dataset version for the Croissant `version` field (e.g.
+    /// `"1.0.0"`). `mlcroissant`'s `cast_version` enforces a
+    /// `MAJOR.MINOR.PATCH` shape and warns on anything else, so this is a
+    /// publisher-supplied release label — **never** a content hash / Merkle
+    /// root (identity is not a release ordering). When `None` the emitter
+    /// omits the field (mlcroissant emits a recommended-field warning).
+    ///
+    /// Added 2026-05-30 (decision `croissant-context-conformance`). The CLI
+    /// defaults this to `"1.0.0"`, overridable via `--version`.
+    pub version: Option<String>,
+
+    /// Citation string for the Croissant `citeAs` field — a publisher-authored
+    /// reference (BibTeX or prose). Never synthesized from the dataset slug; a
+    /// real citation is editorial metadata only the publisher holds. When
+    /// `None` the emitter omits the field (one benign recommended-field
+    /// warning), which is the honest default.
+    ///
+    /// Added 2026-05-30 (decision `croissant-context-conformance`). The CLI
+    /// populates this only from `--cite-as`.
+    pub cite_as: Option<String>,
 }
 
 /// Caller-supplied inputs for `render_readme()`. The YAML frontmatter
@@ -280,6 +301,8 @@ mod tests {
             },
             source_date_epoch: 1700000000,
             license_spdx: Some("Apache-2.0".to_string()),
+            version: Some("1.0.0".to_string()),
+            cite_as: Some("Example, A. (2025). My Dataset.".to_string()),
         };
     }
 

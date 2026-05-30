@@ -1,15 +1,15 @@
 ---
 title: "Croissant 1.0 croissant.json emitted document shape"
 models: "crates/attestrum-emit/src/croissant.rs, render_croissant, CroissantPlan"
-source_of_truth: diagram
-last_verified: ae71b02 2026-05-30
+source_of_truth: code
+last_verified: fe559ab 2026-05-30
 diagram_type: flowchart
 ---
 
 # Croissant `croissant.json` document shape
 
-`source_of_truth: diagram` while this is the contract the emitter rewrite must implement; flips to
-`code` in the same commit that lands the rewrite (decision `croissant-context-conformance`, 2026-05-30).
+`source_of_truth: code` — `crates/attestrum-emit/src/croissant.rs` is authoritative; this diagram is
+the derived view (decision `croissant-context-conformance`, 2026-05-30).
 
 `attestrum publish` emits `croissant.json` — the dataset's machine-readable descriptor. It must
 validate against the public `mlcroissant` reference validator (CLAUDE.md §12 vendor-neutrality: every
