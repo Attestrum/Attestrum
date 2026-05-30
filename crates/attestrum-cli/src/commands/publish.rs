@@ -27,9 +27,9 @@
 //!   defaults to a placeholder; `language`, `task_categories`, `tags` are
 //!   empty vecs. Richer metadata deferred to v0.2.
 //! - `--target {huggingface|github-release|static}` defaults to
-//!   `huggingface`. The other two values reach the CLI surface but their
-//!   `publish()` returns `AttestrumPublishError::NotImplemented(_)` per
-//!   the v0.2-deferral SD3 lock from D3 planning.
+//!   `huggingface`. `static` writes the artifact set to a local `--out-dir`
+//!   (Stage A1). `github-release` remains a v0.2 deferral — its `publish()`
+//!   returns `AttestrumPublishError::NotImplemented(_)` → exit 1.
 //! - Output is human key-value lines to stdout (no `--output json` flag
 //!   at v0.1; mirrors prove.rs / sign.rs).
 //! - HF auth is implicit via the `hf-hub` token chain (`HF_TOKEN` env →
@@ -114,8 +114,9 @@ pub struct Args {
     pub source_date_epoch: Option<i64>,
 
     /// `--target {huggingface|github-release|static}`. Defaults to
-    /// `huggingface`. The other two reach the CLI surface but their
-    /// `publish()` returns `NotImplemented(_)` → exit 1 per SD3.
+    /// `huggingface`. `static` writes to a local `--out-dir` (Stage A1);
+    /// `github-release` is a v0.2 deferral whose `publish()` returns
+    /// `NotImplemented(_)` → exit 1.
     pub target: TargetKind,
 
     /// `--revision <REV>`. The HF branch to commit against. Defaults to
@@ -145,8 +146,9 @@ pub struct Args {
     /// directly; the flag locks the CLI shape).
     pub no_sign_commits: bool,
 
-    /// `--out-dir <DIR>`. Only consulted by `--target static`. Reserved
-    /// at v0.1; passing it under `--target huggingface` is ignored.
+    /// `--out-dir <DIR>`. Only consulted by `--target static` (the local
+    /// output directory; defaults to `.attestrum-static`). Ignored by the
+    /// other targets.
     pub out_dir: Option<PathBuf>,
 }
 
@@ -416,9 +418,10 @@ fn derive_size_category(leaf_count: u64) -> String {
 // Target dispatch
 // ============================================================================
 
-/// Construct the requested `PublishTarget` impl and call `publish()`. The
-/// two v0.2-deferred targets construct fine but their `publish()` returns
-/// `NotImplemented(_)` — mapped to exit 1 like the other runtime errors.
+/// Construct the requested `PublishTarget` impl and call `publish()`.
+/// `huggingface` and `static` are real impls; `github-release` constructs
+/// fine but its `publish()` returns `NotImplemented(_)` — mapped to exit 1
+/// like the other runtime errors.
 fn dispatch_publish(
     args: &Args,
     plan: &PublishPlan,

@@ -234,8 +234,10 @@ enum Command {
         #[arg(long, value_name = "TS")]
         source_date_epoch: Option<i64>,
 
-        /// Publish target. `huggingface` is the v0.1 real impl;
-        /// `github-release` and `static` are v0.2 deferrals that return
+        /// Publish target. `huggingface` pushes to the HF Hub; `static`
+        /// writes the same artifact set to a local `--out-dir` (no network;
+        /// upload to Zenodo / GitHub Pages / S3 / any static host).
+        /// `github-release` is a v0.2 deferral that returns
         /// `NotImplemented` → exit 1.
         #[arg(long, value_name = "TARGET", default_value = "huggingface")]
         target: String,
