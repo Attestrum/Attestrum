@@ -1,14 +1,14 @@
 ---
 title: "Corpus-to-model binding (model-binding/v0.1): attestation_digest_of_bundle, bind, and the signed chain walk"
-models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/src/verify.rs, crates/attestrum-bind/src/lib.rs, crates/attestrum-prove/src/lib.rs, MODEL_BINDING_PREDICATE_TYPE, ModelBindingPredicate, CorpusBindingRef, ModelRef, TrainingMeta, bind, walk_chain, attestation_digest_of_bundle, attestation_digest_of_statement, statement_from_bundle, BindOpts, BoundCorpus, BindArtifact, BindError, ChainWalkOutcome, ChainWalkError, IdentityPolicy, BindingInput, CorpusInput, CorpusRef, InTotoStatement"
-source_of_truth: diagram
-last_verified: e6b937a 2026-05-29
+models: "crates/attestrum-attest/src/model_binding.rs, crates/attestrum-attest/src/corpus_digest.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/src/verify.rs, crates/attestrum-bind/src/lib.rs, crates/attestrum-prove/src/lib.rs, MODEL_BINDING_PREDICATE_TYPE, bind, walk_chain, BindOpts, BoundCorpus, BindArtifact, BindError, ChainWalkOutcome, ChainWalkError, IdentityPolicy, BindingInput, CorpusInput"
+source_of_truth: code
+last_verified: 03ca9fc 2026-05-29
 diagram_type: flowchart
 ---
 
 # Corpus-to-model binding + the chain walk
 
-**Planning contract** (`source_of_truth: diagram`) for promoting the corpus-to-model binding from the throwaway spike to `main`. Flips to `source_of_truth: code` at promotion close (Commit 7), at which point `model-binding/v0.1` is PROTECTED per CLAUDE.md §4. Decided via the high-stakes-decision protocol (`Attestrum-internal-notes/2026-05-29/model-binding-v0-1-promotion-*`): **D1 = B+C hybrid** (the `prove()` `attestationDigest` determinism fix lands first, isolated; the binding is built on top with `walk_chain` recomputing canonically so it never depends on `prove()`'s emitted field), **D2/D3/D4/D5 = A**, **D6 = `walk_chain` re-runs `prove()` live for the membership step** (the inclusion proof is recomputed by the verifier, not independently attested — see the honest ceiling).
+**`source_of_truth: code`** — the binding promotion has landed on `main`; this diagram is now a derived view of the implemented code, and `model-binding/v0.1` is PROTECTED per CLAUDE.md §4. Migration / catalog record: [`docs/migration/model-binding-v0.1-new-predicate.md`](../../migration/model-binding-v0.1-new-predicate.md). Decided via the high-stakes-decision protocol (`Attestrum-internal-notes/2026-05-29/model-binding-v0-1-promotion-*`): **D1 = B+C hybrid** (the `prove()` `attestationDigest` determinism fix landed first, isolated; the binding is built on top with `walk_chain` recomputing canonically so it never depends on `prove()`'s emitted field), **D2/D3/D4/D5 = A**, **D6 = `walk_chain` re-runs `prove()` live for the membership step** (the inclusion proof is recomputed by the verifier, not independently attested — see the honest ceiling).
 
 A signed Attestrum corpus proves "corpus C existed with Merkle root R" — **not** "C is what trained model M." The `model-binding/v0.1` attestation closes that gap: an in-toto v1 Statement, SLSA-shaped — the **model is the `subject`** (the product) and the **corpus attestation(s) are materials** (the inputs) — under `https://attestrum.com/attestation/model-binding/v0.1`.
 
