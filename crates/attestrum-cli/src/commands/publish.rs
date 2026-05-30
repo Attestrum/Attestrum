@@ -18,14 +18,20 @@
 //! - `--source-date-epoch` follows the `sign.rs` / `prove.rs` precedent:
 //!   CLI flag > `SOURCE_DATE_EPOCH` env var > arg error. No wall-clock
 //!   fallback per CLAUDE.md §7.
-//! - Metadata flags (`--pretty-name`, `--license`, `--language`,
-//!   `--task-category`, `--tag`, `--size-category`) are NOT present at
-//!   v0.1 per Q1 of the plan-mode design questions. `pretty_name` is
-//!   derived from the last segment of `--dataset` (with `-` and `_`
-//!   replaced by spaces); `size_category` is derived from
-//!   `manifest_stats.leaf_count` via the HF size-tag table; `license_spdx`
-//!   defaults to a placeholder; `language`, `task_categories`, `tags` are
-//!   empty vecs. Richer metadata deferred to v0.2.
+//! - The three Croissant-recommended metadata flags `--license`,
+//!   `--version`, and `--cite-as` are present (decision
+//!   `croissant-context-conformance`, 2026-05-30) so the emitted
+//!   `croissant.json` can reach zero mlcroissant warnings. `--license`
+//!   defaults to the honest token `"unknown"` (threaded into BOTH the
+//!   Croissant descriptor and the README so they agree); `--version`
+//!   defaults to `"1.0.0"`; `--cite-as` is omitted when absent (never
+//!   synthesized). The remaining metadata flags (`--pretty-name`,
+//!   `--language`, `--task-category`, `--tag`, `--size-category`) are NOT
+//!   present: `pretty_name` is derived from the last segment of
+//!   `--dataset` (with `-` and `_` replaced by spaces); `size_category` is
+//!   derived from `manifest_stats.leaf_count` via the HF size-tag table;
+//!   `language`, `task_categories`, `tags` are empty vecs. Richer metadata
+//!   deferred to v0.2.
 //! - `--target {huggingface|github-release|static}` defaults to
 //!   `huggingface`. `static` writes the artifact set to a local `--out-dir`
 //!   (Stage A1). `github-release` remains a v0.2 deferral — its `publish()`
@@ -112,6 +118,20 @@ pub struct Args {
     /// env var > arg error. Feeds the Croissant emitter's `dateCreated`
     /// field. No wall-clock fallback per CLAUDE.md §7.
     pub source_date_epoch: Option<i64>,
+
+    /// `--license <SPDX>`. Optional corpus license, threaded into both the
+    /// Croissant `license` field and the dataset-card README. `None` →
+    /// the honest token `"unknown"` (accepted by mlcroissant and the HF
+    /// Hub) rather than a fabricated license.
+    pub license: Option<String>,
+
+    /// `--version <SEMVER>`. Optional dataset version for the Croissant
+    /// `version` field. `None` → `"1.0.0"` (first sealed release).
+    pub version: Option<String>,
+
+    /// `--cite-as <TEXT>`. Optional citation for the Croissant `citeAs`
+    /// field. `None` → the field is omitted (never synthesized).
+    pub cite_as: Option<String>,
 
     /// `--target {huggingface|github-release|static}`. Defaults to
     /// `huggingface`. `static` writes to a local `--out-dir` (Stage A1);
@@ -233,6 +253,25 @@ pub fn run(args: Args) -> u8 {
 
     let verify_url = verify_url_for(args.target, &args.dataset, &args.revision);
 
+    // Resolve the corpus license ONCE, shared by the Croissant descriptor and
+    // the dataset-card README so the two artifacts never disagree. When the
+    // publisher gives no --license, record the honest token "unknown" (a value
+    // both mlcroissant and the HF Hub accept) rather than asserting a license
+    // the publisher didn't declare. Default the version to "1.0.0" (first
+    // sealed release; overridable via --version); citeAs is omitted unless
+    // supplied (never synthesized). Decision `croissant-context-conformance`.
+    let license = args
+        .license
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+    if args.license.is_none() {
+        eprintln!(
+            "attestrum publish: no --license supplied; recording license \"unknown\" \
+             (pass --license <SPDX> to declare one)"
+        );
+    }
+    let version = args.version.clone().unwrap_or_else(|| "1.0.0".to_string());
+
     let croissant_plan = CroissantPlan {
         dataset_name: args.dataset.clone(),
         manifest_path_in_repo: MANIFEST_PATH_IN_REPO.to_string(),
@@ -240,21 +279,19 @@ pub fn run(args: Args) -> u8 {
         merkle_root_path_in_repo: MERKLE_ROOT_PATH_IN_REPO.to_string(),
         manifest_stats,
         source_date_epoch,
-        // license_spdx / version / cite_as are wired to CLI flags in the
-        // next commit; None here keeps the workspace compiling in between.
-        license_spdx: None,
-        version: None,
-        cite_as: None,
+        license_spdx: Some(license.clone()),
+        version: Some(version),
+        // Emit citeAs only when the publisher supplies it; omission is the
+        // honest default (mlcroissant emits one benign recommended-field
+        // warning), never a synthesized citation.
+        cite_as: args.cite_as.clone(),
     };
 
     let dataset_card_plan = DatasetCardPlan {
         pretty_name,
-        // license_spdx is a non-Option field on DatasetCardPlan, so we
-        // must pass something. Apache-2.0 is the workspace's own dual-
-        // license SPDX and matches the Croissant `license_spdx: None`
-        // omission shape (caller signalled "don't know" / "no rich
-        // metadata at v0.1"). v0.2 will surface a --license flag.
-        license_spdx: "Apache-2.0".to_string(),
+        // Same resolved license as the Croissant descriptor (real value or the
+        // honest "unknown" token) — the two artifacts must agree.
+        license_spdx: license,
         language: Vec::new(),
         task_categories: Vec::new(),
         size_category,
@@ -499,6 +536,9 @@ mod tests {
             manifest: PathBuf::from("/tmp/manifest.parquet"),
             bundle: PathBuf::from("/tmp/bundle.sigstore.json"),
             source_date_epoch,
+            license: None,
+            version: None,
+            cite_as: None,
             target: TargetKind::Huggingface,
             revision: "main".to_string(),
             workspace: None,

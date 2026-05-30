@@ -234,6 +234,26 @@ enum Command {
         #[arg(long, value_name = "TS")]
         source_date_epoch: Option<i64>,
 
+        /// SPDX license identifier for the corpus (e.g. `Apache-2.0`,
+        /// `CC-BY-4.0`, or `mixed`). Threaded into both the Croissant
+        /// `license` field and the dataset-card README. When omitted, the
+        /// artifacts record the honest token `unknown` (a value both
+        /// mlcroissant and the HF Hub accept) rather than asserting a
+        /// license the publisher didn't declare.
+        #[arg(long, value_name = "SPDX")]
+        license: Option<String>,
+
+        /// Semver dataset version for the Croissant `version` field (e.g.
+        /// `1.0.0`). Defaults to `1.0.0` (the first sealed release).
+        /// mlcroissant requires MAJOR.MINOR.PATCH and warns otherwise.
+        #[arg(long, value_name = "SEMVER")]
+        version: Option<String>,
+
+        /// Citation string for the Croissant `citeAs` field (BibTeX or
+        /// prose). Omitted when not supplied — never synthesized.
+        #[arg(long, value_name = "TEXT")]
+        cite_as: Option<String>,
+
         /// Publish target. `huggingface` pushes to the HF Hub; `static`
         /// writes the same artifact set to a local `--out-dir` (no network;
         /// upload to Zenodo / GitHub Pages / S3 / any static host).
@@ -522,6 +542,9 @@ fn main() -> ExitCode {
             manifest,
             bundle,
             source_date_epoch,
+            license,
+            version,
+            cite_as,
             target,
             revision,
             workspace,
@@ -544,6 +567,9 @@ fn main() -> ExitCode {
                 manifest,
                 bundle,
                 source_date_epoch,
+                license,
+                version,
+                cite_as,
                 target: target_kind,
                 revision,
                 workspace,

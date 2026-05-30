@@ -6,6 +6,11 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — `attestrum publish` license / version / citation flags
+
+- **`attestrum publish` gains `--license`, `--version`, and `--cite-as`** so a published dataset can reach a `croissant.json` that validates with **zero `mlcroissant` warnings**. A default publish (no flags) records `license: "unknown"` (an honest token both `mlcroissant` and the HF Hub accept — with a one-line stderr notice) and `version: "1.0.0"`, leaving a single benign "no citation provided" warning; pass `--cite-as` for a clean zero/zero file. None of these values is ever fabricated — `--cite-as` is simply omitted when absent.
+- **Fixed: the dataset-card README no longer hard-codes `license: Apache-2.0`.** Every published README previously asserted Apache-2.0 regardless of the corpus's actual license. The README and `croissant.json` now thread the **same** resolved license (real value or `"unknown"`), so the two artifacts never disagree.
+
 ### Added — `attestrum publish --target static`
 
 - **`attestrum publish --target static --out-dir DIR` now writes the full publish artifact set to a local directory** instead of returning a v0.2 "not implemented" error. It materializes the **same six artifacts** the Hugging Face target commits — `README.md` + `croissant.json` at the directory root and `manifest.parquet` / `merkle.root` / `bundle.sigstore.json` / `verify.html` under `attestrum/` — plus any extras. No network, no Hub auth: the output directory is self-contained and uploadable to Zenodo, GitHub Pages, S3, or any static host, and a visitor can verify it with `cosign` alone (no Attestrum install). The rendered README's verification link is a **relative** `attestrum/verify.html` path so it stays correct wherever the directory is re-hosted; the CLI summary additionally prints an absolute `file://` URL to open the page locally.
