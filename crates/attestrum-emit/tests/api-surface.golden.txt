@@ -1,11 +1,14 @@
 src/lib.rs: enum AttestrumEmitError
 src/lib.rs: fn render_croissant
+src/lib.rs: fn render_cyclonedx
 src/lib.rs: fn render_readme
 src/lib.rs: fn render_verify_html_stub
 src/lib.rs: mod croissant
+src/lib.rs: mod cyclonedx
 src/lib.rs: mod dataset_card
 src/lib.rs: mod verify_html
 src/lib.rs: struct CroissantPlan
+src/lib.rs: struct CycloneDxPlan
 src/lib.rs: struct DatasetCardPlan
 src/lib.rs: struct ManifestStats
 src/lib.rs: struct VerifyHtmlPlan

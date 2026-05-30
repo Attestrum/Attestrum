@@ -22,6 +22,7 @@
 //! CLAUDE.md §0.5 publication boundary).
 
 pub mod croissant;
+pub mod cyclonedx;
 pub mod dataset_card;
 pub mod verify_html;
 
@@ -42,6 +43,22 @@ pub mod verify_html;
 /// JSON-LD; ours is the publisher-authored authoritative one.
 pub fn render_croissant(plan: &CroissantPlan) -> Result<String, AttestrumEmitError> {
     croissant::render(plan)
+}
+
+/// Render a CycloneDX 1.6 ML-BOM (`cyclonedx.json`) for the dataset. The
+/// output is a string of canonical-form JSON suitable for commit-to-Hub,
+/// emitted beside `croissant.json`. It validates against the public
+/// CycloneDX validator (`sbom-utility`) with zero errors / zero warnings.
+///
+/// The sealed corpus is represented as a single `data` component carrying one
+/// `componentData{type:"dataset"}`. `hashes` carries ONLY the SHA-256 of
+/// `manifest.parquet` (the signed in-toto subject digest); the BLAKE3 Merkle
+/// root and corpus statistics live in namespaced `attestrum:` properties —
+/// never in `hashes`. See [`cyclonedx`] for the honesty invariant, determinism
+/// contract, and vendor-neutrality placement rules. Decision
+/// `cyclonedx-mlbom-shape`, 2026-05-30.
+pub fn render_cyclonedx(plan: &CycloneDxPlan) -> Result<String, AttestrumEmitError> {
+    cyclonedx::render(plan)
 }
 
 /// Render the dataset card `README.md` for the dataset. YAML
@@ -127,6 +144,78 @@ pub struct CroissantPlan {
     /// Added 2026-05-30 (decision `croissant-context-conformance`). The CLI
     /// populates this only from `--cite-as`.
     pub cite_as: Option<String>,
+}
+
+/// Caller-supplied inputs for `render_cyclonedx()`. Mirrors [`CroissantPlan`]:
+/// the emitter is a pure JSON builder, so all values arrive pre-resolved. The
+/// two hex digests are read by the CLI from the **signed** Sigstore bundle (the
+/// in-toto subject SHA-256 and the predicate's BLAKE3 Merkle root) so the
+/// document binds to what was signed; the emitter never reads the bundle or
+/// hashes anything.
+///
+/// Added 2026-05-30 (decision `cyclonedx-mlbom-shape`). All file-path fields are
+/// repo-relative (e.g. `"attestrum/manifest.parquet"`).
+#[derive(Debug, Clone)]
+pub struct CycloneDxPlan {
+    /// Dataset name as it appears in the Hub URL (e.g. `"my-org/my-dataset"`).
+    /// Used for the component `name`, the `componentData.name`, and the
+    /// content-derived `bom-ref`.
+    pub dataset_name: String,
+
+    /// Semver dataset version (e.g. `"1.0.0"`). Drives the component `version`
+    /// and the `bom-ref`. Non-optional — the CLI always supplies a value
+    /// (default `"1.0.0"`) so `bom-ref` is always derivable.
+    pub version: String,
+
+    /// Reproducible-Builds timestamp (epoch seconds). Drives the deterministic
+    /// `metadata.timestamp` via `jiff::Timestamp::from_second` (no wall-clock).
+    /// Matches the `--source-date-epoch` used during `attestrum sign` and the
+    /// Croissant `dateCreated`/`datePublished` so the two descriptors in one
+    /// bundle derive dates the same way.
+    pub source_date_epoch: i64,
+
+    /// Lowercase hex SHA-256 of `manifest.parquet` — exactly the Sigstore-signed
+    /// in-toto subject digest. This is the ONLY value placed in `hashes`; a
+    /// third party recomputing `sha256sum manifest.parquet` matches it. NEVER a
+    /// BLAKE3 value (the honesty invariant).
+    pub manifest_sha256_hex: String,
+
+    /// Lowercase hex BLAKE3 Merkle root. Placed in the namespaced
+    /// `attestrum:merkle.root.blake3` property — NEVER in `hashes` (a tree root
+    /// is not a flat byte digest; the disqualified C1 option).
+    pub merkle_root_blake3_hex: String,
+
+    /// Derived manifest statistics → the `attestrum:corpus.*` properties.
+    pub manifest_stats: ManifestStats,
+
+    /// Resolved corpus license — the same value the Croissant + README path
+    /// produces (a real SPDX id, the honest `"unknown"` token, or any
+    /// publisher string). A valid SPDX id maps to `license.id`; anything else to
+    /// `license.name`. `None` omits the `licenses` array entirely (never
+    /// synthesized).
+    pub license: Option<String>,
+
+    /// Corpus publisher org name (from `--publisher`). When supplied it
+    /// populates BOTH the component `supplier` and the `componentData`
+    /// `governance.owners`; `None` omits both. The publisher is the corpus
+    /// publisher org (the Attestrum GitHub Actions workflow identity for demos —
+    /// never an individual; CLAUDE-LOCAL §A9). Never the founder personally.
+    pub publisher: Option<String>,
+
+    /// Data classification / sensitivity label (from `--classification`, e.g.
+    /// `"public"`). When supplied it populates `componentData.classification`;
+    /// `None` omits it (honest omission — never fabricated).
+    pub classification: Option<String>,
+
+    /// Repo-relative path to the sealed manifest. Conventionally
+    /// `"attestrum/manifest.parquet"`. Emitted as the `distribution`
+    /// external reference.
+    pub manifest_path_in_repo: String,
+
+    /// Repo-relative path to the Sigstore bundle. Conventionally
+    /// `"attestrum/bundle.sigstore.json"`. Emitted as the `attestation`
+    /// external reference.
+    pub bundle_path_in_repo: String,
 }
 
 /// Caller-supplied inputs for `render_readme()`. The YAML frontmatter
@@ -232,10 +321,11 @@ pub struct ManifestStats {
     pub total_bytes: u64,
 }
 
-/// The closed set of error conditions `attestrum-emit` surfaces. Five
-/// variants at v0.1; the shape is locked at E1. New variants require
-/// founder approval per the same convention as `AttestrumProveError`
-/// (PATH-A-BRIEF Part 2.2) and `AttestrumPublishError` (Part 2.3).
+/// The closed set of error conditions `attestrum-emit` surfaces. Six
+/// variants; the shape is locked. New variants require founder approval per the
+/// same convention as `AttestrumProveError` (PATH-A-BRIEF Part 2.2) and
+/// `AttestrumPublishError` (Part 2.3). `CycloneDx` added 2026-05-30 (decision
+/// `cyclonedx-mlbom-shape`).
 #[derive(Debug, thiserror::Error)]
 pub enum AttestrumEmitError {
     /// Failed to read or interpret the sealed manifest. Surfaced when
@@ -256,6 +346,13 @@ pub enum AttestrumEmitError {
     /// required Attestrum extension fields absent, etc.).
     #[error("Croissant JSON-LD error: {0}")]
     Croissant(String),
+
+    /// Failed to render the CycloneDX 1.6 ML-BOM. Surfaced when serde
+    /// serialization fails or `source_date_epoch` is out of
+    /// `jiff::Timestamp` range (the deterministic `metadata.timestamp`
+    /// source).
+    #[error("CycloneDX ML-BOM error: {0}")]
+    CycloneDx(String),
 
     /// Failed to render the dataset card README. Surfaced when the
     /// YAML frontmatter can't be serialized or when required fields
@@ -344,17 +441,39 @@ mod tests {
     }
 
     #[test]
-    fn error_enum_has_five_variants() {
-        // Locks the 5-variant shape. New variants require founder
-        // approval per the v0.1 surface contract.
+    fn cyclonedx_plan_constructs() {
+        let _p = CycloneDxPlan {
+            dataset_name: "my-org/my-dataset".to_string(),
+            version: "1.0.0".to_string(),
+            source_date_epoch: 1700000000,
+            manifest_sha256_hex: "a".repeat(64),
+            merkle_root_blake3_hex: "b".repeat(64),
+            manifest_stats: ManifestStats {
+                leaf_count: 1,
+                total_bytes: 1,
+            },
+            license: Some("Apache-2.0".to_string()),
+            publisher: Some("my-org".to_string()),
+            classification: Some("public".to_string()),
+            manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+            bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
+        };
+    }
+
+    #[test]
+    fn error_enum_has_six_variants() {
+        // Locks the 6-variant shape. New variants require founder
+        // approval per the v0.1 surface contract. `CycloneDx` added
+        // 2026-05-30 (decision `cyclonedx-mlbom-shape`).
         let variants = [
             AttestrumEmitError::Manifest("x".to_string()),
             AttestrumEmitError::Bundle("x".to_string()),
             AttestrumEmitError::Croissant("x".to_string()),
+            AttestrumEmitError::CycloneDx("x".to_string()),
             AttestrumEmitError::Readme("x".to_string()),
             AttestrumEmitError::VerifyHtml("x".to_string()),
         ];
-        assert_eq!(variants.len(), 5);
+        assert_eq!(variants.len(), 6);
         for v in &variants {
             assert!(!v.to_string().is_empty(), "Display impl must not be empty");
         }

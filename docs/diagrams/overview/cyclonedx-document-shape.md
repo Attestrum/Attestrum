@@ -1,16 +1,16 @@
 ---
 title: "CycloneDX 1.6 cyclonedx.json emitted document shape"
 models: "crates/attestrum-emit/src/cyclonedx.rs, render_cyclonedx, CycloneDxPlan"
-source_of_truth: diagram
-last_verified: 8977dc1 2026-05-30
+source_of_truth: code
+last_verified: 616829c 2026-05-30
 diagram_type: flowchart
 ---
 
 # CycloneDX `cyclonedx.json` document shape
 
-`source_of_truth: diagram` — this diagram is the **contract** the emitter must implement
-(planning phase; flips to `source_of_truth: code` once `crates/attestrum-emit/src/cyclonedx.rs`
-lands). Decision: `cyclonedx-mlbom-shape`, 2026-05-30 (multi-agent high-stakes protocol).
+`source_of_truth: code` — `crates/attestrum-emit/src/cyclonedx.rs` (`render_cyclonedx`,
+`CycloneDxPlan`) is now authoritative; this diagram is the derived view, re-verify when the emitter
+changes. Decision: `cyclonedx-mlbom-shape`, 2026-05-30 (multi-agent high-stakes protocol).
 
 `attestrum publish` emits `cyclonedx.json` beside `croissant.json` — the dataset's SBOM/ML-BOM
 descriptor for the software-supply-chain ecosystem. It must validate against the public CycloneDX
