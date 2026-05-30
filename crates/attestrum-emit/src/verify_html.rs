@@ -40,6 +40,7 @@ const HTML_TEMPLATE: &str = r#"<!doctype html>
   body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2em auto; padding: 0 1em; color: #222; }
   h1 { font-size: 1.4em; }
   code, pre { background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 3px; }
+  code { overflow-wrap: anywhere; word-break: break-word; }
   pre { padding: 1em; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
   .facts { border-left: 3px solid #555; padding-left: 1em; margin: 1em 0; }
   .facts dt { font-weight: bold; margin-top: 0.5em; }
