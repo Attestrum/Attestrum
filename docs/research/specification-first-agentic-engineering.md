@@ -8,7 +8,7 @@
 
 ## Abstract
 
-Large language models can now write and modify software faster than a human can review it. This inverts the classic bottleneck: code is cheap; *correctness assurance* is the scarce resource. We report a methodology, developed while building **Attestrum** — a deterministic Rust CLI that compiles AI-training corpora into cryptographically verifiable provenance bundles — for keeping an LLM-driven codebase correct at machine speed. The methodology has three pillars: (1) **diagram-first authoring**, in which the agent is required to emit a structural specification (a diagram) *before* writing code; (2) **machine-checked design↔code coupling**, a linter that fails the build when code and its documented design drift apart; and (3) **adversarial multi-agent review**, in which high-stakes decisions are routed through independent reviewers on diverse models plus a dedicated "framing-attacker." We argue pillar (1) works through two well-understood mechanisms — autoregressive *self-conditioning* and *completeness forcing* — rather than through any visual faculty of the model, and we give the conditions under which it pays off and the conditions under which it is overhead. We provide a step-by-step adoption guide. Worked examples reference the project's own diagrams.
+Large language models can now write and modify software faster than a human can review it. This inverts the classic bottleneck: code is cheap; *correctness assurance* is the scarce resource. We report a methodology, developed while building **Attestrum** — a deterministic Rust CLI that compiles AI-training corpora into cryptographically verifiable provenance bundles — for keeping an LLM-driven codebase correct at machine speed. The methodology has three pillars: (1) **diagram-first authoring**, in which the agent is required to emit a structural specification (a diagram) *before* writing code; (2) **machine-checked design↔code coupling**, a linter that fails the build when code and its documented design drift apart; and (3) **adversarial multi-agent review**, in which high-stakes decisions are routed through independent reviewers on diverse models plus a dedicated "framing-attacker." We argue pillar (1) works through two well-understood mechanisms — autoregressive *self-conditioning* and *completeness forcing* — rather than through visual perception of the rendered diagram (the benefit comes from the agent *authoring the diagram's source*, not from viewing a picture), and we give the conditions under which it pays off and the conditions under which it is overhead. We provide a step-by-step adoption guide. Worked examples reference the project's own diagrams.
 
 ---
 
@@ -44,7 +44,7 @@ For any new module, public data structure, error path, or multi-party flow, a di
 
 ### 3.2 The mechanism — two effects, neither of them vision
 
-It is worth being exact about *why* this helps the agent, because the intuitive explanation ("a picture helps it understand") is wrong for a language model. The model does not perceive the rendered image; it processes the diagram's **source text**. The benefit comes from two distinct, real effects:
+It is worth being exact about *why* this helps the agent, because the intuitive explanation ("a picture helps it understand") misattributes the mechanism. The benefit does not come from *viewing* a picture: in the diagram-first workflow the agent works from the diagram's **source text**, and the gain comes from two effects intrinsic to *producing* that text. (Modern agents are multimodal and *can* perceive a rendered image — §3.4 — but that is a separate input channel, not the source of the authoring benefit described here.) The two effects:
 
 **(a) Self-conditioning.** The structure the agent emits — nodes, edges, states, transitions — becomes part of the context that subsequent code generation attends to. The architecture the model just committed to in the diagram now steers each downstream implementation decision. This is chain-of-thought specialized to software: the diagram is a dense, structured form of "think before you code."
 
@@ -85,9 +85,18 @@ Matching the diagram type to the problem shape is what makes completeness forcin
 
 A `classDiagram` of a public API, for instance, forces every public field and method to be named before it exists — which is exactly the surface a future change is most likely to break silently.
 
-### 3.4 The rendered image is for humans, not the model
+### 3.4 The rendered image: primarily a human-review aid, secondarily a model input
 
-Diagrams are additionally rendered to raster images for human review. This is a genuinely separate value stream: the human reviewer *does* perceive the picture and grasps a topology at a glance in a way the model does not. Keeping these two audiences distinct prevents a common misconception — that the agent benefits from the *picture*. It benefits from *authoring the source* (§3.2) and from the coupling described next; the rendered image is a convenience for the person.
+Diagrams are additionally rendered to raster images. For a *human* reviewer this is a primary value stream — a person grasps a topology at a glance from the picture. The point to be precise about is the *model's* relationship to that image, because it is easy to overstate in either direction.
+
+Two claims are true. First, the **authoring benefit of §3.2 is not a vision effect**: it comes from emitting the source as conditioning context, so a rendered image the agent merely *views* cannot reproduce it. Second, in this project's workflow the agent works from the diagram's **source text**, and when it already holds that source the rendered image adds little: the Mermaid source is the lossless, canonical representation, while the rendered layout is auto-generated and carries *less* precise semantic information than the source it was produced from. For a structurally-shaped diagram you already hold as text, the text is the more useful representation for the model — a point broadly consistent with current findings that text serializations of graphs are at least competitive with images for graph-and-topology reasoning.
+
+What would be **wrong** is to upgrade those two workflow facts into a *capability* claim. Modern frontier models are multimodal and can perceive a rendered diagram and parse its topology to a meaningful degree; the agent in this setup does not consume the image only because the pipeline feeds it the source instead, not because it cannot. The image is therefore a genuine, if secondary, model input in cases where the source is *not* in hand:
+
+- **Ingestion with no source** — a whiteboard photo, a legacy architecture image, a figure embedded in a PDF. Here vision is the only channel in, and a vision-capable agent genuinely gains from looking.
+- **Render-legibility cross-check** — the diagram-linter (§4) verifies that a diagram *parses*, not that it *renders legibly*. A diagram can parse and still render into overlapping nodes or clipped labels. A vision pass over the rendered image could catch that class of defect, which the parse gate cannot.
+
+The practical takeaway for the workflow remains: when the agent authored or holds the source, treat the render as a human-review convenience and do not assume it adds model-side value; but do not mistake that for a claim that the model cannot see.
 
 ---
 
@@ -218,7 +227,8 @@ Render diagrams to images for human review, and consider surfacing a changed dia
 This methodology is a discipline with costs, not a universal good. Recorded plainly:
 
 - **Diagram-first is for structurally-shaped work.** For linear or local logic, a diagram is overhead and adds little over the code and its types. Forcing one everywhere is process tax.
-- **The benefit is in authoring, not aesthetics.** A beautiful rendered diagram that the agent did not author confers the human-review benefit (§3.4) but not the generation-conditioning benefit (§3.2). The mechanism is "emit structure first," not "look at a picture."
+- **The authoring benefit is not a vision effect — but the model is not blind, either.** A rendered diagram the agent merely *views* does not reproduce the §3.2 generation-conditioning benefit, which requires emitting the source. That is a statement about the *mechanism of this benefit*, not about model capability: multimodal agents can perceive images, and vision is a genuine input where no source is in hand or as a render-legibility cross-check (§3.4). The error to avoid is the inverse one — assuming the rendered picture carries model-side value when the agent already holds the canonical source.
+- **The parse gate is not a legibility gate.** The diagram-linter (§4) checks that a diagram *parses*, not that it *renders legibly*; a syntactically valid diagram can still render into overlapping nodes or clipped labels. Closing that gap needs a vision pass or a human, not the linter.
 - **"Latent space" is informal.** The conditioning effect is real and well-grounded in autoregressive generation and chain-of-thought, but the trained model is unchanged; only its inference-time activations are conditioned by the context it just produced. Adopt the mechanism, not the slogan.
 - **The linter is only as good as its reference resolution.** Reverse-reference checks need a reliable notion of "public item" and "named by a diagram"; over-broad matching produces false passes, over-narrow matching produces false failures. Expect to tune it.
 - **Adversarial review is expensive and easy to over-apply.** Its value is concentrated entirely in the high-stakes tail. On routine work it is ceremony.
