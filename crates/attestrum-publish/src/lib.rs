@@ -330,11 +330,19 @@ impl PublishTarget for GitHubReleaseTarget {
     }
 }
 
-/// Static-bundle publish target — writes the publish artifacts to a
-/// local directory for upload to Zenodo, GitHub Pages, S3, or any
-/// static file host. **Deferred to v0.2 per founder scope decision
-/// SD3.** Type exists in the v0.1 surface; `publish()` returns
-/// `AttestrumPublishError::NotImplemented(...)`.
+/// Static-bundle publish target — writes the publish artifacts to a local
+/// directory for upload to Zenodo, GitHub Pages, S3, or any static file
+/// host. Pulled forward from a v0.2 deferral at Stage A1 (founder-approved
+/// 2026-05-30); it lets the emit surface (README / Croissant / verify.html)
+/// be rendered and QA'd locally with zero network / HF auth / Rekor footprint.
+///
+/// `publish()` writes the **same six artifacts** `HuggingFaceTarget` commits
+/// — `README.md` + `croissant.json` at the directory root and
+/// `manifest.parquet` / `merkle.root` / `bundle.sigstore.json` / `verify.html`
+/// under `attestrum/` — plus any `plan.extras`. The directory is
+/// self-contained: a visitor can verify the bundle with `cosign` alone, no
+/// Attestrum install (CLAUDE.md §12). See
+/// `docs/diagrams/overview/static-publish.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticBundleTarget {
     pub out_dir: PathBuf,
@@ -345,11 +353,98 @@ impl PublishTarget for StaticBundleTarget {
         "static"
     }
 
-    fn publish(&self, _plan: &PublishPlan) -> Result<PublishReceipt, AttestrumPublishError> {
-        Err(AttestrumPublishError::NotImplemented(
-            "StaticBundleTarget is v0.2 work — see Attestrum-internal-notes/sprint-5-d3-attestrum-publish-roadmap.md".to_string(),
-        ))
+    fn publish(&self, plan: &PublishPlan) -> Result<PublishReceipt, AttestrumPublishError> {
+        // 1. Validate the three sealed inputs exist before touching the
+        //    output dir. Mirrors HuggingFaceTarget::publish()'s pre-flight
+        //    check so an absent input surfaces the same BundleMissing error
+        //    on both targets.
+        for path in [
+            &plan.manifest_path,
+            &plan.merkle_root_path,
+            &plan.bundle_path,
+        ] {
+            if !path.is_file() {
+                return Err(AttestrumPublishError::BundleMissing(
+                    path.display().to_string(),
+                ));
+            }
+        }
+
+        // 2. Create out_dir/ and out_dir/attestrum/ (create_dir_all also
+        //    makes the parent).
+        let attestrum_dir = self.out_dir.join("attestrum");
+        std::fs::create_dir_all(&attestrum_dir).map_err(|e| {
+            AttestrumPublishError::Io(format!("create {}: {e}", attestrum_dir.display()))
+        })?;
+
+        // 3. Render the three dataset-side artifacts. Same error mapping as
+        //    the HF target — identical rendering, different sink.
+        let readme = attestrum_emit::render_readme(&plan.dataset_card_plan)
+            .map_err(|e| AttestrumPublishError::ReadmeRender(e.to_string()))?;
+        let croissant_str = attestrum_emit::render_croissant(&plan.croissant_plan)
+            .map_err(|e| AttestrumPublishError::CroissantInvalid(e.to_string()))?;
+        let verify_html = attestrum_emit::render_verify_html_stub(&plan.verify_html_plan)
+            .map_err(|e| AttestrumPublishError::VerifyHtmlBuild(e.to_string()))?;
+
+        // 4. Materialize the canonical six files: rendered artifacts written,
+        //    sealed inputs copied verbatim. Overwrite semantics — re-rendering
+        //    into an existing dir is idempotent.
+        write_output(&self.out_dir.join("README.md"), readme.as_bytes())?;
+        write_output(
+            &self.out_dir.join("croissant.json"),
+            croissant_str.as_bytes(),
+        )?;
+        copy_input(&plan.manifest_path, &attestrum_dir.join("manifest.parquet"))?;
+        copy_input(&plan.merkle_root_path, &attestrum_dir.join("merkle.root"))?;
+        copy_input(
+            &plan.bundle_path,
+            &attestrum_dir.join("bundle.sigstore.json"),
+        )?;
+        write_output(&attestrum_dir.join("verify.html"), verify_html.as_bytes())?;
+
+        // 5. Copy any caller-supplied extras to their repo-relative
+        //    destinations, creating intermediate dirs as needed.
+        for (local_path, path_in_repo) in &plan.extras {
+            let dest = self.out_dir.join(path_in_repo);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    AttestrumPublishError::Io(format!("create {}: {e}", parent.display()))
+                })?;
+            }
+            copy_input(local_path, &dest)?;
+        }
+
+        // 6. Resolve an absolute path for the file:// receipt URLs (the dir
+        //    now exists, so canonicalize succeeds). The receipt isn't written
+        //    to disk, so these paths don't affect the byte-stable file output.
+        let abs = std::fs::canonicalize(&self.out_dir).map_err(|e| {
+            AttestrumPublishError::Io(format!("canonicalize {}: {e}", self.out_dir.display()))
+        })?;
+
+        Ok(PublishReceipt {
+            target: "static".to_string(),
+            dataset_url: format!("file://{}", abs.display()),
+            verify_url: format!("file://{}/attestrum/verify.html", abs.display()),
+            commit_oid: None,
+        })
     }
+}
+
+/// Write `bytes` to `path`, mapping any I/O failure to
+/// `AttestrumPublishError::Io`. Used for the rendered README / croissant /
+/// verify.html artifacts.
+fn write_output(path: &std::path::Path, bytes: &[u8]) -> Result<(), AttestrumPublishError> {
+    std::fs::write(path, bytes)
+        .map_err(|e| AttestrumPublishError::Io(format!("write {}: {e}", path.display())))
+}
+
+/// Copy `src` to `dest` verbatim, mapping any I/O failure to
+/// `AttestrumPublishError::Io`. Used for the sealed manifest / merkle.root /
+/// bundle inputs and any `plan.extras`.
+fn copy_input(src: &std::path::Path, dest: &std::path::Path) -> Result<(), AttestrumPublishError> {
+    std::fs::copy(src, dest).map(|_| ()).map_err(|e| {
+        AttestrumPublishError::Io(format!("copy {} -> {}: {e}", src.display(), dest.display()))
+    })
 }
 
 /// The set of artifacts a caller hands to a `PublishTarget::publish()`
@@ -437,9 +532,13 @@ pub struct PublishReceipt {
 /// (`NotImplemented`) so the `GitHubReleaseTarget` +
 /// `StaticBundleTarget` stubs can return a v0.2-deferral error
 /// without the caller having to pattern-match on a different error
-/// type. The 10-variant shape is the v0.1 lock; new variants require
-/// founder approval just like the `AttestrumProveError` 6-variant
-/// lock from D2 (PATH-A-BRIEF Part 2.2).
+/// type. Stage A1 (founder-approved 2026-05-30) adds an 11th variant
+/// (`Io`) — the first output-write failure mode, surfaced when
+/// `StaticBundleTarget` materializes artifacts to local disk (the HF
+/// target reports transport failures via `Network`). The 11-variant shape
+/// is the new v0.1 lock; further variants require founder approval just
+/// like the `AttestrumProveError` 6-variant lock from D2 (PATH-A-BRIEF
+/// Part 2.2).
 #[derive(Debug, thiserror::Error)]
 pub enum AttestrumPublishError {
     /// Connection refused, DNS failure, TLS handshake failure, request
@@ -490,6 +589,14 @@ pub enum AttestrumPublishError {
     /// cert identity from the bundle, etc.). CLI maps to exit 1.
     #[error("verify.html build error: {0}")]
     VerifyHtmlBuild(String),
+
+    /// Filesystem write / copy failure while a target materializes
+    /// artifacts to local disk — permission denied, disk full, the parent
+    /// is a file, a read-only filesystem, etc. First surfaced by
+    /// `StaticBundleTarget`; the HF target reports transport-layer failures
+    /// via `Network` instead. CLI maps to exit 1.
+    #[error("output I/O error: {0}")]
+    Io(String),
 
     /// v0.1-deferral: feature spec'd in PATH-A-BRIEF but explicitly
     /// not shipped in this version (e.g. `GitHubReleaseTarget` +
@@ -594,22 +701,27 @@ mod tests {
     }
 
     #[test]
-    fn static_bundle_target_is_v02_deferral() {
+    fn static_bundle_target_reports_bundle_missing_for_absent_inputs() {
+        // minimal_plan() points at /tmp/*.parquet etc. that don't exist, so
+        // the pre-flight input check fires BundleMissing before any output
+        // directory is created. Full filesystem behavior (the six written
+        // files, byte-equality, copies, receipt, byte-stability) lives in the
+        // tests/publish_static.rs integration suite.
         let t = StaticBundleTarget {
-            out_dir: PathBuf::from("/tmp/out"),
+            out_dir: PathBuf::from("/tmp/attestrum-static-unit-test-out"),
         };
         assert_eq!(t.target_name(), "static");
         let err = t
             .publish(&minimal_plan())
-            .expect_err("StaticBundleTarget is deferred");
-        assert!(matches!(err, AttestrumPublishError::NotImplemented(_)));
+            .expect_err("absent sealed inputs must error");
+        assert!(matches!(err, AttestrumPublishError::BundleMissing(_)));
     }
 
     #[test]
-    fn error_enum_has_ten_variants() {
-        // Locks the 10-variant shape. If a new variant is added the
-        // compiler errors on this match; the addition must be a
-        // deliberate v0.1 surface change.
+    fn error_enum_has_eleven_variants() {
+        // Locks the 11-variant shape (Stage A1 added `Io`). If a new variant
+        // is added the compiler errors on this match; the addition must be a
+        // deliberate, founder-approved v0.1 surface change.
         let variants = [
             AttestrumPublishError::Network("x".to_string()),
             AttestrumPublishError::Auth("x".to_string()),
@@ -621,8 +733,9 @@ mod tests {
             AttestrumPublishError::CroissantInvalid("x".to_string()),
             AttestrumPublishError::VerifyHtmlBuild("x".to_string()),
             AttestrumPublishError::NotImplemented("x".to_string()),
+            AttestrumPublishError::Io("x".to_string()),
         ];
-        assert_eq!(variants.len(), 10);
+        assert_eq!(variants.len(), 11);
         for v in &variants {
             assert!(!v.to_string().is_empty(), "Display impl must not be empty");
         }

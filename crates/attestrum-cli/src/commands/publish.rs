@@ -53,6 +53,7 @@
 //! | `CroissantInvalid(_)`           | `RuntimeError` | 1       |
 //! | `VerifyHtmlBuild(_)`            | `RuntimeError` | 1       |
 //! | `NotImplemented(_)`             | `RuntimeError` | 1       |
+//! | `Io(_)`                         | `RuntimeError` | 1       |
 //! | arg-parse failure               | `ArgsError`    | 2       |
 //! | success                         | `Ok`           | 0       |
 
@@ -228,10 +229,7 @@ pub fn run(args: Args) -> u8 {
     // 6. Resolve the Merkle-root path. CLI override > <workspace>/manifests/merkle.root.
     let merkle_root_path = resolve_merkle_root_path(&args);
 
-    let verify_url = format!(
-        "https://huggingface.co/datasets/{}/blob/{}/{}",
-        args.dataset, args.revision, VERIFY_HTML_PATH_IN_REPO
-    );
+    let verify_url = verify_url_for(args.target, &args.dataset, &args.revision);
 
     let croissant_plan = CroissantPlan {
         dataset_name: args.dataset.clone(),
@@ -376,6 +374,27 @@ fn derive_pretty_name(dataset: &str) -> String {
     last_segment.replace(['-', '_'], " ")
 }
 
+/// Build the `verify_url` embedded in the rendered README (the dataset
+/// card's `attestrum.verify_url` field + provenance prose).
+///
+/// For the HF target it's the absolute Hub blob URL where the page will
+/// live. For the **static** target the bundle directory is self-contained
+/// and re-hostable (Zenodo, GitHub Pages, S3, …), so the page's absolute
+/// URL is unknowable at publish time — we emit the **relative** repo path
+/// `attestrum/verify.html`, which resolves correctly wherever the directory
+/// lands (and when the README is rendered locally in `out_dir`). The
+/// `PublishReceipt` separately carries an absolute `file://` URL for the
+/// human running the CLI to open immediately. The github-release target
+/// (a v0.2 deferral) reuses the HF-style absolute URL as a placeholder.
+fn verify_url_for(target: TargetKind, dataset: &str, revision: &str) -> String {
+    match target {
+        TargetKind::Static => VERIFY_HTML_PATH_IN_REPO.to_string(),
+        TargetKind::Huggingface | TargetKind::GithubRelease => format!(
+            "https://huggingface.co/datasets/{dataset}/blob/{revision}/{VERIFY_HTML_PATH_IN_REPO}"
+        ),
+    }
+}
+
 /// Derive the HF `size_categories` tag from the manifest leaf count.
 /// The 9 buckets match Hugging Face's documented dataset size tags.
 fn derive_size_category(leaf_count: u64) -> String {
@@ -442,7 +461,9 @@ fn map_error_to_exit_code(err: &AttestrumPublishError) -> ExitCode {
         Network(_) => ExitCode::NetworkError,
         Auth(_) => ExitCode::IdentityError,
         RepoExists(_) | RepoMissing(_) | Quota(_) | BundleMissing(_) | ReadmeRender(_)
-        | CroissantInvalid(_) | VerifyHtmlBuild(_) | NotImplemented(_) => ExitCode::RuntimeError,
+        | CroissantInvalid(_) | VerifyHtmlBuild(_) | NotImplemented(_) | Io(_) => {
+            ExitCode::RuntimeError
+        }
     }
 }
 
@@ -598,8 +619,26 @@ mod tests {
     }
 
     #[test]
-    fn error_mapping_covers_all_ten_variants() {
-        // Locks the 10-variant `AttestrumPublishError` lock at the CLI
+    fn verify_url_for_static_is_relative_else_absolute() {
+        // Static target: relative repo path, re-hostable anywhere.
+        assert_eq!(
+            verify_url_for(TargetKind::Static, "my-org/x", "main"),
+            "attestrum/verify.html"
+        );
+        // HF + github-release: absolute Hub blob URL.
+        assert_eq!(
+            verify_url_for(TargetKind::Huggingface, "my-org/x", "main"),
+            "https://huggingface.co/datasets/my-org/x/blob/main/attestrum/verify.html"
+        );
+        assert_eq!(
+            verify_url_for(TargetKind::GithubRelease, "my-org/x", "dev"),
+            "https://huggingface.co/datasets/my-org/x/blob/dev/attestrum/verify.html"
+        );
+    }
+
+    #[test]
+    fn error_mapping_covers_all_eleven_variants() {
+        // Locks the 11-variant `AttestrumPublishError` lock at the CLI
         // boundary. If a new variant lands without explicit CLI mapping,
         // the compiler will refuse to compile `map_error_to_exit_code`.
         use AttestrumPublishError::*;
@@ -641,6 +680,10 @@ mod tests {
         );
         assert_eq!(
             map_error_to_exit_code(&NotImplemented("x".to_string())).as_u8(),
+            ExitCode::RuntimeError.as_u8(),
+        );
+        assert_eq!(
+            map_error_to_exit_code(&Io("x".to_string())).as_u8(),
             ExitCode::RuntimeError.as_u8(),
         );
     }

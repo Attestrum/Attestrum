@@ -6,6 +6,11 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — `attestrum publish --target static`
+
+- **`attestrum publish --target static --out-dir DIR` now writes the full publish artifact set to a local directory** instead of returning a v0.2 "not implemented" error. It materializes the **same six artifacts** the Hugging Face target commits — `README.md` + `croissant.json` at the directory root and `manifest.parquet` / `merkle.root` / `bundle.sigstore.json` / `verify.html` under `attestrum/` — plus any extras. No network, no Hub auth: the output directory is self-contained and uploadable to Zenodo, GitHub Pages, S3, or any static host, and a visitor can verify it with `cosign` alone (no Attestrum install). The rendered README's verification link is a **relative** `attestrum/verify.html` path so it stays correct wherever the directory is re-hosted; the CLI summary additionally prints an absolute `file://` URL to open the page locally.
+- `AttestrumPublishError` gains an `Io` variant (the first output-write failure mode, surfaced by the static target writing to disk → exit 1).
+
 ### Fixed — `attestrum prove <file>` exact-match by path (grade-wall)
 
 - **An exact file present in the corpus now proves as proof-grade inclusion (confidence 1.00) when proved by path** — previously a *text* file was silently downgraded to a fuzzy "likely match" (0.95), and *pdf / other* modalities errored as "unsupported." Root cause: the document dispatcher matched on the text fingerprint's *normalized*-bytes hash, which never equals the manifest's *raw*-bytes BLAKE3. `prove` now hashes the document's raw bytes the same way `attestrum build` does and tries the exact match first, for every modality. (Found in a real-corpus shakedown. PROTECTED fingerprint normalization unchanged.)

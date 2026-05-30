@@ -237,13 +237,11 @@ fn collect_api_surface_includes_three_target_types_and_plan_pair() {
 }
 
 #[test]
-fn collect_api_surface_includes_ten_variant_error() {
-    // attestrum-publish/src/lib.rs L443 (and the
-    // error_enum_has_ten_variants in-tree unit test) lock
-    // AttestrumPublishError to exactly 10 variants through v0.1. The
-    // presence of the enum in the surface is the minimum check; variant-
-    // level coverage is enforced by the `error_enum_has_ten_variants`
-    // unit test inside the crate itself.
+fn collect_api_surface_includes_eleven_variant_error() {
+    // AttestrumPublishError is locked at exactly 11 variants through v0.1
+    // (Stage A1 added `Io` to the original 10). The presence of the enum in
+    // the surface is the minimum check; variant-level coverage is enforced
+    // by the `error_enum_has_eleven_variants` unit test inside the crate.
     let actual = collect_api_surface(crate_dir());
     assert!(
         actual
