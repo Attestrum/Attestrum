@@ -2,7 +2,7 @@
 title: "Sprint 5 attestrum-prove pipeline — exact + fuzzy match (E1-E5) + non-inclusion (E6) + alternate manifest sources (E7) + CLI + API freeze (E8)"
 models: "crates/attestrum-prove/src/lib.rs, crates/attestrum-prove/Cargo.toml, crates/attestrum-prove/tests/api_surface.rs, crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-merkle/src/lib.rs, crates/attestrum-manifest/src/lib.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/sign.rs, crates/attestrum-cli/src/commands/prove.rs, prove, ProofTarget, ManifestSource, ProveOpts, ProofArtifact, ProofKind, AttestrumProveError, MerkleTree, audit_path, FingerprintBundle, fingerprint_text, fingerprint_image"
 source_of_truth: code
-last_verified: 4065d9d 2026-05-29
+last_verified: c0872af 2026-05-30
 diagram_type: flowchart
 ---
 
@@ -12,11 +12,13 @@ Source of truth: **`code`** as of S5-D2 E8 (this commit). The `crates/attestrum-
 
 **This is the ONLY sprint-5 diagram for S5-D2** per the D1 cadence precedent (one diagram per deliverable; per-E-commit updates bump `last_verified` + flip branch nodes from grey-deferred to green-shipped rather than creating a new diagram per commit).
 
+**Post-E8 correction (2026-05-30, real-corpus shakedown) — `ProofTarget::Document` exact-first + non-inclusion routing.** A real-corpus run surfaced that `dispatch_document` hashed the document via `fingerprint_text`/`_image` and tried exact-match on *that* digest — but `fingerprint_text` hashes the **normalized** bytes while the manifest stores the **raw-bytes** BLAKE3 (`attestrum_cas::stream_hash`). So an exact text file present in the corpus was silently downgraded to a fuzzy 0.95 (grade-wall violation, roadmap §5), and pdf/other modalities errored as "unsupported" before they could match. Fix: `dispatch_document` now hashes the document's **raw bytes** via `stream_hash_path` and tries `find_exact_match` **first**, for every modality → exact present documents prove as `ExactBlake3` / 1.00 by path. When there's no exact match: with no `--cas-root` (the default CLI shape) the exact document is provably absent → a proof-grade **non-inclusion** (reusing the E6 `dispatch_non_inclusion` helper), replacing the old confusing `InvalidManifest("fuzzy non-inclusion is v0.2 work")` error. With `--cas-root`, fuzzy is attempted; a genuine fuzzy miss keeps the honest v0.2 fuzzy-non-inclusion deferral. **No PROTECTED change** (fingerprint normalization untouched), **no new error variant** (the 6-variant `AttestrumProveError` lock holds), public API surface unchanged. The Mermaid nodes new at this correction: `docExact`, `docCas`, `docAbsent` (replacing the old `docPath`/`fpErr` nodes).
+
 **Branch state at E8** (this commit, CLI + API surface freeze + source_of_truth flip — v0.1 release-ready milestone): three deliverables land in one commit. (1) The new `attestrum prove <DOC> --against <MANIFEST>` CLI subcommand wraps `attestrum_prove::prove()` (file path or 64-char lowercase BLAKE3 hex digest in DOC; `Local` / `hf://repo[@revision]` / `https://...` URL in MANIFEST). The other four `ProofTarget` variants (`Sha256`, `Iscc`, `Perceptual`, `Bundle`) stay library-only at v0.1 — smaller surface, easier to freeze. Output is human key-value lines to stdout (no `--output json` flag at v0.1; deferred). `--source-date-epoch` is required (CLI flag > `SOURCE_DATE_EPOCH` env var > arg-error, mirroring the `sign.rs` precedent). HF auth is implicit via `$HF_TOKEN` env var (no `--hf-token` flag per the E7 D3-refactor-debt carry-forward). `--unsigned` toggles `opts.sign = false`; default is signed (E4 MVP-gate decision). Error → exit-code mapping reuses the existing `lifecycle::ExitCode` values (no new codes at E8): `SourceUnreachable` → 5 (`NetworkError`), `Sign` → 4 (`IdentityError`), all four runtime variants (`InvalidManifest` / `MerkleMismatch` / `Fingerprint` / `Ambiguous`) → 1 (`RuntimeError`), arg-parse → 2 (`ArgsError`), success → 0. (2) `crates/attestrum-prove/tests/api_surface.rs` + `tests/api-surface.golden.txt` freeze the `attestrum-prove` public surface against accidental drift, mirroring the proven S5-D1 E5 `attestrum-fingerprint` precedent. Extension over the precedent: a small pre-pass flattens multi-line `pub use prefix::{ ... };` re-export blocks into per-symbol synthetic lines, so the L91-96 attest re-export and the L97 fingerprint re-export each contribute one golden entry per symbol (16 + 2 = 18 re-export rows + 8 user-defined-type rows = 26 surface entries total). Regen via `ATTESTRUM_REGEN_API_SURFACE=1 cargo test -p attestrum-prove --test api_surface api_surface_matches_golden_file`. (3) This diagram's frontmatter flips from `source_of_truth: diagram` to `source_of_truth: code` — drift gate 6 now active. The `cliEntry` and `cliPrint` Mermaid nodes flip from grey-deferred to green-shipped at this commit. `ProveOpts` is unchanged (still 6 fields, locked at E7); `AttestrumProveError` is unchanged (still 6 variants, locked at E1 + E6 audit). No PROTECTED-system change. **Sprint 5 D2 closed; `attestrum-prove` v0.1 release-ready.**
 
 **Earlier branch state — E7** (alternate manifest sources live with workspace-cached fetch): `attestrum-prove` now accepts all three `ManifestSource` variants end-to-end. A new private `resolve_local_manifest_path` helper turns `HuggingFace { repo, revision }` (resolved to `https://huggingface.co/datasets/{repo}/resolve/{revision_or_main}/attestrum/manifest.parquet` — matches the publisher convention in `docs/diagrams/overview/hub-publish.md`) and `Url(String)` (arbitrary HTTPS URL) into a local `PathBuf` that flows into the existing `attestrum_manifest::read_manifest` path. Fetched bytes land in `<workspace>/prove/manifest-cache/<sha256-of-source-descriptor>/manifest.parquet` (workspace dir matches E4's `opts.workspace.or($PWD/.attestrum)` convention); the source descriptor prefix (`huggingface:` vs `url:`) disambiguates source-types so identical-looking repo names and URL strings can't collide on cache key. Cache HITs skip the network entirely; misses do a `reqwest::blocking` GET + atomic `.tmp.<pid>` write + rename. **Minimal HF auth at v0.1 (D3 refactor debt)**: when `$HF_TOKEN` env var is set, the request carries `Authorization: Bearer $HF_TOKEN` (private HF datasets); when unset, the request is unauthenticated (public datasets). `ProveOpts` is unchanged — no new fields for the E8 API-surface freeze. `ManifestSource::Url` stays a `String` at v0.1; `url::Url` type promotion deferred to v0.2. All fetch errors (network, non-2xx, non-http(s) scheme, response-body read, cache write) map to `AttestrumProveError::SourceUnreachable(String)`; 401 / 403 responses get a "set HF_TOKEN" hint appended without growing the error surface. PATH-A-BRIEF §2.2's 6-variant `AttestrumProveError` lock stays intact through E7. The Mermaid nodes that flip from grey to green at this commit: `hfFetch`, `urlFetch`. The E2-E6-green nodes stay green. CLI (`cliEntry`, `cliPrint`) stays grey pending E8.
 
-**Earlier branch state — E6 (PROTECTED `attestrum-merkle` extension landed):** `attestrum-prove` no longer panics on zero-match outcomes for the two exact arms that carry a BLAKE3 sort key. A new private `dispatch_non_inclusion` helper builds a `NonInclusionProofPredicate` over the manifest's sort-ordered leaves using the new PROTECTED-extension primitive `attestrum_merkle::find_adjacent_leaves` — emitting one of the three `BoundaryCase` shapes (`Interior` / `BeforeFirst` / `AfterLast`) with each neighbor carrying its own `inclusion_proof_audit_path` so the verifier can independently confirm both neighbors before checking the `leftIndex + 1 == rightIndex` adjacency invariant. The in-toto Statement carries a synthetic `absent:<target_hex>` subject (in-toto v1 recommends non-empty subjects; `absent:` flags the semantic). When `opts.sign=true`, the signed bundle is written to `<workspace>/prove/non-inclusion-proof.sigstore.json` (distinct from E4's `inclusion-proof.sigstore.json`). The `attestrum-merkle` PROTECTED surface gains `AdjacencyResult` (5 variants) + `find_adjacent_leaves` — additive only; `MerkleTree`, `audit_path`, `verify_audit_path`, `merkle_root` unchanged. Scope deferrals to v0.2: `ProofTarget::Sha256` non-inclusion returns `InvalidManifest("Sha256 non-inclusion is v0.2 work — use Blake3 target for non-inclusion proofs")` (needs a second sorted-tree built from the manifest's SHA-256 column); fuzzy non-inclusion (`Iscc` / `Perceptual` / `Document` / `MinHash`) returns `InvalidManifest("fuzzy non-inclusion is v0.2 work — exhaustive-search proof shape not yet specified")` (sorted-by-BLAKE3 adjacency doesn't model "no leaf was within threshold"). The Mermaid nodes that flip from grey to green at this commit: `nonInc`, `predNonIncl`, `stmtNI`. The E2-E5-green nodes stay green. `fpErr` stays grey (only fires for Audio/Video/Pdf modality dispatch which is post-Sprint-5). HF / URL fetches (`hfFetch`, `urlFetch`) panic pending E7. CLI (`cliEntry`, `cliPrint`) stays grey pending E8.
+**Earlier branch state — E6 (PROTECTED `attestrum-merkle` extension landed):** `attestrum-prove` no longer panics on zero-match outcomes for the two exact arms that carry a BLAKE3 sort key. A new private `dispatch_non_inclusion` helper builds a `NonInclusionProofPredicate` over the manifest's sort-ordered leaves using the new PROTECTED-extension primitive `attestrum_merkle::find_adjacent_leaves` — emitting one of the three `BoundaryCase` shapes (`Interior` / `BeforeFirst` / `AfterLast`) with each neighbor carrying its own `inclusion_proof_audit_path` so the verifier can independently confirm both neighbors before checking the `leftIndex + 1 == rightIndex` adjacency invariant. The in-toto Statement carries a synthetic `absent:<target_hex>` subject (in-toto v1 recommends non-empty subjects; `absent:` flags the semantic). When `opts.sign=true`, the signed bundle is written to `<workspace>/prove/non-inclusion-proof.sigstore.json` (distinct from E4's `inclusion-proof.sigstore.json`). The `attestrum-merkle` PROTECTED surface gains `AdjacencyResult` (5 variants) + `find_adjacent_leaves` — additive only; `MerkleTree`, `audit_path`, `verify_audit_path`, `merkle_root` unchanged. Scope deferrals to v0.2: `ProofTarget::Sha256` non-inclusion returns `InvalidManifest("Sha256 non-inclusion is v0.2 work — use Blake3 target for non-inclusion proofs")` (needs a second sorted-tree built from the manifest's SHA-256 column); fuzzy non-inclusion via the direct `Iscc` / `Perceptual` targets (and via `Document` *with* `--cas-root` on a genuine fuzzy miss) returns `InvalidManifest("fuzzy non-inclusion is v0.2 work — exhaustive-search proof shape not yet specified")` (sorted-by-BLAKE3 adjacency doesn't model "no leaf was within threshold"). **Superseded for `Document` exact-misses by the post-E8 correction above** — a `Document` with no exact match and no fuzzy scan (no `--cas-root`, or an unfingerprintable modality) now emits a proof-grade non-inclusion rather than this error. The Mermaid nodes that flip from grey to green at this commit: `nonInc`, `predNonIncl`, `stmtNI`. The E2-E5-green nodes stay green. `fpErr` stays grey (only fires for Audio/Video/Pdf modality dispatch which is post-Sprint-5). HF / URL fetches (`hfFetch`, `urlFetch`) panic pending E7. CLI (`cliEntry`, `cliPrint`) stays grey pending E8.
 
 **Parent overview**: `docs/diagrams/overview/prove-pipeline.md` carries the architectural-overview view (sourced from PATH-A-BRIEF Part 1.3 verbatim). This sprint-5 diagram is the implementation-detail view: specific Rust function calls, internal helpers, error edges to typed variants, and the per-E-commit progress tracker. Different audiences.
 
@@ -48,16 +50,21 @@ flowchart TB
   dispatch -->|"Bundle FingerprintBundle (E2)"| bundleExact["extract blake3+sha256 from bundle"]
   dispatch -->|"Iscc String (E5)"| isccPath["ISCC composite-distance path"]
   dispatch -->|"Perceptual PerceptualHashes (E5)"| perceptPath["perceptual Hamming path"]
-  dispatch -->|"Document PathBuf (E5)"| docPath["run fingerprint_text/_image inline"]
+  dispatch -->|"Document PathBuf (E5)"| docExact["exact raw-bytes BLAKE3/SHA-256<br/>via stream_hash (all modalities)"]
 
   bundleExact --> exactB3
 
-  docPath --> fpDispatch{"file MIME / extension"}
+  docExact -->|"exact hit (1.00)"| auditPath
+  docExact -->|"no exact match"| docCas{"--cas-root given?"}
+  docCas -->|"no (default CLI)"| docAbsent["DocumentOutcome::Absent<br/>→ proof-grade non-inclusion"]
+  docCas -->|"yes"| fpDispatch{"fingerprintable modality?"}
   fpDispatch -->|"text/*"| fpText["fingerprint_text bytes opts"]
   fpDispatch -->|"image/*"| fpImage["fingerprint_image bytes opts"]
-  fpDispatch -->|"other"| fpErr["AttestrumProveError::Fingerprint<br/>(modality not yet implemented)"]
-  fpText --> docMulti["multi-mode: exact + ISCC + MinHash"]
-  fpImage --> docMulti2["multi-mode: exact + ISCC + perceptual"]
+  fpDispatch -->|"other (no fuzzy)"| docAbsent
+  fpText --> docMulti["fuzzy: ISCC + MinHash"]
+  fpImage --> docMulti2["fuzzy: ISCC + perceptual"]
+  fpText -. "Fingerprint" .-> errFp
+  fpImage -. "Fingerprint" .-> errFp
 
   manifest --> resolve{"ManifestSource variant?"}
   resolve -->|"Local PathBuf (E2)"| localPq["mmap Parquet via attestrum-manifest"]
@@ -73,10 +80,9 @@ flowchart TB
   exactS256 --> matchQuery
   isccPath --> fuzzyScan["scan all leaves<br/>compute composite distance"]
   perceptPath --> fuzzyScan
-  docMulti --> matchQuery
   docMulti --> fuzzyScan
-  docMulti2 --> matchQuery
   docMulti2 --> fuzzyScan
+  docAbsent --> nonInc
 
   loadIdx --> matchQuery
   loadIdx --> fuzzyScan
@@ -88,7 +94,7 @@ flowchart TB
   matchDec -->|"no"| nonInc["sorted-Merkle adjacent-leaves<br/>build NonInclusionProofPredicate (E6)"]
   fuzzyDec -->|"yes"| auditPath
   fuzzyDec -->|"no, but multi-mode has other matches"| matchQuery
-  fuzzyDec -->|"no, all modes failed"| nonInc
+  fuzzyDec -->|"no match — fuzzy non-inclusion deferred (v0.2)"| errMan
 
   auditPath --> predIncl["build InclusionProofPredicate<br/>with MatchEvidence variant"]
   predIncl --> evidenceVariant{"MatchEvidence kind"}
@@ -124,7 +130,6 @@ flowchart TB
   errSign["AttestrumProveError::Sign<br/>#[from] AttestrumAttestError"]
   errAmb["AttestrumProveError::Ambiguous(usize)"]
 
-  fpErr -. "Fingerprint" .-> errFp
   hfFetch -. "SourceUnreachable" .-> errSrc
   urlFetch -. "SourceUnreachable" .-> errSrc
   localPq -. "InvalidManifest" .-> errMan
@@ -142,8 +147,8 @@ flowchart TB
   fpText -.-> protectedFp
   fpImage -.-> protectedFp
 
-  class target,manifest,opts,dispatch,resolve,exactB3,exactS256,bundleExact,isccPath,perceptPath,docPath,fpDispatch,fpText,fpImage,docMulti,docMulti2,localPq,loadIdx,matchQuery,fuzzyScan,matchDec,fuzzyDec,auditPath,predIncl,evidenceVariant,evExact,evIscc,evPercept,evMinhash,stmt,signCheck,unsignedOut,dsseSign,signedOut,errMan,errAmb,errSign,errFp,nonInc,predNonIncl,stmtNI,hfFetch,urlFetch,errSrc,cliEntry,cliPrint shipped
-  class fpErr,errMerk deferred
+  class target,manifest,opts,dispatch,resolve,exactB3,exactS256,bundleExact,isccPath,perceptPath,docExact,docCas,docAbsent,fpDispatch,fpText,fpImage,docMulti,docMulti2,localPq,loadIdx,matchQuery,fuzzyScan,matchDec,fuzzyDec,auditPath,predIncl,evidenceVariant,evExact,evIscc,evPercept,evMinhash,stmt,signCheck,unsignedOut,dsseSign,signedOut,errMan,errAmb,errSign,errFp,nonInc,predNonIncl,stmtNI,hfFetch,urlFetch,errSrc,cliEntry,cliPrint shipped
+  class errMerk deferred
   class protectedAttest,protectedMerkle,protectedFp protected
   class result output
 ```

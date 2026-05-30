@@ -417,7 +417,21 @@ pub fn prove(
         }
         ProofTarget::Iscc(iscc_str) => dispatch_iscc(iscc_str, &entries, opts)?,
         ProofTarget::Perceptual(hashes) => dispatch_perceptual(hashes, &entries, opts)?,
-        ProofTarget::Document(path) => dispatch_document(path, &entries, opts)?,
+        ProofTarget::Document(path) => match dispatch_document(path, &entries, opts)? {
+            DocumentOutcome::Match {
+                leaf_index,
+                evidence,
+                confidence,
+            } => (leaf_index, evidence, confidence),
+            // The document's exact bytes are not a leaf and no fuzzy scan
+            // ran (no --cas-root, or an unfingerprintable modality) — the
+            // exact document is provably absent. Emit a proof-grade
+            // non-inclusion keyed on the raw-bytes BLAKE3, exactly like the
+            // Blake3 / Bundle arms above.
+            DocumentOutcome::Absent { raw_blake3 } => {
+                return dispatch_non_inclusion(&target, raw_blake3, &entries, &manifest_path, opts);
+            }
+        },
     };
     let entry = &entries[leaf_index];
 
@@ -886,73 +900,148 @@ fn dispatch_perceptual(
     }
 }
 
+/// Outcome of dispatching a [`ProofTarget::Document`] against the
+/// manifest. Unlike the other fuzzy arms, the Document path can resolve
+/// to a proof-grade **non-inclusion** (the document's exact bytes are
+/// provably not a leaf), so it can't reuse the inclusion-only
+/// `(leaf_index, evidence, confidence)` tuple — the caller routes on this.
+enum DocumentOutcome {
+    /// The document matched a leaf — exact (1.00) or fuzzy
+    /// (ISCC / perceptual / MinHash).
+    Match {
+        leaf_index: usize,
+        evidence: MatchEvidence,
+        confidence: f32,
+    },
+    /// The document's raw bytes are not a leaf and no fuzzy scan produced
+    /// a match (none was requested, or the modality isn't
+    /// fingerprint-able). Carries the raw-bytes BLAKE3 so the caller can
+    /// emit a proof-grade non-inclusion proof.
+    Absent { raw_blake3: [u8; 32] },
+}
+
 fn dispatch_document(
     path: &std::path::Path,
     entries: &[attestrum_manifest::ManifestEntry],
     opts: &ProveOpts,
-) -> Result<(usize, MatchEvidence, f32), AttestrumProveError> {
+) -> Result<DocumentOutcome, AttestrumProveError> {
+    // 1. Exact raw-bytes match first — proof-grade (1.00), every modality.
+    //    `attestrum build` stores each leaf's raw-bytes BLAKE3 + SHA-256
+    //    (via `attestrum_cas::stream_hash`), so hashing the document's raw
+    //    bytes the same way matches any modality exactly — text, image,
+    //    pdf, other. This is the grade-wall fix: an exact document present
+    //    in the corpus now proves as ExactBlake3 / 1.00 by path. (Earlier
+    //    this step hashed the text fingerprint's *normalized* bytes, which
+    //    never equal the manifest's raw-bytes BLAKE3 — so exact text
+    //    matches were silently downgraded to a fuzzy 0.95, and pdf/other
+    //    modalities errored as "unsupported" before they could match.
+    //    fingerprint normalization is PROTECTED and untouched; the fix is
+    //    to hash the raw bytes here, the way build does.)
+    let raw = attestrum_cas::stream_hash_path(path)
+        .map_err(|e| AttestrumProveError::InvalidManifest(format!("document read: {e}")))?;
+    if let Some((idx, evi)) = find_exact_match(entries, Some(raw.blake3), Some(raw.sha256))? {
+        return Ok(DocumentOutcome::Match {
+            leaf_index: idx,
+            evidence: evi,
+            confidence: CONFIDENCE_EXACT,
+        });
+    }
+
+    // 2. No exact match. Fuzzy discovery is an explicit opt-in via
+    //    `--cas-root` (the fuzzy dispatchers re-fingerprint corpus leaves
+    //    from the CAS). Without it — the default CLI path — skip fuzzy and
+    //    report the exact document as provably absent. No CAS scan runs, so
+    //    there's no risk of masking a CAS error as a (false) non-inclusion.
+    if opts.cas_root.is_none() {
+        return Ok(DocumentOutcome::Absent {
+            raw_blake3: raw.blake3,
+        });
+    }
+
+    // 3. cas_root supplied → attempt fuzzy. Only text / image are
+    //    fingerprint-able at v0.1; any other modality can't fuzzy-match,
+    //    but its exact absence is already established above → non-inclusion.
     let bytes = std::fs::read(path)
         .map_err(|e| AttestrumProveError::InvalidManifest(format!("document read: {e}")))?;
     let fp_opts = attestrum_fingerprint::FingerprintOpts {
         source_date_epoch: opts.source_date_epoch,
     };
-    let (input_modality, input_bundle) = if std::str::from_utf8(&bytes).is_ok() {
-        let bundle = attestrum_fingerprint::fingerprint_text(&bytes, &fp_opts)?;
-        (attestrum_fingerprint::Modality::Text, bundle)
+    let modality_bundle = if std::str::from_utf8(&bytes).is_ok() {
+        Some((
+            attestrum_fingerprint::Modality::Text,
+            attestrum_fingerprint::fingerprint_text(&bytes, &fp_opts)?,
+        ))
     } else if image::guess_format(&bytes).is_ok() {
-        let bundle = attestrum_fingerprint::fingerprint_image(&bytes, &fp_opts)?;
-        (attestrum_fingerprint::Modality::Image, bundle)
+        Some((
+            attestrum_fingerprint::Modality::Image,
+            attestrum_fingerprint::fingerprint_image(&bytes, &fp_opts)?,
+        ))
     } else {
-        return Err(AttestrumProveError::InvalidManifest(format!(
-            "unsupported document modality at {path:?}: not UTF-8 and not a recognized image format"
-        )));
+        None
     };
 
-    // 1. Try exact BLAKE3 / SHA-256 first (highest confidence, fastest —
-    //    no CAS scan). Note: this works for image Documents (where both
-    //    BLAKE3 inputs are raw bytes), but NOT for text Documents
-    //    (fingerprint_text hashes the normalized bytes per the PROTECTED
-    //    v0.1 pipeline; the manifest stores raw-bytes BLAKE3 via
-    //    stream_hash). Text Documents reliably fall through to the
-    //    ISCC / MinHash fuzzy fallbacks below.
-    let input_b3 = attestrum_core::hex::decode_32(&input_bundle.blake3)
-        .map_err(|e| AttestrumProveError::InvalidManifest(format!("document blake3 hex: {e}")))?;
-    let input_s256 = attestrum_core::hex::decode_32(&input_bundle.sha256)
-        .map_err(|e| AttestrumProveError::InvalidManifest(format!("document sha256 hex: {e}")))?;
-    if let Some((idx, evi)) = find_exact_match(entries, Some(input_b3), Some(input_s256))? {
-        return Ok((idx, evi, CONFIDENCE_EXACT));
-    }
-
-    // 2. Fall back to the fuzzy modes in confidence order (ISCC > Perceptual > MinHash).
-    if let Some(iscc) = input_bundle.iscc.as_ref() {
-        if let Ok(hit) = dispatch_iscc(&iscc.composite, entries, opts) {
-            return Ok(hit);
-        }
-    }
-    if matches!(input_modality, attestrum_fingerprint::Modality::Image) {
-        if let Some(image) = input_bundle.image.as_ref() {
-            let p = PerceptualHashes {
-                phash: decode_hex_8(&image.phash)?,
-                blockhash: decode_hex_8(&image.blockhash)?,
-            };
-            if let Ok(hit) = dispatch_perceptual(&p, entries, opts) {
-                return Ok(hit);
+    if let Some((modality, bundle)) = modality_bundle {
+        // Fuzzy modes in confidence order (ISCC > Perceptual > MinHash).
+        if let Some(iscc) = bundle.iscc.as_ref() {
+            if let Ok((leaf_index, evidence, confidence)) =
+                dispatch_iscc(&iscc.composite, entries, opts)
+            {
+                return Ok(DocumentOutcome::Match {
+                    leaf_index,
+                    evidence,
+                    confidence,
+                });
             }
         }
-    }
-    if matches!(input_modality, attestrum_fingerprint::Modality::Text) {
-        if let Some(text) = input_bundle.text.as_ref() {
-            if let Ok(hit) = dispatch_minhash(&text.minhash, entries, opts) {
-                return Ok(hit);
+        if matches!(modality, attestrum_fingerprint::Modality::Image) {
+            if let Some(image) = bundle.image.as_ref() {
+                let p = PerceptualHashes {
+                    phash: decode_hex_8(&image.phash)?,
+                    blockhash: decode_hex_8(&image.blockhash)?,
+                };
+                if let Ok((leaf_index, evidence, confidence)) =
+                    dispatch_perceptual(&p, entries, opts)
+                {
+                    return Ok(DocumentOutcome::Match {
+                        leaf_index,
+                        evidence,
+                        confidence,
+                    });
+                }
             }
         }
+        if matches!(modality, attestrum_fingerprint::Modality::Text) {
+            if let Some(text) = bundle.text.as_ref() {
+                if let Ok((leaf_index, evidence, confidence)) =
+                    dispatch_minhash(&text.minhash, entries, opts)
+                {
+                    return Ok(DocumentOutcome::Match {
+                        leaf_index,
+                        evidence,
+                        confidence,
+                    });
+                }
+            }
+        }
+
+        // A fuzzy scan ran and found no leaf within threshold. Proving the
+        // absence of a *similar* leaf (fuzzy non-inclusion) is v0.2 work —
+        // the exhaustive-search proof shape isn't specified — so surface
+        // the honest deferral rather than overclaiming an exact
+        // non-inclusion after a fuzzy scan that may itself have hit a CAS
+        // error.
+        return Err(AttestrumProveError::InvalidManifest(
+            "fuzzy non-inclusion is v0.2 work \
+             — exhaustive-search proof shape not yet specified"
+                .into(),
+        ));
     }
 
-    Err(AttestrumProveError::InvalidManifest(
-        "fuzzy non-inclusion is v0.2 work \
-         — exhaustive-search proof shape not yet specified"
-            .into(),
-    ))
+    // cas_root supplied but the modality isn't fingerprint-able: no fuzzy
+    // scan ran, so the exact-absence proof stands.
+    Ok(DocumentOutcome::Absent {
+        raw_blake3: raw.blake3,
+    })
 }
 
 /// MinHash dispatcher — only invoked from `dispatch_document` for the

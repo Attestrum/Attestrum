@@ -13,10 +13,12 @@
 //! - `iscc_dispatch_self_match_hits_at_distance_zero`
 //! - `perceptual_dispatch_self_match_hits_at_distance_zero`
 //! - `document_text_self_match_hits_exact_first`
+//! - `document_text_fuzzy_hits_when_not_exact`
+//! - `document_text_absent_without_cas_root_is_non_inclusion`
 //! - `document_image_self_match_hits_exact_first`
 //! - `cas_root_required_for_iscc_dispatch`
 //! - `cas_root_required_for_perceptual_dispatch`
-//! - `document_unsupported_modality_returns_invalid_manifest`
+//! - `document_unsupported_modality_absent_is_non_inclusion`
 //! - `perceptual_dispatch_skips_non_image_leaves`
 //!
 //! Fixture pattern mirrors `crates/attestrum-prove/tests/exact_match.rs`
@@ -36,7 +38,7 @@ use attestrum_manifest::{
 };
 use attestrum_prove::{
     prove, AttestrumProveError, InclusionProofPredicate, ManifestSource, MatchEvidence,
-    PerceptualHashes, ProofTarget, ProveOpts,
+    PerceptualHashes, ProofKind, ProofTarget, ProveOpts,
 };
 
 static ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -223,23 +225,30 @@ fn perceptual_dispatch_self_match_hits_at_distance_zero() {
     assert_eq!(artifact.confidence, 0.85);
 }
 
+/// Like `opts_with_cas` but with no CAS root — the default CLI shape for
+/// `attestrum prove <file>` (exact-only, no fuzzy opt-in).
+fn opts_no_cas() -> ProveOpts {
+    ProveOpts {
+        sign: false,
+        source_date_epoch: 1_700_000_000,
+        oidc_id_token: None,
+        workspace: None,
+        corpus_bundle_path: None,
+        cas_root: None,
+    }
+}
+
 #[test]
-fn document_text_self_match_hits_iscc_after_exact_fallthrough() {
-    // Text fingerprints hash the **normalized** bytes (NFC + lowercase
-    // + whitespace collapse) per the PROTECTED `attestrum-fingerprint`
-    // v0.1 pipeline. The manifest stores **raw-bytes** BLAKE3 (via
-    // `stream_hash` in the build pipeline). So for text Documents the
-    // exact-BLAKE3 / exact-SHA-256 paths fundamentally cannot match
-    // (different inputs to the hash). The multi-mode dispatcher tries
-    // exact first, finds nothing, falls through to ISCC — which DOES
-    // match because `fingerprint_text` of identical raw bytes yields
-    // identical ISCC composite codes (deterministic). For text
-    // Documents the realistic match mode is ISCC (0.95) or MinHash
-    // (0.80), not exact (1.00).
-    //
-    // For image Documents both BLAKE3 inputs are raw bytes, so exact
-    // works there (see `document_image_self_match_hits_exact_first`).
-    let root = fresh_root("doc_text");
+fn document_text_self_match_hits_exact_first() {
+    // A text document whose RAW bytes are a corpus leaf must prove as a
+    // proof-grade exact match (ExactBlake3, 1.00) — even though
+    // `fingerprint_text` hashes the *normalized* bytes. `dispatch_document`
+    // hashes the document's raw bytes the same way `build` does
+    // (`attestrum_cas::stream_hash`), so the exact path fires before any
+    // fuzzy fallback. No --cas-root needed: exact match never scans the CAS.
+    // This is the grade-wall fix (an exact text file must not be downgraded
+    // to a fuzzy 0.95).
+    let root = fresh_root("doc_text_exact");
     let text = b"Document text content for inline fingerprint test";
     let manifest = build_corpus_with_cas(&root, &[(text, Modality::Text)]);
 
@@ -249,17 +258,81 @@ fn document_text_self_match_hits_iscc_after_exact_fallthrough() {
     let artifact = prove(
         ProofTarget::Document(doc_path),
         ManifestSource::Local(manifest),
+        &opts_no_cas(),
+    )
+    .expect("exact text document proves");
+
+    assert_eq!(artifact.kind, ProofKind::Inclusion);
+    let pred: InclusionProofPredicate =
+        serde_json::from_value(artifact.statement.predicate.clone()).expect("parse");
+    assert_eq!(pred.match_evidence, MatchEvidence::ExactBlake3);
+    assert_eq!(artifact.confidence, 1.0);
+}
+
+#[test]
+fn document_text_fuzzy_hits_when_not_exact() {
+    // A text document that is NOT byte-identical to any leaf but normalizes
+    // to the same content (case + whitespace differ) misses the raw-bytes
+    // exact path and falls through to the fuzzy modes (ISCC then MinHash).
+    // Requires --cas-root (fuzzy re-fingerprints leaves from the CAS). This
+    // preserves the fuzzy-via-Document coverage that the old self-match test
+    // exercised before exact-first landed. (Which fuzzy mode wins depends on
+    // the text; both are discovery-grade, < 1.00 — the assertion checks the
+    // path resolved to a fuzzy inclusion, not exact and not non-inclusion.)
+    let root = fresh_root("doc_text_fuzzy");
+    let leaf = b"Hello World";
+    let manifest = build_corpus_with_cas(&root, &[(leaf, Modality::Text)]);
+
+    // Different raw bytes, same normalized form (lowercase + collapsed
+    // whitespace per the PROTECTED v0.1 text pipeline).
+    let probe = b"hello   world";
+    let doc_path = root.join("probe.txt");
+    std::fs::write(&doc_path, probe).expect("write probe");
+
+    let artifact = prove(
+        ProofTarget::Document(doc_path),
+        ManifestSource::Local(manifest),
         &opts_with_cas(&root),
     )
-    .expect("document dispatch hits via ISCC fallback");
+    .expect("near-match text document hits via fuzzy fallback");
 
+    assert_eq!(artifact.kind, ProofKind::Inclusion);
     let pred: InclusionProofPredicate =
         serde_json::from_value(artifact.statement.predicate.clone()).expect("parse");
     match pred.match_evidence {
-        MatchEvidence::Iscc(ev) => assert_eq!(ev.composite_distance, 0),
-        other => panic!("expected MatchEvidence::Iscc (text exact paths can't hit), got {other:?}"),
+        MatchEvidence::Iscc(_) | MatchEvidence::MinHash(_) => {}
+        other => panic!("expected a fuzzy MatchEvidence (Iscc/MinHash), got {other:?}"),
     }
-    assert_eq!(artifact.confidence, 0.95);
+    assert!(
+        artifact.confidence < 1.0,
+        "fuzzy match must be discovery-grade (< 1.00), got {}",
+        artifact.confidence
+    );
+}
+
+#[test]
+fn document_text_absent_without_cas_root_is_non_inclusion() {
+    // A text document NOT in the corpus, proved by path with no --cas-root
+    // (the default CLI shape): the exact raw bytes aren't a leaf and no
+    // fuzzy scan is requested, so the dispatcher emits a proof-grade
+    // NON-INCLUSION (1.00) rather than the old confusing
+    // "manifest format invalid: fuzzy non-inclusion is v0.2 work" error.
+    let root = fresh_root("doc_text_absent");
+    let leaf = b"this text is in the corpus";
+    let manifest = build_corpus_with_cas(&root, &[(leaf, Modality::Text)]);
+
+    let doc_path = root.join("absent.txt");
+    std::fs::write(&doc_path, b"this text is NOT in the corpus").expect("write doc");
+
+    let artifact = prove(
+        ProofTarget::Document(doc_path),
+        ManifestSource::Local(manifest),
+        &opts_no_cas(),
+    )
+    .expect("absent document yields proof-grade non-inclusion");
+
+    assert_eq!(artifact.kind, ProofKind::NonInclusion);
+    assert_eq!(artifact.confidence, 1.0);
 }
 
 #[test]
@@ -334,34 +407,30 @@ fn cas_root_required_for_perceptual_dispatch() {
 }
 
 #[test]
-fn document_unsupported_modality_returns_invalid_manifest() {
+fn document_unsupported_modality_absent_is_non_inclusion() {
     let root = fresh_root("doc_unsupported");
     let text = b"any text leaf";
     let manifest = build_corpus_with_cas(&root, &[(text, Modality::Text)]);
 
-    // Random binary bytes — not valid UTF-8 and not a recognized
-    // image format. Document MIME detection should fail with
-    // InvalidManifest.
+    // Random binary bytes — not valid UTF-8 and not a recognized image
+    // format, so no fuzzy fingerprint can be computed. But exact absence
+    // doesn't depend on modality: the raw bytes aren't a leaf, so the
+    // dispatcher emits a proof-grade non-inclusion. (Pre-exact-first this
+    // errored with "unsupported document modality" — a worse answer than
+    // the true "this exact document is not in the corpus".)
     let garbage = [0xffu8, 0xfe, 0x00, 0x01, 0xff, 0xff, 0x00, 0xff];
     let doc_path = root.join("garbage.bin");
     std::fs::write(&doc_path, garbage).expect("write garbage");
 
-    let err = prove(
+    let artifact = prove(
         ProofTarget::Document(doc_path),
         ManifestSource::Local(manifest),
         &opts_with_cas(&root),
     )
-    .expect_err("unsupported modality should error");
+    .expect("unsupported-modality absent document yields non-inclusion");
 
-    match err {
-        AttestrumProveError::InvalidManifest(msg) => {
-            assert!(
-                msg.contains("unsupported document modality"),
-                "error must explain the modality cap: got {msg:?}"
-            );
-        }
-        other => panic!("expected InvalidManifest, got {other:?}"),
-    }
+    assert_eq!(artifact.kind, ProofKind::NonInclusion);
+    assert_eq!(artifact.confidence, 1.0);
 }
 
 #[test]

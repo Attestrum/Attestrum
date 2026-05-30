@@ -6,6 +6,11 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Fixed — `attestrum prove <file>` exact-match by path (grade-wall)
+
+- **An exact file present in the corpus now proves as proof-grade inclusion (confidence 1.00) when proved by path** — previously a *text* file was silently downgraded to a fuzzy "likely match" (0.95), and *pdf / other* modalities errored as "unsupported." Root cause: the document dispatcher matched on the text fingerprint's *normalized*-bytes hash, which never equals the manifest's *raw*-bytes BLAKE3. `prove` now hashes the document's raw bytes the same way `attestrum build` does and tries the exact match first, for every modality. (Found in a real-corpus shakedown. PROTECTED fingerprint normalization unchanged.)
+- **`attestrum prove <file>` for a document not in the corpus now emits a proof-grade non-inclusion (1.00)** instead of a confusing `manifest format invalid: fuzzy non-inclusion is v0.2 work` error — for the default path (no `--cas-root`). With `--cas-root`, fuzzy discovery is attempted as before; a genuine fuzzy miss still reports the honest v0.2 fuzzy-non-inclusion deferral.
+
 ### Added — Corpus-to-model binding (`model-binding/v0.1`)
 
 - **New `model-binding/v0.1` attestation** closes Attestrum's keystone gap: a signed corpus proves "corpus C existed with root R", not "C trained model M". The binding is an in-toto v1 Statement with the **model as subject** and the **training-corpus attestation(s) as materials**, under `https://attestrum.com/attestation/model-binding/v0.1`. It is an **attestation, not a proof-of-training** — the cryptography guarantees integrity, timestamp, identity, and verifiable membership against the corpus, not the truth of the training claim.
