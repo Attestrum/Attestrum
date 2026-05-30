@@ -268,6 +268,10 @@ pub fn run(args: Args) -> u8 {
         certificate_oidc_issuer: identity.oidc_issuer,
         bundle_path_in_repo: BUNDLE_PATH_IN_REPO.to_string(),
         manifest_path_in_repo: MANIFEST_PATH_IN_REPO.to_string(),
+        // Same derived stats the Croissant + dataset-card plans use; the
+        // verify page renders them as a human-readable corpus summary.
+        // `ManifestStats` is `Copy`.
+        manifest_stats,
     };
 
     let plan = PublishPlan {

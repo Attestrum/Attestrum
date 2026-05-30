@@ -185,6 +185,14 @@ pub struct VerifyHtmlPlan {
 
     /// Repo-relative path to the manifest file. Same usage.
     pub manifest_path_in_repo: String,
+
+    /// Derived manifest statistics. The page renders these as a
+    /// human-readable corpus summary ("N documents, X bytes") — a
+    /// *fact* the bundle's sealed manifest asserts, not a verified
+    /// claim. Parallel to the `manifest_stats` field on `CroissantPlan`
+    /// and `DatasetCardPlan`; the CLI populates all three from the same
+    /// `read_manifest_stats()` source.
+    pub manifest_stats: ManifestStats,
 }
 
 /// Derived statistics from the sealed manifest. Populated by the CLI
@@ -305,6 +313,10 @@ mod tests {
             certificate_oidc_issuer: "https://token.actions.githubusercontent.com".to_string(),
             bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
             manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+            manifest_stats: ManifestStats {
+                leaf_count: 1,
+                total_bytes: 1,
+            },
         };
     }
 

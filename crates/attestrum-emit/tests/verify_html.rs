@@ -13,7 +13,7 @@
 //!    like map iteration that the golden test alone wouldn't catch on
 //!    short timescales).
 
-use attestrum_emit::{render_verify_html_stub, VerifyHtmlPlan};
+use attestrum_emit::{render_verify_html_stub, ManifestStats, VerifyHtmlPlan};
 
 const GOLDEN_PATH: &str = "tests/fixtures/verify_html-stub.golden.html";
 
@@ -26,6 +26,10 @@ fn fixture_plan() -> VerifyHtmlPlan {
         certificate_oidc_issuer: "https://token.actions.githubusercontent.com".to_string(),
         bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
         manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+        manifest_stats: ManifestStats {
+            leaf_count: 1234,
+            total_bytes: 5_678_900,
+        },
     }
 }
 

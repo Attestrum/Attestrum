@@ -571,6 +571,10 @@ mod tests {
                 certificate_oidc_issuer: "stub-issuer".to_string(),
                 bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
                 manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+                manifest_stats: ManifestStats {
+                    leaf_count: 1,
+                    total_bytes: 1,
+                },
             },
             extras: Vec::new(),
         }

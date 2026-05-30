@@ -1,17 +1,17 @@
 ---
 title: "verify.html — visitor verification handoff"
 models: "crates/attestrum-emit/src/verify_html.rs"
-source_of_truth: diagram
-last_verified: f6c6473 2026-05-30
+source_of_truth: code
+last_verified: f251895 2026-05-30
 diagram_type: sequenceDiagram
 ---
 
 # verify.html — visitor verification handoff
 
-Source of truth: `diagram` — this is the planning contract the renderer
-must implement. It flips to `source_of_truth: code` once
-`crates/attestrum-emit/src/verify_html.rs` lands the enriched page in the
-same sprint-6 commit.
+Source of truth: `code` — the enriched, verdict-less renderer has landed
+at `crates/attestrum-emit/src/verify_html.rs`; this diagram is now a
+derived view of that code. Re-verify on any change to the renderer's
+page structure or copy.
 
 `verify.html` is the static page Attestrum commits beside a published
 dataset. It is deliberately **verdict-less**: it renders *facts* (the

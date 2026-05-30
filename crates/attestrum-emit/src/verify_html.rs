@@ -1,22 +1,31 @@
-//! verify.html stub renderer.
+//! verify.html renderer.
 //!
-//! v0.1 ships a static HTML page (~2 KB, no JS, no CSS framework, no external
-//! resources) that displays the Sigstore identity policy from the bundle's
-//! leaf cert and suggests the stock `cosign verify-blob-attestation
-//! --new-bundle-format` command. Visitors can verify the bundle without
-//! Attestrum installed (CLAUDE.md §12 vendor neutrality).
+//! Ships a static HTML page (no JS, no WASM, no CSS framework, no external
+//! resources) that displays the *facts* a published dataset's sealed record
+//! asserts — a corpus summary, the Sigstore signing-identity policy, and the
+//! bundle's self-asserted file paths — plus a pre-filled stock `cosign
+//! verify-blob-attestation --new-bundle-format` command. Visitors verify the
+//! bundle without Attestrum installed (CLAUDE.md §12 vendor neutrality).
 //!
-//! The real in-browser WASM verifier (cosign-lite) ships in v0.2 per founder
-//! scope decision SD2 at D3 planning time.
+//! **The page performs no cryptographic check of its own and renders no
+//! affirmative "verified" verdict.** The verdict belongs to `cosign`, run on
+//! the visitor's machine. A non-cryptographic page that looked verified would
+//! be a false trust signal — the worst failure class for a provenance
+//! product — so the page hands off to `cosign` and judges nothing itself.
+//! See `docs/diagrams/sprint-6/verify-page.md` for the contract.
 //!
-//! Determinism: pure `String::replace` substitution; no wall-clock; no map
-//! iteration. Output is byte-identical across the 4-target CI matrix as long
-//! as the input plan fields are byte-identical (they come from sorted-key
-//! sources upstream — CLI flags + `attestrum_attest::extract_identity()`).
+//! Determinism: pure `String::replace` substitution; integer corpus counts
+//! formatted without locale separators; no wall-clock; no map iteration.
+//! Output is byte-identical across the 4-target CI matrix as long as the
+//! input plan fields are byte-identical (they come from sorted-key sources
+//! upstream — CLI flags + `attestrum_attest::extract_identity()` +
+//! `read_manifest_stats()`).
 //!
-//! HTML escaping: hand-rolled per CLAUDE.md §14 (no `html_escape` dep — five
-//! substitution sites, single-purpose helper). Covers the five OWASP-
-//! recommended HTML-context characters: `& < > " '`.
+//! HTML escaping: hand-rolled per CLAUDE.md §14 (no `html_escape` dep —
+//! single-purpose helper). Covers the five OWASP-recommended HTML-context
+//! characters: `& < > " '`. The two corpus-count fields are `u64`, formatted
+//! to ASCII digits, and need no escaping, but pass through the template
+//! uniformly.
 
 use crate::{AttestrumEmitError, VerifyHtmlPlan};
 use attestrum_attest::TRAINING_CORPUS_PREDICATE_TYPE;
@@ -25,32 +34,63 @@ const HTML_TEMPLATE: &str = r#"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Verify — {dataset}</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2em auto; padding: 0 1em; color: #222; }
   h1 { font-size: 1.4em; }
   code, pre { background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 3px; }
-  pre { padding: 1em; overflow-x: auto; }
-  .policy { border-left: 3px solid #555; padding-left: 1em; margin: 1em 0; }
-  .policy dt { font-weight: bold; margin-top: 0.5em; }
+  pre { padding: 1em; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .facts { border-left: 3px solid #555; padding-left: 1em; margin: 1em 0; }
+  .facts dt { font-weight: bold; margin-top: 0.5em; }
+  .notice { border: 2px dashed #b58900; background: #fdf6e3; padding: 0.8em 1em; margin: 1.5em 0; border-radius: 4px; }
+  .notice strong { color: #905c00; }
+  footer { margin-top: 2em; font-size: 0.85em; color: #666; }
 </style>
 </head>
 <body>
-<h1>Verify {dataset}</h1>
-<p>This dataset was published with Attestrum. The Sigstore Bundle at
-<code>{bundle_path}</code> attests that the sealed manifest at
-<code>{manifest_path}</code> was signed by the identity below.</p>
+<h1>{dataset}</h1>
+<p>This dataset was published with Attestrum. The page below shows what the
+dataset's sealed record <em>asserts</em> — its corpus summary, the signing
+identity, and the file paths it points to — and gives you the command to
+check it yourself.</p>
 
-<h2>Identity policy</h2>
-<dl class="policy">
+<div class="notice">
+<strong>This page does not verify anything.</strong> It only displays the
+values recorded in the bundle. To actually confirm the signature, run the
+<code>cosign</code> command below on your own machine — that is what
+produces a real cryptographic result.
+</div>
+
+<h2>Corpus summary</h2>
+<p>Self-asserted by the sealed manifest (confirm by running the command below):</p>
+<dl class="facts">
+  <dt>Documents</dt>
+  <dd>{doc_count}</dd>
+  <dt>Total bytes</dt>
+  <dd>{total_bytes}</dd>
+</dl>
+
+<h2>Signing identity</h2>
+<dl class="facts">
   <dt>Certificate identity (SAN)</dt>
   <dd><code>{san}</code></dd>
   <dt>OIDC issuer</dt>
   <dd><code>{issuer}</code></dd>
 </dl>
 
-<h2>Verify from the command line</h2>
-<p>You can verify the bundle with stock Sigstore tooling — no Attestrum install required:</p>
+<h2>Bundle files</h2>
+<dl class="facts">
+  <dt>Sigstore bundle</dt>
+  <dd><code>{bundle_path}</code></dd>
+  <dt>Sealed manifest</dt>
+  <dd><code>{manifest_path}</code></dd>
+</dl>
+
+<h2>Verify it yourself</h2>
+<p>Run this with stock Sigstore tooling — no Attestrum install required.
+<code>cosign</code> contacts the Sigstore network (TUF, Rekor) to check the
+certificate chain and transparency-log inclusion, then prints the result:</p>
 <pre>cosign verify-blob-attestation \
   --new-bundle-format \
   --type {predicate_type} \
@@ -59,9 +99,12 @@ const HTML_TEMPLATE: &str = r#"<!doctype html>
   --certificate-oidc-issuer {issuer} \
   {manifest_path}</pre>
 
-<p>For richer offline verification (Merkle-root re-derivation against the manifest), see <code>attestrum verify</code> at <a href="https://github.com/Attestrum/Attestrum">github.com/Attestrum/Attestrum</a>.</p>
+<p>The Attestrum CLI's <code>attestrum verify</code> runs the same Sigstore
+verification from the command line. See
+<a href="https://github.com/Attestrum/Attestrum">github.com/Attestrum/Attestrum</a>.</p>
 
-<p><em>Attestrum v0.1 — static verify page. In-browser WASM verifier ships in v0.2.</em></p>
+<footer>Generated by Attestrum. The cryptographic result comes from
+<code>cosign</code>, not from this page.</footer>
 </body>
 </html>
 "#;
@@ -100,6 +143,11 @@ pub fn render(plan: &VerifyHtmlPlan) -> Result<String, AttestrumEmitError> {
     let issuer = html_escape(&plan.certificate_oidc_issuer);
     let bundle_path = html_escape(&plan.bundle_path_in_repo);
     let manifest_path = html_escape(&plan.manifest_path_in_repo);
+    // Corpus counts are `u64`; their decimal formatting is ASCII digits
+    // only (no locale separators — that would be non-deterministic across
+    // the CI matrix), so no escaping is required.
+    let doc_count = plan.manifest_stats.leaf_count.to_string();
+    let total_bytes = plan.manifest_stats.total_bytes.to_string();
     // Predicate-type URI is a fixed const (PROTECTED `attestrum-attest`); no
     // attacker-controlled input. Escape anyway for templating uniformity.
     let predicate_type = html_escape(TRAINING_CORPUS_PREDICATE_TYPE);
@@ -116,6 +164,8 @@ pub fn render(plan: &VerifyHtmlPlan) -> Result<String, AttestrumEmitError> {
         .replace("{issuer}", &issuer)
         .replace("{bundle_path}", &bundle_path)
         .replace("{manifest_path}", &manifest_path)
+        .replace("{doc_count}", &doc_count)
+        .replace("{total_bytes}", &total_bytes)
         .replace("{predicate_type}", &predicate_type);
 
     Ok(out)
@@ -152,13 +202,17 @@ mod tests {
             certificate_oidc_issuer: "https://token.actions.githubusercontent.com".to_string(),
             bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
             manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+            manifest_stats: crate::ManifestStats {
+                leaf_count: 1234,
+                total_bytes: 5_678_900,
+            },
         }
     }
 
     #[test]
     fn render_contains_dataset_name_and_identity_and_cosign_command() {
         let html = render(&fixture_plan()).expect("render");
-        assert!(html.contains("Verify my-org/my-dataset"));
+        assert!(html.contains("my-org/my-dataset"));
         assert!(html.contains(
             "https://github.com/my-org/my-dataset/.github/workflows/build.yml@refs/heads/main"
         ));
@@ -167,6 +221,62 @@ mod tests {
         assert!(html.contains("--new-bundle-format"));
         assert!(html.contains("attestrum/bundle.sigstore.json"));
         assert!(html.contains("attestrum/manifest.parquet"));
+    }
+
+    #[test]
+    fn render_shows_corpus_summary_counts() {
+        let html = render(&fixture_plan()).expect("render");
+        // The doc count and byte count are rendered as plain decimal
+        // integers (no locale separators — determinism).
+        assert!(html.contains("1234"), "doc count missing: {html}");
+        assert!(html.contains("5678900"), "byte count missing: {html}");
+        assert!(html.contains("Corpus summary"));
+    }
+
+    #[test]
+    fn render_has_no_affirmative_verdict() {
+        // The grade-wall constraint: a non-cryptographic page must never
+        // present itself as a completed verification. No affirmative
+        // verdict words anywhere in the output.
+        let html = render(&fixture_plan()).expect("render").to_lowercase();
+        for forbidden in [
+            "verified",
+            "✓",
+            "checks passed",
+            "check passed",
+            "verification successful",
+            "signature valid",
+        ] {
+            assert!(
+                !html.contains(forbidden),
+                "page must render no affirmative verdict, found {forbidden:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_carries_does_not_verify_notice() {
+        let html = render(&fixture_plan()).expect("render");
+        assert!(
+            html.contains("This page does not verify anything"),
+            "explicit does-not-verify notice missing"
+        );
+    }
+
+    #[test]
+    fn render_makes_no_offline_or_merkle_recompute_claim() {
+        // Honesty constraints: cosign needs the network (not offline), and
+        // no tool reachable from this page recomputes the Merkle root.
+        let html = render(&fixture_plan()).expect("render").to_lowercase();
+        assert!(!html.contains("offline"), "must not claim offline: {html}");
+        assert!(
+            !html.contains("merkle"),
+            "must not display/claim a Merkle root: {html}"
+        );
+        assert!(
+            !html.contains("wasm"),
+            "must not promise a wasm verifier: {html}"
+        );
     }
 
     #[test]

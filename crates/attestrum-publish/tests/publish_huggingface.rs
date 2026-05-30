@@ -129,6 +129,7 @@ fn write_fixture_plan(dir: &Path) -> PublishPlan {
             certificate_oidc_issuer: "https://token.actions.githubusercontent.com".to_string(),
             bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
             manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+            manifest_stats: stats,
         },
         extras: Vec::new(),
     }
