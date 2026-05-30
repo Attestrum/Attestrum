@@ -3,6 +3,8 @@ src/canonicalize.rs: const STRIP_SENTINEL
 src/canonicalize.rs: enum PathSegment
 src/canonicalize.rs: fn canonicalize_for_compare
 src/corpus_digest.rs: fn attestation_digest_of_bundle
+src/corpus_digest.rs: fn attestation_digest_of_statement
+src/corpus_digest.rs: fn statement_from_bundle
 src/dsse_sign.rs: fn compute_pae
 src/dsse_sign.rs: fn sign_dsse
 src/identity.rs: fn extract_identity

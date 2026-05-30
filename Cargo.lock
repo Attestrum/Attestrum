@@ -416,6 +416,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "attestrum-bind"
+version = "0.1.0"
+dependencies = [
+ "attestrum-attest",
+ "jiff",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "attestrum-cas"
 version = "0.1.0"
 dependencies = [

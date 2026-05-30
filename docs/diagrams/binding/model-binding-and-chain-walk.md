@@ -1,8 +1,8 @@
 ---
 title: "Corpus-to-model binding (model-binding/v0.1): attestation_digest_of_bundle, bind, and the signed chain walk"
-models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/src/verify.rs, crates/attestrum-bind/src/lib.rs, crates/attestrum-prove/src/lib.rs, MODEL_BINDING_PREDICATE_TYPE, ModelBindingPredicate, CorpusBindingRef, ModelRef, TrainingMeta, bind, walk_chain, attestation_digest_of_bundle, BindOpts, BindArtifact, ChainWalkOutcome, CorpusRef, InTotoStatement"
+models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/src/verify.rs, crates/attestrum-bind/src/lib.rs, crates/attestrum-prove/src/lib.rs, MODEL_BINDING_PREDICATE_TYPE, ModelBindingPredicate, CorpusBindingRef, ModelRef, TrainingMeta, bind, walk_chain, attestation_digest_of_bundle, attestation_digest_of_statement, statement_from_bundle, BindOpts, BoundCorpus, BindArtifact, BindError, ChainWalkOutcome, CorpusRef, InTotoStatement"
 source_of_truth: diagram
-last_verified: 9ea7a51 2026-05-29
+last_verified: e8d8773 2026-05-29
 diagram_type: flowchart
 ---
 
@@ -34,6 +34,23 @@ flowchart TD
     reemit --> hash
     hash --> out["used by: prove() CorpusRef.attestationDigest<br/>AND bind() corpora[].attestationDigest<br/>→ deterministic, signed == unsigned"]
 ```
+
+## `bind()` API surface (Commit 4, `attestrum-bind`)
+
+`bind(opts: &BindOpts) -> Result<BindArtifact, BindError>` emits the
+`model-binding/v0.1` Statement. `BindOpts` carries the `ModelRef`, the model-card
+URI, a `Vec<BoundCorpus>` (each a corpus bundle path + role), the contemporaneous
+training metadata, and an optional-sign block (`sign` + `oidc_id_token` +
+`workspace`) mirroring `prove()`. For each `BoundCorpus`, `bind` reads the corpus
+via `attestrum_attest::statement_from_bundle`, digests it via
+`attestation_digest_of_statement` (the in-memory twin of
+`attestation_digest_of_bundle` — both hash `canonical_json()`, so `bind`'s
+recorded digest equals what `walk_chain` Step 2 recomputes from the same file),
+and lifts `merkleRoot` + `manifest.digestSet` into a `CorpusBindingRef`.
+`BindArtifact` carries the canonical Statement and, when signed, the written
+Sigstore bundle path. `BindError` is the failure set (corpus read/digest, corpus
+predicate parse, timestamp, serialize, canonicalize, io, sign — the last covers
+a missing OIDC token when `sign` is true).
 
 ## Timeline + the signed chain walk (D3 + D6)
 

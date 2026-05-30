@@ -33,7 +33,9 @@ pub mod verify;
 use thiserror::Error;
 
 pub use canonicalize::{canonicalize_for_compare, PathSegment, STRIP_PATHS, STRIP_SENTINEL};
-pub use corpus_digest::attestation_digest_of_bundle;
+pub use corpus_digest::{
+    attestation_digest_of_bundle, attestation_digest_of_statement, statement_from_bundle,
+};
 pub use identity::{extract_identity, ExtractedIdentity};
 pub use json::{deterministic_json, deterministic_json_vec, sort_keys};
 pub use model_binding::{CorpusBindingRef, ModelBindingPredicate, ModelRef, TrainingMeta};

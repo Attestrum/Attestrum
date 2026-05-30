@@ -10,6 +10,7 @@ members = [
     "crates/attestrum-ledger",
     "crates/attestrum-pipeline",
     "crates/attestrum-attest",
+    "crates/attestrum-bind",
     "crates/attestrum-emit",
     "crates/attestrum-prove",
     "crates/attestrum-publish",

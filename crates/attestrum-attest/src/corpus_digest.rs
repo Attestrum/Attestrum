@@ -36,12 +36,39 @@ use crate::AttestrumAttestError;
 /// `path` — the BLAKE3 + SHA-256 of the corpus Statement's `canonical_json()`
 /// bytes, identical for a signed Sigstore Bundle v0.3 and a raw Statement.
 ///
+/// Composes [`statement_from_bundle`] + [`attestation_digest_of_statement`] so
+/// every digest site (`prove`'s `CorpusRef`, `bind`'s `corpora[]`, and the
+/// `walk_chain` recompute) routes through the one canonical primitive.
+///
 /// Returns [`AttestrumAttestError::Json`] if the file is neither a Statement
 /// nor a DSSE-bundle, and [`AttestrumAttestError::Io`] if it cannot be read.
 pub fn attestation_digest_of_bundle(path: &Path) -> Result<DigestMap, AttestrumAttestError> {
+    attestation_digest_of_statement(&statement_from_bundle(path)?)
+}
+
+/// Read the corpus in-toto Statement at `path`, handling both a **signed
+/// Sigstore Bundle v0.3** (extract `dsseEnvelope.payload`, base64-decode) and a
+/// **raw Statement JSON**. The returned Statement has passed
+/// [`InTotoStatement::validate`]; the caller re-emits `canonical_json()` rather
+/// than trusting the embedded byte encoding.
+///
+/// Used by `attestrum-bind` to lift a corpus's `merkleRoot` / `manifest`
+/// material when constructing a binding, and by the CLI to load a corpus
+/// bundle before binding.
+pub fn statement_from_bundle(path: &Path) -> Result<InTotoStatement, AttestrumAttestError> {
     let bytes = std::fs::read(path)?;
     let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let statement = statement_from_value(value)?;
+    statement_from_value(value)
+}
+
+/// Compute the canonical `attestationDigest` of an in-memory corpus Statement —
+/// the BLAKE3 + SHA-256 of its `canonical_json()` bytes. The in-memory
+/// counterpart to [`attestation_digest_of_bundle`]; both re-emit
+/// `canonical_json()` before hashing so signed == unsigned and a non-canonical
+/// third-party payload still links.
+pub fn attestation_digest_of_statement(
+    statement: &InTotoStatement,
+) -> Result<DigestMap, AttestrumAttestError> {
     let canonical = statement.canonical_json()?;
     Ok(digest_bytes(canonical.as_bytes()))
 }

@@ -1,0 +1,18 @@
+[package]
+name = "attestrum-bind"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Per-commit dep additions per CLAUDE.md §14. Commit 4 (bind): attestrum-attest
+# (model-binding predicate types + the canonical attestation-digest helpers +
+# Sigstore sign), serde_json (predicate (de)serialize), jiff (bound_at from
+# source_date_epoch), thiserror. attestrum-prove is added at Commit 5 for the
+# signed walk_chain's live membership step.
+attestrum-attest = { path = "../attestrum-attest", version = "0.0.1" }
+jiff             = { workspace = true }
+serde_json       = { workspace = true }
+thiserror        = { workspace = true }
