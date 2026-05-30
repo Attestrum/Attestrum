@@ -2,13 +2,15 @@
 title: "attestrum-attest three predicate types — v0.3 schema bump (f32 → u32 PPM at E3.6 for cross-target byte determinism)"
 models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/canonicalize.rs, crates/attestrum-attest/src/json.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/tests/api_surface.rs, crates/attestrum-attest/tests/schema_derive.rs, docs/schemas/training-corpus-v0.3.schema.json, docs/schemas/inclusion-proof-v0.3.schema.json, docs/schemas/non-inclusion-proof-v0.3.schema.json, docs/migration/v0.2-to-v0.3-attestrum-rebrand.md, TRAINING_CORPUS_PREDICATE_TYPE, INCLUSION_PROOF_PREDICATE_TYPE, NON_INCLUSION_PROOF_PREDICATE_TYPE, ALL_PREDICATE_TYPES, AttestrumAttestError, canonicalize, json, in-toto Statement v1, Sigstore Bundle v0.3"
 source_of_truth: code
-last_verified: 4065d9d 2026-05-29
+last_verified: cc7b87f 2026-05-29
 diagram_type: classDiagram
 ---
 
 # Three predicate types — class diagram
 
 Source of truth: `code` — flipped from `diagram` at Sprint 4 commit E2 (`<this-commit-SHA>`, see CHANGELOG/SESSION-LOG for the per-commit details). `crates/attestrum-attest/src/predicate.rs` + `statement.rs` + `lib.rs` are now authoritative. The two Bundle-related classes shown (`SigstoreBundleV03` + `DsseEnvelope` + `VerificationMaterial`) and the `canonicalize_for_compare` helper land at later commits (E2.5 for canonicalize + JSON-Schema derivation; E3 or later for the sigstore-crate-backed Bundle types) — their boxes in the diagram below are forward-references to those later commits and the corresponding `models:` paths (`bundle.rs`, `canonicalize.rs`) are deliberately omitted from frontmatter until those files exist. Drift between this diagram and the published predicate JSON-Schema files at the three v0.1 URIs is a CI break (the JSON-Schema files are derived from these Rust types via `schemars`, at E2.5).
+
+**A fourth predicate, a separate generation.** The `model-binding/v0.1` predicate (`ModelBindingPredicate`, corpus-to-model binding) is a **separate v0.1 generation** from this frozen v0.3 corpus/proof family and has its own class diagram at `docs/diagrams/binding/model-binding-and-chain-walk.md`. Its const `MODEL_BINDING_PREDICATE_TYPE` is standalone and is **deliberately NOT a member of `ALL_PREDICATE_TYPES`** (which stays the locked `[3]` v0.3 snapshot, D2-A). It is named here only to record that adding it to `lib.rs` does not mutate the three-type contract this diagram models.
 
 **Three predicates, three publication states, one common wrapper.** All three are wrapped in the same `InTotoStatement` (in-toto v1 spec — `_type` + `subject[]` + `predicateType` + `predicate`) and the same `SigstoreBundleV03` (Sigstore Bundle v0.3 wire format, `application/vnd.dev.sigstore.bundle.v0.3+json` media type). The DIFFERENCE between the three is purely the `predicate` payload shape and the `predicateType` URI string.
 

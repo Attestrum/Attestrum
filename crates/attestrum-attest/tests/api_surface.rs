@@ -31,6 +31,7 @@ const SOURCES: &[&str] = &[
     "src/statement.rs",
     "src/canonicalize.rs",
     "src/corpus_digest.rs",
+    "src/model_binding.rs",
     "src/json.rs",
     "src/sign.rs",
     "src/dsse_sign.rs",

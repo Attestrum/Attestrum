@@ -30,9 +30,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use attestrum_attest::{
-    InclusionProofPredicate, NonInclusionProofPredicate, TrainingCorpusPredicate,
-    INCLUSION_PROOF_PREDICATE_TYPE, NON_INCLUSION_PROOF_PREDICATE_TYPE,
-    TRAINING_CORPUS_PREDICATE_TYPE,
+    InclusionProofPredicate, ModelBindingPredicate, NonInclusionProofPredicate,
+    TrainingCorpusPredicate, INCLUSION_PROOF_PREDICATE_TYPE, MODEL_BINDING_PREDICATE_TYPE,
+    NON_INCLUSION_PROOF_PREDICATE_TYPE, TRAINING_CORPUS_PREDICATE_TYPE,
 };
 use schemars::schema_for;
 use serde_json::json;
@@ -136,6 +136,15 @@ fn non_inclusion_proof_schema_matches_committed() {
         "Attestrum Non-Inclusion Proof v0.3",
     );
     check_or_regen("non-inclusion-proof-v0.3.schema.json", &derived);
+}
+
+#[test]
+fn model_binding_schema_matches_committed() {
+    let derived = derive_canonical_schema_json::<ModelBindingPredicate>(
+        &schema_id_url(MODEL_BINDING_PREDICATE_TYPE),
+        "Attestrum Model Binding v0.1",
+    );
+    check_or_regen("model-binding-v0.1.schema.json", &derived);
 }
 
 #[test]

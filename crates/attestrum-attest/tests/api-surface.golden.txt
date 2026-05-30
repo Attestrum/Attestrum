@@ -12,6 +12,7 @@ src/json.rs: fn deterministic_json_vec
 src/json.rs: fn sort_keys
 src/lib.rs: const ALL_PREDICATE_TYPES
 src/lib.rs: const INCLUSION_PROOF_PREDICATE_TYPE
+src/lib.rs: const MODEL_BINDING_PREDICATE_TYPE
 src/lib.rs: const NON_INCLUSION_PROOF_PREDICATE_TYPE
 src/lib.rs: const TRAINING_CORPUS_PREDICATE_TYPE
 src/lib.rs: enum AttestrumAttestError
@@ -23,6 +24,10 @@ src/lib.rs: mod predicate
 src/lib.rs: mod sign
 src/lib.rs: mod statement
 src/lib.rs: mod verify
+src/model_binding.rs: struct CorpusBindingRef
+src/model_binding.rs: struct ModelBindingPredicate
+src/model_binding.rs: struct ModelRef
+src/model_binding.rs: struct TrainingMeta
 src/predicate.rs: enum BoundaryCase
 src/predicate.rs: enum LicensingPosture
 src/predicate.rs: enum MatchEvidence

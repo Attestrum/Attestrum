@@ -24,6 +24,7 @@ mod corpus_digest;
 pub mod dsse_sign;
 pub mod identity;
 pub mod json;
+mod model_binding;
 pub mod predicate;
 pub mod sign;
 pub mod statement;
@@ -35,6 +36,7 @@ pub use canonicalize::{canonicalize_for_compare, PathSegment, STRIP_PATHS, STRIP
 pub use corpus_digest::attestation_digest_of_bundle;
 pub use identity::{extract_identity, ExtractedIdentity};
 pub use json::{deterministic_json, deterministic_json_vec, sort_keys};
+pub use model_binding::{CorpusBindingRef, ModelBindingPredicate, ModelRef, TrainingMeta};
 pub use predicate::{
     BoundaryCase, CorpusRef, DeterminismFields, DigestMap, InclusionProofPredicate, IsccEvidence,
     LicenseInventoryEntry, LicensingPosture, ManifestRef, MatchEvidence, MinHashEvidence, Neighbor,
@@ -79,6 +81,19 @@ pub const ALL_PREDICATE_TYPES: [&str; 3] = [
     INCLUSION_PROOF_PREDICATE_TYPE,
     NON_INCLUSION_PROOF_PREDICATE_TYPE,
 ];
+
+/// PROTECTED — `https://attestrum.com/attestation/model-binding/v0.1`.
+///
+/// The `predicateType` URI string identifying a [`ModelBindingPredicate`]
+/// payload (corpus-to-model binding). A **separate v0.1 generation** from the
+/// frozen v0.3 corpus/proof family above: it is a standalone const and is
+/// **deliberately NOT a member of [`ALL_PREDICATE_TYPES`]** (D2-A), which stays
+/// the locked `[3]` v0.3 snapshot. **Immutable at v0.1**: changing the string
+/// OR the schema shape requires a v0.2 URI bump + migration doc + in-toto
+/// vetted-catalog re-submission per CLAUDE.md §4. Planning contract:
+/// `docs/diagrams/binding/model-binding-and-chain-walk.md`.
+pub const MODEL_BINDING_PREDICATE_TYPE: &str =
+    "https://attestrum.com/attestation/model-binding/v0.1";
 
 // ============================================================================
 // Errors

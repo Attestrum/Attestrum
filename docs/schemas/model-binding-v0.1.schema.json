@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "CorpusBindingRef": {
+      "description": "A reference, by digest, to one training-corpus attestation that the model is\nbound to. The corpus attestation itself is unchanged — this is a material\npointer, signed *after* training (the corpus was sealed *before* training,\nso it cannot itself carry the model digest).",
+      "properties": {
+        "attestationDigest": {
+          "$ref": "#/$defs/DigestMap",
+          "description": "BLAKE3 + SHA-256 digest of the corpus's in-toto Statement bytes (the\ncanonical-JSON payload), as computed by\n[`crate::attestation_digest_of_bundle`]. Lets a verifier confirm the\nsupplied corpus attestation is *the* one the model was bound to."
+        },
+        "manifestDigest": {
+          "$ref": "#/$defs/DigestMap",
+          "description": "The corpus manifest's digest (from the training-corpus predicate's\n`manifest.digestSet`)."
+        },
+        "merkleRoot": {
+          "description": "The corpus's RFC 6962 BLAKE3 Merkle root (hex), lifted from the\ntraining-corpus predicate. Redundant with the corpus attestation but\ncarried here so the binding is self-describing at a glance.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Free-text role of this corpus in producing the model. A `String` at v0.1\n(D4-A) rather than a closed enum, so an evolving training-method taxonomy\nis not trapped in a PROTECTED wire format. Recommended vocabulary:\n`\"pretraining\"`, `\"finetuning\"`, `\"rlhf\"`, `\"distillation\"`,\n`\"continued-pretraining\"`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attestationDigest",
+        "merkleRoot",
+        "manifestDigest",
+        "role"
+      ],
+      "type": "object"
+    },
+    "DigestMap": {
+      "description": "Algorithm-qualified digest carrying BOTH BLAKE3 (Attestrum-native) and SHA-256\n(Sigstore/in-toto interop) per BUILD-PLAN §3.4. Both required. Hex is\nlowercase 64-char.",
+      "properties": {
+        "blake3": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blake3",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "ModelRef": {
+      "description": "Identifies the model being bound.",
+      "properties": {
+        "identity": {
+          "description": "Soft identifier — typically the model-card / release URI.",
+          "type": "string"
+        },
+        "signingBundleRef": {
+          "description": "Optional reference to the model's own OpenSSF/Sigstore signing bundle\n(by URI or digest). **Recorded, not verified at v0.1** (D3-A): Attestrum\ndoes not verify the model's own signature here; verify-if-present is\ndeferred to v0.2. When present, the binding composes two supply chains —\nthe corpus supply chain and the model supply chain.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "weightsManifestDigest": {
+          "$ref": "#/$defs/DigestMap",
+          "description": "The model's weights-manifest digest (OpenSSF Model Signing style — a\ndigest of the signed manifest of the model's files). This is also the\ndigest carried in the wrapping Statement's `subject[].digest`."
+        }
+      },
+      "required": [
+        "identity",
+        "weightsManifestDigest"
+      ],
+      "type": "object"
+    },
+    "TrainingMeta": {
+      "description": "Contemporaneous training metadata. Captured at bind time, which is *after*\ntraining (unlike the corpus attestation, sealed before training).",
+      "properties": {
+        "boundAt": {
+          "description": "RFC 3339 timestamp the binding was made (deterministic — derived from\n`source_date_epoch`).",
+          "type": "string"
+        },
+        "builderIdentity": {
+          "description": "Who made the binding claim (e.g. an org name or Sigstore identity). The\nauthoritative identity binding is the signing bundle's leaf cert; this\nis the human-readable claimant.",
+          "type": "string"
+        },
+        "configDigest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DigestMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional digest of the training configuration (hyperparameters, recipe)."
+        },
+        "sourceDateEpoch": {
+          "description": "Source-date-epoch (Unix seconds) used to derive `bound_at`, mirroring the\ndeterminism convention used across Attestrum.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "builderIdentity",
+        "boundAt",
+        "sourceDateEpoch"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://attestrum.com/attestation/model-binding/v0.1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`https://attestrum.com/attestation/model-binding/v0.1` predicate payload.\n\n`subject` (on the wrapping [`crate::InTotoStatement`]) is the model — its\nweights-manifest digest, with the model-card URI as the subject `name`.\n`corpora` are the materials: the training-corpus attestation(s) the trainer\nclaims produced the model.",
+  "properties": {
+    "builderVersion": {
+      "description": "Informational builder string per CLAUDE.md §12 (vendor neutrality — the\nonly place the \"attestrum\" string appears in emitted structure besides\nthe predicate URI prefix).",
+      "type": "string"
+    },
+    "corpora": {
+      "description": "The training-corpus attestation(s) bound to the model. A SET so a model\ntrained on multiple corpora (e.g. pretraining + finetuning) binds all of\nthem; the chain walk then answers \"X in at least one corpus that trained\nM.\"",
+      "items": {
+        "$ref": "#/$defs/CorpusBindingRef"
+      },
+      "type": "array"
+    },
+    "model": {
+      "$ref": "#/$defs/ModelRef",
+      "description": "The model being bound (identity + digest + optional OpenSSF signing\nbundle reference)."
+    },
+    "training": {
+      "$ref": "#/$defs/TrainingMeta",
+      "description": "Contemporaneous training metadata captured at bind time."
+    }
+  },
+  "required": [
+    "corpora",
+    "model",
+    "training",
+    "builderVersion"
+  ],
+  "title": "Attestrum Model Binding v0.1",
+  "type": "object"
+}
