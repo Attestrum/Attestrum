@@ -26,6 +26,10 @@ attestrum-attest       = { path = "../attestrum-attest",   version = "0.0.1" }
 # six-variant AttestrumProveError that the `attestrum prove` subcommand
 # wraps. Already a workspace crate via the Sprint 5 D2 E1-E7 build-up.
 attestrum-prove        = { path = "../attestrum-prove",    version = "0.1.0" }
+# Commit 6 (model-binding promotion): attestrum-bind provides bind() + the
+# signed walk_chain() the `attestrum bind` / `attestrum walk-chain` subcommands
+# drive.
+attestrum-bind         = { path = "../attestrum-bind",     version = "0.1.0" }
 # Sprint 5 D3 E7: attestrum-publish provides the PublishTarget trait + the
 # three target impls (HuggingFaceTarget real; GitHubReleaseTarget +
 # StaticBundleTarget v0.2 deferrals) + the 10-variant AttestrumPublishError

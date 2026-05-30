@@ -6,6 +6,14 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — Corpus-to-model binding (`model-binding/v0.1`)
+
+- **New `model-binding/v0.1` attestation** closes Attestrum's keystone gap: a signed corpus proves "corpus C existed with root R", not "C trained model M". The binding is an in-toto v1 Statement with the **model as subject** and the **training-corpus attestation(s) as materials**, under `https://attestrum.com/attestation/model-binding/v0.1`. It is an **attestation, not a proof-of-training** — the cryptography guarantees integrity, timestamp, identity, and verifiable membership against the corpus, not the truth of the training claim.
+- **`attestrum bind`** — emit a binding (model weights-manifest digest + one or more `--corpus`/`--role` pairs), signed via Sigstore by default (`--unsigned` to skip; OIDC via `--oidc-token-file` or `SIGSTORE_ID_TOKEN`).
+- **`attestrum walk-chain`** — verify "is work X in the corpus that trained model M?". Sigstore-verifies the binding and each corpus bundle, then re-runs the membership proof live. Multi-corpus results are OR-ed ("in at least one corpus that trained M"); exits `0` on a determined answer, `6` when a bound corpus fails to verify and no inclusion was found.
+- **Honest ceiling**: the chain walk *recomputes* the membership proof from the verifier-supplied manifest rather than verifying an independently-signed one — membership is only as strong as that manifest.
+- New `attestrum-bind` crate (`bind()` + signed `walk_chain()`); `attestrum_attest::verify_statement()` widens verification to non-training-corpus predicate families while keeping `verify()` byte-for-byte compatible.
+
 ### Added — Verification hardening
 
 - **Negative crypto-rejection coverage** (integrity-audit 2026-05-29): the `cosign-interop` CI job now reuses its one real signed bundle to assert that BOTH `attestrum verify` and `cosign` **reject** four forgeries — a flipped DSSE signature, a wrong manifest, an identity-regex mismatch, and a truncated bundle. Previously only the positive (round-trip) path was tested, so a regression in the rejection path could have shipped green. A signature is only meaningful if verification rejects a tampered bundle.

@@ -2,13 +2,13 @@
 title: "attestrum build CLI subcommand lifecycle from invocation to sealed manifest"
 models: "crates/attestrum-cli/src/main.rs, crates/attestrum-cli/src/commands/build.rs"
 source_of_truth: code
-last_verified: efd0d8d 2026-05-29
+last_verified: 4281d38 2026-05-29
 diagram_type: sequenceDiagram
 ---
 
 # attestrum build CLI subcommand
 
-Source of truth: `code` (Sprint 3 E5 implementation). This is the user-facing entry point that calls into `attestrum-pipeline::build_corpus` after loading a `corpus.toml` spec (BUILD-PLAN §8.3). The binary is named `attestrum` (configured via `[[bin]] name = "attestrum"` in `crates/attestrum-cli/Cargo.toml`), so the user types `attestrum build --corpus <path> --workspace <path>` rather than `attestrum-cli build ...`.
+Source of truth: `code` (Sprint 3 E5 implementation). This diagram models the **`build`** subcommand only; `crates/attestrum-cli/src/main.rs` is the shared `clap` command enum that also hosts the sibling subcommands (`sign`, `verify`, `prove`, `publish`, and — from the model-binding promotion — `bind` / `walk-chain`, each documented in its own diagram). This is the user-facing entry point that calls into `attestrum-pipeline::build_corpus` after loading a `corpus.toml` spec (BUILD-PLAN §8.3). The binary is named `attestrum` (configured via `[[bin]] name = "attestrum"` in `crates/attestrum-cli/Cargo.toml`), so the user types `attestrum build --corpus <path> --workspace <path>` rather than `attestrum-cli build ...`.
 
 **Exit-code matrix** (mirrors BUILD-PLAN §8.4): `0` ok; `1` runtime error (TOML parse, missing corpus file, pipeline failure, write failure); `2` clap arg-parse error (clap-native — we let clap exit); `3` `--offline` violation slot (no-op for `build` in v1 since the v1 pipeline does no network fetches; `--offline` is acknowledged via a tracing-info line and otherwise ignored, plumbed for forward compatibility with the Sprint 4 fetch layer); `7` determinism failure slot (reserved for E8 when the determinism extension lands; the `build` subcommand itself does not produce determinism-comparable artifacts in isolation — it's the cross-platform CI matrix that consumes its output).
 

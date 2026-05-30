@@ -316,6 +316,100 @@ enum Command {
         #[arg(long, value_name = "TARGET")]
         publication_intent: Option<String>,
     },
+
+    /// Bind a model to its training corpora — emit a `model-binding/v0.1`
+    /// in-toto attestation (model as subject, corpus attestations as
+    /// materials). Default signs via Fulcio + Rekor; `--unsigned` skips it.
+    /// OIDC resolves via `--oidc-token-file` > `SIGSTORE_ID_TOKEN` env.
+    Bind {
+        /// Model identity / Statement subject name (model-card or release URI).
+        #[arg(long, value_name = "URI")]
+        model_card_uri: String,
+
+        /// The model weights-manifest file. Its BLAKE3 + SHA-256 digest becomes
+        /// the binding subject digest.
+        #[arg(long, value_name = "PATH")]
+        model_manifest: PathBuf,
+
+        /// A training-corpus attestation bundle (repeatable). Pair each with a
+        /// `--role` in the same order.
+        #[arg(long = "corpus", value_name = "PATH")]
+        corpus: Vec<PathBuf>,
+
+        /// The role a corpus played (repeatable, paired by position with
+        /// `--corpus`): e.g. `pretraining`, `finetuning`, `rlhf`.
+        #[arg(long = "role", value_name = "ROLE")]
+        role: Vec<String>,
+
+        /// Human-readable claimant identity.
+        #[arg(long, value_name = "NAME")]
+        builder_identity: String,
+
+        /// Optional reference (URI/digest) to the model's own OpenSSF/Sigstore
+        /// signing bundle (recorded, not verified at v0.1).
+        #[arg(long, value_name = "REF")]
+        signing_bundle_ref: Option<String>,
+
+        /// Reproducible Builds timestamp (epoch seconds). Required via this
+        /// flag OR the `SOURCE_DATE_EPOCH` env var (no wall-clock fallback).
+        #[arg(long, value_name = "TS")]
+        source_date_epoch: Option<i64>,
+
+        /// Workspace dir for the signed bundle. Default: `<cwd>/.attestrum/`.
+        #[arg(long, value_name = "PATH")]
+        workspace: Option<PathBuf>,
+
+        /// Read OIDC id_token (JWT) from this file. Overrides
+        /// `SIGSTORE_ID_TOKEN` when signing.
+        #[arg(long, value_name = "PATH")]
+        oidc_token_file: Option<PathBuf>,
+
+        /// Skip Sigstore signing. Default signs via Fulcio + Rekor.
+        #[arg(long)]
+        unsigned: bool,
+    },
+
+    /// Walk the corpus-to-model binding chain — verify "is work X in the
+    /// corpus that trained model M?". Sigstore-verifies the binding and each
+    /// corpus bundle, then re-runs the membership proof live. Multi-corpus
+    /// results are OR-ed ("in at least one corpus that trained M").
+    WalkChain {
+        /// The model weights-manifest file — the binding bundle's subject; its
+        /// digest is the model digest the binding must carry.
+        #[arg(long, value_name = "PATH")]
+        model_manifest: PathBuf,
+
+        /// The signed `model-binding/v0.1` bundle.
+        #[arg(long, value_name = "PATH")]
+        binding: PathBuf,
+
+        /// A signed training-corpus bundle (repeatable). Pair each with a
+        /// `--corpus-manifest` in the same order.
+        #[arg(long = "corpus-bundle", value_name = "PATH")]
+        corpus_bundle: Vec<PathBuf>,
+
+        /// The local corpus manifest a bundle attests (repeatable, paired by
+        /// position with `--corpus-bundle`).
+        #[arg(long = "corpus-manifest", value_name = "PATH")]
+        corpus_manifest: Vec<PathBuf>,
+
+        /// The work X to test for membership. A file (BLAKE3-hashed) or a
+        /// 64-char lowercase BLAKE3 hex digest.
+        #[arg(long, value_name = "DOC")]
+        doc: String,
+
+        /// Anchored regex matched against the bundles' SAN (both bundles).
+        #[arg(long, value_name = "REGEX")]
+        certificate_identity: String,
+
+        /// Anchored regex matched against the bundles' OIDC issuer.
+        #[arg(long, value_name = "REGEX")]
+        certificate_oidc_issuer: String,
+
+        /// Skip the online Rekor inclusion re-check.
+        #[arg(long)]
+        offline: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -478,6 +572,56 @@ fn main() -> ExitCode {
                 takedown_contact,
                 dataset_homepage,
                 publication_intent,
+            });
+            ExitCode::from(code)
+        }
+
+        Command::Bind {
+            model_card_uri,
+            model_manifest,
+            corpus,
+            role,
+            builder_identity,
+            signing_bundle_ref,
+            source_date_epoch,
+            workspace,
+            oidc_token_file,
+            unsigned,
+        } => {
+            let code = commands::bind::run(commands::bind::Args {
+                model_card_uri,
+                model_manifest,
+                corpus,
+                role,
+                builder_identity,
+                signing_bundle_ref,
+                source_date_epoch,
+                workspace,
+                oidc_token_file,
+                unsigned,
+            });
+            ExitCode::from(code)
+        }
+
+        Command::WalkChain {
+            model_manifest,
+            binding,
+            corpus_bundle,
+            corpus_manifest,
+            doc,
+            certificate_identity,
+            certificate_oidc_issuer,
+            offline,
+        } => {
+            let code = commands::walk_chain::run(commands::walk_chain::Args {
+                model_manifest,
+                binding,
+                corpus_bundle,
+                corpus_manifest,
+                doc,
+                certificate_identity,
+                certificate_oidc_issuer,
+                offline,
             });
             ExitCode::from(code)
         }
