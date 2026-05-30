@@ -13,6 +13,14 @@ serde_json = { workspace = true }
 thiserror  = { workspace = true }
 schemars   = { workspace = true }
 sigstore   = { workspace = true }
+# Binding promotion (Commit 1, 2026-05-29): the `attestation_digest_of_bundle`
+# helper digests a corpus Statement's canonical-JSON / DSSE-payload bytes with
+# BLAKE3 + SHA-256 (the DigestMap pair). Both crates are already in
+# [workspace.dependencies] and the license inventory (Sprint 2 E5); this is a
+# transitive→direct graph-promotion, the same pattern attestrum-cli (E3.5) and
+# attestrum-prove (S5-D2 E7) already used. No new external dep.
+blake3     = { workspace = true }
+sha2       = { workspace = true }
 # Sprint 4 E4: cert parsing for the identity extractor + regex for
 # cosign-compatible identity-policy matching + base64 for decoding
 # bundle.verificationMaterial.certificate.rawBytes.

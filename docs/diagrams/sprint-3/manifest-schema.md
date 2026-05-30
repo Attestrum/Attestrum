@@ -2,7 +2,7 @@
 title: "attestrum-manifest Parquet row schema (BUILD-PLAN §4.2 16 cols + input_ordinal + occurrence_index binding)"
 models: "crates/attestrum-manifest/src/lib.rs, crates/attestrum-manifest/src/io.rs"
 source_of_truth: code
-last_verified: f720a0c 2026-05-26
+last_verified: 4065d9d 2026-05-29
 diagram_type: erDiagram
 ---
 

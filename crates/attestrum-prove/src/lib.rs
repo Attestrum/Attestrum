@@ -195,16 +195,19 @@ pub struct ProveOpts {
     /// manifests (E7) and the emitted Bundle JSON (E4) are written.
     /// `None` defaults to `$PWD/.attestrum/prove/` at E8.
     pub workspace: Option<PathBuf>,
-    /// Path to the corpus's signed in-toto Statement bundle (Sigstore
-    /// Bundle v0.3 JSON, typically produced by `attestrum sign`). When
-    /// `Some(_)`, [`prove`] reads and digests the file via
-    /// [`attestrum_cas::stream_hash_path`] and populates
-    /// `predicate.corpus.attestation_digest` with the real BLAKE3 +
-    /// SHA-256 of the bundle bytes. When `None`, `attestation_digest`
-    /// stays at the E2 zeros-hex placeholder — the caller hasn't
-    /// supplied the corpus's bundle reference, so the field reserves
-    /// the schema slot without binding a concrete digest. Added at
-    /// S5-D2 E4.
+    /// Path to the corpus's in-toto Statement — either a signed Sigstore
+    /// Bundle v0.3 (typically from `attestrum sign`) or a raw Statement
+    /// JSON. When `Some(_)`, [`prove`] populates
+    /// `predicate.corpus.attestation_digest` via
+    /// [`attestrum_attest::attestation_digest_of_bundle`]: the BLAKE3 +
+    /// SHA-256 of the corpus Statement's `canonical_json()` (DSSE-payload)
+    /// bytes — deterministic, and identical whether the corpus is signed or
+    /// not. (Pre-binding this hashed the whole bundle *file*, which carried
+    /// non-deterministic cert/tlog material once signed — a determinism bug
+    /// fixed in the binding promotion.) When `None`, `attestation_digest`
+    /// stays at the E2 zeros-hex placeholder — the caller hasn't supplied
+    /// the corpus's bundle reference, so the field reserves the schema slot
+    /// without binding a concrete digest. Added at S5-D2 E4.
     pub corpus_bundle_path: Option<PathBuf>,
     /// Path to the corpus's CAS root directory (typically
     /// `<corpus_root>/.attestrum/`, the parent of the `cas/blake3/`
@@ -434,16 +437,15 @@ pub fn prove(
 
     let matched_subject = entry_to_subject(entry);
 
+    // Canonical attestation digest: the BLAKE3+SHA-256 of the corpus
+    // Statement's canonical_json() / DSSE-payload bytes (deterministic, signed
+    // == unsigned), NOT the whole-bundle-file hash this site used pre-binding
+    // (non-deterministic once signed — CLAUDE.md §7). See
+    // attestrum_attest::attestation_digest_of_bundle.
     let attestation_digest = match &opts.corpus_bundle_path {
-        Some(p) => {
-            let h = attestrum_cas::stream_hash_path(p).map_err(|e| {
-                AttestrumProveError::InvalidManifest(format!("corpus_bundle_path read: {e}"))
-            })?;
-            DigestMap {
-                blake3: attestrum_core::hex::encode_32(&h.blake3),
-                sha256: attestrum_core::hex::encode_32(&h.sha256),
-            }
-        }
+        Some(p) => attestrum_attest::attestation_digest_of_bundle(p).map_err(|e| {
+            AttestrumProveError::InvalidManifest(format!("corpus_bundle_path digest: {e}"))
+        })?,
         None => DigestMap {
             blake3: "0".repeat(64),
             sha256: "0".repeat(64),
@@ -1095,16 +1097,15 @@ fn dispatch_non_inclusion(
             ),
         };
 
+    // Canonical attestation digest: the BLAKE3+SHA-256 of the corpus
+    // Statement's canonical_json() / DSSE-payload bytes (deterministic, signed
+    // == unsigned), NOT the whole-bundle-file hash this site used pre-binding
+    // (non-deterministic once signed — CLAUDE.md §7). See
+    // attestrum_attest::attestation_digest_of_bundle.
     let attestation_digest = match &opts.corpus_bundle_path {
-        Some(p) => {
-            let h = attestrum_cas::stream_hash_path(p).map_err(|e| {
-                AttestrumProveError::InvalidManifest(format!("corpus_bundle_path read: {e}"))
-            })?;
-            DigestMap {
-                blake3: attestrum_core::hex::encode_32(&h.blake3),
-                sha256: attestrum_core::hex::encode_32(&h.sha256),
-            }
-        }
+        Some(p) => attestrum_attest::attestation_digest_of_bundle(p).map_err(|e| {
+            AttestrumProveError::InvalidManifest(format!("corpus_bundle_path digest: {e}"))
+        })?,
         None => DigestMap {
             blake3: "0".repeat(64),
             sha256: "0".repeat(64),

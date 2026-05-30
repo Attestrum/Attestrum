@@ -20,6 +20,7 @@
 //! (now `source_of_truth: code` — this file is authoritative).
 
 pub mod canonicalize;
+mod corpus_digest;
 pub mod dsse_sign;
 pub mod identity;
 pub mod json;
@@ -31,6 +32,7 @@ pub mod verify;
 use thiserror::Error;
 
 pub use canonicalize::{canonicalize_for_compare, PathSegment, STRIP_PATHS, STRIP_SENTINEL};
+pub use corpus_digest::attestation_digest_of_bundle;
 pub use identity::{extract_identity, ExtractedIdentity};
 pub use json::{deterministic_json, deterministic_json_vec, sort_keys};
 pub use predicate::{

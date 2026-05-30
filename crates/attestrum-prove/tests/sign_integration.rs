@@ -10,8 +10,8 @@
 //!   `AttestrumProveError::Sign(AttestrumAttestError::SigstoreIdentityToken(_))`.
 //! - `corpus_bundle_path_populates_attestation_digest` — non-ignored,
 //!   no network. When `opts.corpus_bundle_path = Some(fixture)`,
-//!   `pred.corpus.attestation_digest` equals the BLAKE3 + SHA-256 of
-//!   the fixture file's bytes (via `attestrum_cas::stream_hash_path`).
+//!   `pred.corpus.attestation_digest` equals the canonical digest of the
+//!   corpus Statement (via `attestrum_attest::attestation_digest_of_bundle`).
 //! - `signed_prove_emits_verifiable_bundle` — `#[ignore]`d. Requires
 //!   `SIGSTORE_ID_TOKEN` env var + network access to Fulcio + Rekor +
 //!   TUF. Runs only via `cargo test ... -- --ignored` (intended for
@@ -30,6 +30,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use attestrum_attest::{
+    attestation_digest_of_bundle, DigestMap, InTotoStatement, Subject,
+    TRAINING_CORPUS_PREDICATE_TYPE,
+};
 use attestrum_core::Modality;
 use attestrum_manifest::{
     assign_input_ordinals, assign_occurrence_indices, sort_entries, write_manifest, ManifestEntry,
@@ -127,13 +131,31 @@ fn corpus_bundle_path_populates_attestation_digest() {
     let root = fresh_root("corpus_digest");
     let manifest = build_test_manifest(&root, &[10, 11, 12]);
 
-    // Write a small fixture file standing in for a corpus bundle. Real
-    // corpus bundles are Sigstore Bundle v0.3 JSON; for this test we
-    // only need a file with deterministic bytes so we can verify the
-    // digest computation independently.
+    // Write a real (unsigned) corpus in-toto Statement as the fixture. The
+    // canonical attestation digest is defined over the Statement's
+    // canonical_json() bytes, so the fixture must be a parseable Statement
+    // (the prior raw-bytes placeholder no longer applies — the binding-promotion
+    // determinism fix digests the canonical Statement, not the file bytes).
     let corpus_bundle = root.join("corpus.bundle.json");
-    let fixture_bytes = br#"{"placeholder":"S5-D2 E4 test fixture for corpus_bundle_path"}"#;
-    std::fs::write(&corpus_bundle, fixture_bytes).expect("write corpus fixture");
+    let corpus_statement = InTotoStatement::new(
+        TRAINING_CORPUS_PREDICATE_TYPE,
+        vec![Subject {
+            name: "corpus://test/e4".to_string(),
+            digest: DigestMap {
+                blake3: "ab".repeat(32),
+                sha256: "cd".repeat(32),
+            },
+        }],
+        serde_json::json!({"merkleRoot": "ef".repeat(32)}),
+    );
+    std::fs::write(
+        &corpus_bundle,
+        corpus_statement
+            .canonical_json()
+            .expect("canonical")
+            .as_bytes(),
+    )
+    .expect("write corpus fixture");
 
     let opts = ProveOpts {
         sign: false,
@@ -154,15 +176,12 @@ fn corpus_bundle_path_populates_attestation_digest() {
     let pred: InclusionProofPredicate =
         serde_json::from_value(artifact.statement.predicate.clone()).expect("parse");
 
-    // Independently compute the expected digests via the same helper
-    // prove() used. Asserting non-zero AND equal-to-stream-hash gives
+    // Independently compute the expected digest via the same canonical helper
+    // prove() now uses. Asserting non-zero AND equal-to-the-helper gives
     // strong evidence the field is wired correctly.
-    let expected = attestrum_cas::stream_hash_path(&corpus_bundle).expect("hash fixture");
-    let expected_b3 = attestrum_core::hex::encode_32(&expected.blake3);
-    let expected_s256 = attestrum_core::hex::encode_32(&expected.sha256);
+    let expected = attestation_digest_of_bundle(&corpus_bundle).expect("digest fixture");
 
-    assert_eq!(pred.corpus.attestation_digest.blake3, expected_b3);
-    assert_eq!(pred.corpus.attestation_digest.sha256, expected_s256);
+    assert_eq!(pred.corpus.attestation_digest, expected);
     assert_ne!(
         pred.corpus.attestation_digest.blake3,
         "0".repeat(64),
