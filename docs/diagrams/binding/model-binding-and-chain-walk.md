@@ -1,8 +1,8 @@
 ---
 title: "Corpus-to-model binding (model-binding/v0.1): attestation_digest_of_bundle, bind, and the signed chain walk"
-models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/src/verify.rs, crates/attestrum-bind/src/lib.rs, crates/attestrum-prove/src/lib.rs, MODEL_BINDING_PREDICATE_TYPE, ModelBindingPredicate, CorpusBindingRef, ModelRef, TrainingMeta, bind, walk_chain, attestation_digest_of_bundle, attestation_digest_of_statement, statement_from_bundle, BindOpts, BoundCorpus, BindArtifact, BindError, ChainWalkOutcome, CorpusRef, InTotoStatement"
+models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/src/verify.rs, crates/attestrum-bind/src/lib.rs, crates/attestrum-prove/src/lib.rs, MODEL_BINDING_PREDICATE_TYPE, ModelBindingPredicate, CorpusBindingRef, ModelRef, TrainingMeta, bind, walk_chain, attestation_digest_of_bundle, attestation_digest_of_statement, statement_from_bundle, BindOpts, BoundCorpus, BindArtifact, BindError, ChainWalkOutcome, ChainWalkError, IdentityPolicy, BindingInput, CorpusInput, CorpusRef, InTotoStatement"
 source_of_truth: diagram
-last_verified: e8d8773 2026-05-29
+last_verified: e6b937a 2026-05-29
 diagram_type: flowchart
 ---
 
@@ -69,17 +69,19 @@ flowchart TD
         v0["verify() the binding bundle<br/>AND the corpus bundle<br/>(Sigstore sig + identity policy)"]
         s1{"Step 1<br/>binding.subject.digest == model digest M?"}
         s2{"Step 2<br/>recompute corpus attestation_digest canonically<br/>== binding.corpora[i].attestationDigest?<br/>(+ merkle root match)<br/>NB: does NOT trust prove()'s field"}
-        s3{"Step 3 (D6: re-run prove() live)<br/>prove(work X) → proof<br/>proof.corpus.attestationDigest == a bound corpus?"}
+        s3{"Step 3 (D6: re-run prove() live)<br/>prove(work X) against the verified corpus bundle"}
         v0 -- "sig invalid / identity mismatch" --> rej0["REJECT:<br/>BindingVerify / CorpusVerify"]
         v0 -- ok --> s1
         s1 -- no --> reject["REJECT:<br/>ModelIdentityMismatch"]
         s2 -- no --> reject2["REJECT:<br/>CorpusNotBound /<br/>MerkleRootMismatch"]
-        s3 -- no --> reject3["REJECT:<br/>ProofCorpusMismatch"]
+        s3 -- "prove error" --> reject3["REJECT:<br/>Prove"]
         s1 -- yes --> s2 -- yes --> s3
         s3 -- "inclusion" --> inc["X IS in a corpus that trained M<br/>(ChainWalkOutcome::InCorpus)"]
         s3 -- "non-inclusion" --> noninc["X is NOT in the corpus(es) that trained M<br/>(ChainWalkOutcome::NotInCorpus)"]
     end
 ```
+
+**Step 3 has no `ProofCorpusMismatch` check (implementation finding).** `prove()` runs against the **same** verified corpus bundle Step 2 already matched by canonical digest, so the proof is bound to the verified corpus *by construction*. The signed single-verified-bundle design therefore **prevents** a proof-against-a-different-corpus rather than detecting it after the fact — the spike's separate `ProofCorpusMismatch` check is subsumed by `CorpusNotBound` at Step 2 (a strictly earlier, stronger rejection). Removing it keeps the walk free of an unreachable branch (CLAUDE.md §14). The public API is `walk_chain(model_digest, BindingInput, CorpusInput, ProofTarget) -> Result<ChainWalkOutcome, ChainWalkError>`; `IdentityPolicy` carries the cosign-shaped identity/issuer regexes + offline flag applied to both bundles; `ChainWalkError` is the failure set (`BindingVerify`, `CorpusVerify`, `BindingPredicate`, `NoSubject`, `ModelIdentityMismatch`, `Corpus`, `CorpusNotBound`, `MerkleRootMismatch`, `Prove`). `query` must be an exact `ProofTarget` arm at v0.1 (the fuzzy arms need a CAS root this entry point does not thread through).
 
 ## Predicate shape (`model-binding/v0.1`)
 

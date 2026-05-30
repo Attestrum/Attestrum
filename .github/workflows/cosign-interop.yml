@@ -109,3 +109,14 @@ jobs:
             --workspace \
             --test cosign_interop \
             -- --include-ignored cosign_interop
+
+      # The signed corpus-to-model chain walk (attestrum-bind). Reuses the same
+      # SIGSTORE_ID_TOKEN exported above; no cosign binary needed (it verifies
+      # via attestrum's own verifier). Proves walk_chain Sigstore-verifies both
+      # the binding and corpus bundles and rejects a tampered one (CorpusVerify).
+      - name: cargo test chain_walk_signed (ignored)
+        run: |
+          cargo test \
+            -p attestrum-bind \
+            --test chain_walk_signed \
+            -- --include-ignored chain_walk_signed

@@ -420,7 +420,14 @@ name = "attestrum-bind"
 version = "0.1.0"
 dependencies = [
  "attestrum-attest",
+ "attestrum-cas",
+ "attestrum-core",
+ "attestrum-manifest",
+ "attestrum-merkle",
+ "attestrum-prove",
+ "base64 0.22.1",
  "jiff",
+ "regex",
  "serde_json",
  "thiserror 1.0.69",
 ]
