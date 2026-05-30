@@ -6,6 +6,7 @@ src/lib.rs: struct PublishReceipt
 src/lib.rs: struct StaticBundleTarget
 src/lib.rs: trait PublishTarget
 src/lib.rs: use attestrum_emit::CroissantPlan
+src/lib.rs: use attestrum_emit::CycloneDxPlan
 src/lib.rs: use attestrum_emit::DatasetCardPlan
 src/lib.rs: use attestrum_emit::ManifestStats
 src/lib.rs: use attestrum_emit::VerifyHtmlPlan

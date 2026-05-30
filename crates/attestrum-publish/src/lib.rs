@@ -39,7 +39,9 @@ use std::path::PathBuf;
 // Re-export the three plan types attestrum-emit owns so callers can
 // construct `PublishPlan` without a separate `attestrum-emit` dep.
 // `ManifestStats` is re-exported because both plan types embed it.
-pub use attestrum_emit::{CroissantPlan, DatasetCardPlan, ManifestStats, VerifyHtmlPlan};
+pub use attestrum_emit::{
+    CroissantPlan, CycloneDxPlan, DatasetCardPlan, ManifestStats, VerifyHtmlPlan,
+};
 
 // ============================================================================
 // Public API surface — Part 2.3 of PATH-A-BRIEF
@@ -218,6 +220,8 @@ impl PublishTarget for HuggingFaceTarget {
             .map_err(|e| AttestrumPublishError::ReadmeRender(e.to_string()))?;
         let croissant_str = attestrum_emit::render_croissant(&plan.croissant_plan)
             .map_err(|e| AttestrumPublishError::CroissantInvalid(e.to_string()))?;
+        let cyclonedx_str = attestrum_emit::render_cyclonedx(&plan.cyclonedx_plan)
+            .map_err(|e| AttestrumPublishError::CycloneDxInvalid(e.to_string()))?;
         let verify_html = attestrum_emit::render_verify_html_stub(&plan.verify_html_plan)
             .map_err(|e| AttestrumPublishError::VerifyHtmlBuild(e.to_string()))?;
 
@@ -226,6 +230,10 @@ impl PublishTarget for HuggingFaceTarget {
             hf_hub::repository::CommitOperation::add_bytes(
                 "croissant.json",
                 croissant_str.into_bytes(),
+            ),
+            hf_hub::repository::CommitOperation::add_bytes(
+                "cyclonedx.json",
+                cyclonedx_str.into_bytes(),
             ),
             hf_hub::repository::CommitOperation::add_file(
                 "attestrum/manifest.parquet",
@@ -336,10 +344,10 @@ impl PublishTarget for GitHubReleaseTarget {
 /// 2026-05-30); it lets the emit surface (README / Croissant / verify.html)
 /// be rendered and QA'd locally with zero network / HF auth / Rekor footprint.
 ///
-/// `publish()` writes the **same six artifacts** `HuggingFaceTarget` commits
-/// — `README.md` + `croissant.json` at the directory root and
-/// `manifest.parquet` / `merkle.root` / `bundle.sigstore.json` / `verify.html`
-/// under `attestrum/` — plus any `plan.extras`. The directory is
+/// `publish()` writes the **same seven artifacts** `HuggingFaceTarget` commits
+/// — `README.md` + `croissant.json` + `cyclonedx.json` at the directory root
+/// and `manifest.parquet` / `merkle.root` / `bundle.sigstore.json` /
+/// `verify.html` under `attestrum/` — plus any `plan.extras`. The directory is
 /// self-contained: a visitor can verify the bundle with `cosign` alone, no
 /// Attestrum install (CLAUDE.md §12). See
 /// `docs/diagrams/overview/static-publish.md`.
@@ -383,16 +391,22 @@ impl PublishTarget for StaticBundleTarget {
             .map_err(|e| AttestrumPublishError::ReadmeRender(e.to_string()))?;
         let croissant_str = attestrum_emit::render_croissant(&plan.croissant_plan)
             .map_err(|e| AttestrumPublishError::CroissantInvalid(e.to_string()))?;
+        let cyclonedx_str = attestrum_emit::render_cyclonedx(&plan.cyclonedx_plan)
+            .map_err(|e| AttestrumPublishError::CycloneDxInvalid(e.to_string()))?;
         let verify_html = attestrum_emit::render_verify_html_stub(&plan.verify_html_plan)
             .map_err(|e| AttestrumPublishError::VerifyHtmlBuild(e.to_string()))?;
 
-        // 4. Materialize the canonical six files: rendered artifacts written,
+        // 4. Materialize the canonical seven files: rendered artifacts written,
         //    sealed inputs copied verbatim. Overwrite semantics — re-rendering
         //    into an existing dir is idempotent.
         write_output(&self.out_dir.join("README.md"), readme.as_bytes())?;
         write_output(
             &self.out_dir.join("croissant.json"),
             croissant_str.as_bytes(),
+        )?;
+        write_output(
+            &self.out_dir.join("cyclonedx.json"),
+            cyclonedx_str.as_bytes(),
         )?;
         copy_input(&plan.manifest_path, &attestrum_dir.join("manifest.parquet"))?;
         copy_input(&plan.merkle_root_path, &attestrum_dir.join("merkle.root"))?;
@@ -481,6 +495,15 @@ pub struct PublishPlan {
     /// `croissant: serde_json::Value` rendered-payload field from E3.
     pub croissant_plan: CroissantPlan,
 
+    /// Inputs for `attestrum_emit::render_cyclonedx`. The CLI constructs this
+    /// from CLI flags + the signed bundle (the in-toto subject SHA-256 and the
+    /// predicate's BLAKE3 Merkle root); `publish()` calls the render fn at
+    /// publish-time and commits the result as `cyclonedx.json` beside
+    /// `croissant.json`.
+    ///
+    /// Added 2026-05-30 (decision `cyclonedx-mlbom-shape`).
+    pub cyclonedx_plan: CycloneDxPlan,
+
     /// Inputs for `attestrum_emit::render_readme`. Constructed by the CLI;
     /// `publish()` calls the render fn at publish-time.
     ///
@@ -535,10 +558,12 @@ pub struct PublishReceipt {
 /// type. Stage A1 (founder-approved 2026-05-30) adds an 11th variant
 /// (`Io`) — the first output-write failure mode, surfaced when
 /// `StaticBundleTarget` materializes artifacts to local disk (the HF
-/// target reports transport failures via `Network`). The 11-variant shape
-/// is the new v0.1 lock; further variants require founder approval just
-/// like the `AttestrumProveError` 6-variant lock from D2 (PATH-A-BRIEF
-/// Part 2.2).
+/// target reports transport failures via `Network`). 2026-05-30 (decision
+/// `cyclonedx-mlbom-shape`, founder-approved) adds a 12th variant
+/// (`CycloneDxInvalid`) — parallel to `CroissantInvalid`, surfaced when the
+/// CycloneDX ML-BOM render fails. The 12-variant shape is the v0.1 lock;
+/// further variants require founder approval just like the
+/// `AttestrumProveError` 6-variant lock from D2 (PATH-A-BRIEF Part 2.2).
 #[derive(Debug, thiserror::Error)]
 pub enum AttestrumPublishError {
     /// Connection refused, DNS failure, TLS handshake failure, request
@@ -584,6 +609,12 @@ pub enum AttestrumPublishError {
     /// exit 1.
     #[error("Croissant validation error: {0}")]
     CroissantInvalid(String),
+
+    /// `attestrum-emit` failed to render the CycloneDX 1.6 ML-BOM
+    /// (`source_date_epoch` out of range, serialization error). CLI
+    /// maps to exit 1. Added 2026-05-30 (decision `cyclonedx-mlbom-shape`).
+    #[error("CycloneDX ML-BOM error: {0}")]
+    CycloneDxInvalid(String),
 
     /// `attestrum-emit` failed to render verify.html (couldn't read
     /// cert identity from the bundle, etc.). CLI maps to exit 1.
@@ -660,6 +691,22 @@ mod tests {
                 version: None,
                 cite_as: None,
             },
+            cyclonedx_plan: CycloneDxPlan {
+                dataset_name: "my-org/my-dataset".to_string(),
+                version: "1.0.0".to_string(),
+                source_date_epoch: 1_700_000_000,
+                manifest_sha256_hex: "a".repeat(64),
+                merkle_root_blake3_hex: "b".repeat(64),
+                manifest_stats: ManifestStats {
+                    leaf_count: 1,
+                    total_bytes: 1,
+                },
+                license: None,
+                publisher: None,
+                classification: None,
+                manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+                bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
+            },
             dataset_card_plan: DatasetCardPlan {
                 pretty_name: "Stub".to_string(),
                 license_spdx: "Apache-2.0".to_string(),
@@ -720,10 +767,11 @@ mod tests {
     }
 
     #[test]
-    fn error_enum_has_eleven_variants() {
-        // Locks the 11-variant shape (Stage A1 added `Io`). If a new variant
-        // is added the compiler errors on this match; the addition must be a
-        // deliberate, founder-approved v0.1 surface change.
+    fn error_enum_has_twelve_variants() {
+        // Locks the 12-variant shape (Stage A1 added `Io`; cyclonedx-mlbom-shape
+        // added `CycloneDxInvalid`). If a new variant is added the compiler
+        // errors on this match; the addition must be a deliberate,
+        // founder-approved v0.1 surface change.
         let variants = [
             AttestrumPublishError::Network("x".to_string()),
             AttestrumPublishError::Auth("x".to_string()),
@@ -733,11 +781,12 @@ mod tests {
             AttestrumPublishError::BundleMissing("x".to_string()),
             AttestrumPublishError::ReadmeRender("x".to_string()),
             AttestrumPublishError::CroissantInvalid("x".to_string()),
+            AttestrumPublishError::CycloneDxInvalid("x".to_string()),
             AttestrumPublishError::VerifyHtmlBuild("x".to_string()),
             AttestrumPublishError::NotImplemented("x".to_string()),
             AttestrumPublishError::Io("x".to_string()),
         ];
-        assert_eq!(variants.len(), 11);
+        assert_eq!(variants.len(), 12);
         for v in &variants {
             assert!(!v.to_string().is_empty(), "Display impl must not be empty");
         }

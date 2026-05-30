@@ -57,6 +57,7 @@
 //! | `BundleMissing(_)`              | `RuntimeError` | 1       |
 //! | `ReadmeRender(_)`               | `RuntimeError` | 1       |
 //! | `CroissantInvalid(_)`           | `RuntimeError` | 1       |
+//! | `CycloneDxInvalid(_)`           | `RuntimeError` | 1       |
 //! | `VerifyHtmlBuild(_)`            | `RuntimeError` | 1       |
 //! | `NotImplemented(_)`             | `RuntimeError` | 1       |
 //! | `Io(_)`                         | `RuntimeError` | 1       |
@@ -65,11 +66,12 @@
 
 use std::path::PathBuf;
 
-use attestrum_attest::extract_identity;
+use attestrum_attest::{extract_identity, statement_from_bundle, TrainingCorpusPredicate};
 use attestrum_manifest::read_manifest;
 use attestrum_publish::{
-    AttestrumPublishError, CroissantPlan, DatasetCardPlan, GitHubReleaseTarget, HuggingFaceTarget,
-    ManifestStats, PublishPlan, PublishReceipt, PublishTarget, StaticBundleTarget, VerifyHtmlPlan,
+    AttestrumPublishError, CroissantPlan, CycloneDxPlan, DatasetCardPlan, GitHubReleaseTarget,
+    HuggingFaceTarget, ManifestStats, PublishPlan, PublishReceipt, PublishTarget,
+    StaticBundleTarget, VerifyHtmlPlan,
 };
 
 use crate::lifecycle::ExitCode;
@@ -89,11 +91,11 @@ const MERKLE_ROOT_PATH_IN_REPO: &str = "attestrum/merkle.root";
 const VERIFY_HTML_PATH_IN_REPO: &str = "attestrum/verify.html";
 
 // Number of canonical files HuggingFaceTarget::publish() always commits
-// (README.md, croissant.json, attestrum/manifest.parquet,
+// (README.md, croissant.json, cyclonedx.json, attestrum/manifest.parquet,
 // attestrum/merkle.root, attestrum/bundle.sigstore.json,
 // attestrum/verify.html). PublishReceipt doesn't surface this count, so
 // the CLI computes `CANONICAL_FILES_COMMITTED + plan.extras.len()`.
-const CANONICAL_FILES_COMMITTED: usize = 6;
+const CANONICAL_FILES_COMMITTED: usize = 7;
 
 // ============================================================================
 // Args + entry point
@@ -132,6 +134,18 @@ pub struct Args {
     /// `--cite-as <TEXT>`. Optional citation for the Croissant `citeAs`
     /// field. `None` → the field is omitted (never synthesized).
     pub cite_as: Option<String>,
+
+    /// `--publisher <ORG>`. Optional corpus-publisher organisation name for
+    /// the CycloneDX ML-BOM. When supplied it populates the dataset
+    /// `supplier` and `componentData.governance.owners`; `None` omits both
+    /// (honest omission). For public demos this is the Attestrum GitHub
+    /// Actions workflow identity — never an individual (CLAUDE-LOCAL §A9).
+    pub publisher: Option<String>,
+
+    /// `--classification <LABEL>`. Optional data-classification / sensitivity
+    /// label for the CycloneDX `componentData.classification` (e.g.
+    /// `public`). `None` omits it (never fabricated).
+    pub classification: Option<String>,
 
     /// `--target {huggingface|github-release|static}`. Defaults to
     /// `huggingface`. `static` writes to a local `--out-dir` (Stage A1);
@@ -244,6 +258,17 @@ pub fn run(args: Args) -> u8 {
         }
     };
 
+    // 4b. Read the signed subject SHA-256 + Merkle root from the bundle for the
+    //     CycloneDX ML-BOM (honesty invariant: SHA-256 in `hashes`, BLAKE3
+    //     Merkle root in a namespaced property).
+    let (manifest_sha256, merkle_root_blake3) = match read_bundle_corpus_digests(&args.bundle) {
+        Ok(d) => d,
+        Err(msg) => {
+            eprintln!("attestrum publish: {msg}");
+            return ExitCode::RuntimeError.as_u8();
+        }
+    };
+
     // 5. Derive metadata (Q1 → A): defaults from inputs.
     let pretty_name = derive_pretty_name(&args.dataset);
     let size_category = derive_size_category(manifest_stats.leaf_count);
@@ -280,11 +305,29 @@ pub fn run(args: Args) -> u8 {
         manifest_stats,
         source_date_epoch,
         license_spdx: Some(license.clone()),
-        version: Some(version),
+        version: Some(version.clone()),
         // Emit citeAs only when the publisher supplies it; omission is the
         // honest default (mlcroissant emits one benign recommended-field
         // warning), never a synthesized citation.
         cite_as: args.cite_as.clone(),
+    };
+
+    // The CycloneDX ML-BOM reuses the same resolved license/version as the
+    // Croissant descriptor so the two sidecars agree. The two signed digests
+    // come from the bundle (4b); --publisher / --classification drive the
+    // honest-omission identity/governance fields.
+    let cyclonedx_plan = CycloneDxPlan {
+        dataset_name: args.dataset.clone(),
+        version,
+        source_date_epoch,
+        manifest_sha256_hex: manifest_sha256,
+        merkle_root_blake3_hex: merkle_root_blake3,
+        manifest_stats,
+        license: Some(license.clone()),
+        publisher: args.publisher.clone(),
+        classification: args.classification.clone(),
+        manifest_path_in_repo: MANIFEST_PATH_IN_REPO.to_string(),
+        bundle_path_in_repo: BUNDLE_PATH_IN_REPO.to_string(),
     };
 
     let dataset_card_plan = DatasetCardPlan {
@@ -318,6 +361,7 @@ pub fn run(args: Args) -> u8 {
         bundle_path: args.bundle.clone(),
         merkle_root_path,
         croissant_plan,
+        cyclonedx_plan,
         dataset_card_plan,
         verify_html_plan,
         extras: Vec::new(),
@@ -391,6 +435,29 @@ fn read_bundle_identity(
     let value: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|e| format!("parse bundle JSON {path:?}: {e}"))?;
     extract_identity(&value).map_err(|e| format!("extract identity from {path:?}: {e}"))
+}
+
+/// Read the manifest's signed SHA-256 subject digest and the BLAKE3 Merkle
+/// root from the signed bundle's in-toto Statement, for the CycloneDX ML-BOM.
+///
+/// The SHA-256 is the value CycloneDX `hashes` carries — the Sigstore-signed
+/// in-toto subject digest of `manifest.parquet`, which a third party can
+/// recompute (`sha256sum manifest.parquet`) and match. The BLAKE3 Merkle root
+/// (read from the signed training-corpus predicate) goes in a namespaced
+/// `attestrum:` property, never in `hashes`. Both come from the one signed
+/// payload so the ML-BOM binds to what was actually signed (decision
+/// `cyclonedx-mlbom-shape`). Returns `(manifest_sha256_hex, merkle_root_blake3_hex)`.
+fn read_bundle_corpus_digests(path: &std::path::Path) -> Result<(String, String), String> {
+    let statement =
+        statement_from_bundle(path).map_err(|e| format!("read statement from {path:?}: {e}"))?;
+    let subject = statement
+        .subject
+        .first()
+        .ok_or_else(|| format!("bundle {path:?} has no in-toto subject"))?;
+    let manifest_sha256 = subject.digest.sha256.clone();
+    let predicate: TrainingCorpusPredicate = serde_json::from_value(statement.predicate.clone())
+        .map_err(|e| format!("parse training-corpus predicate from {path:?}: {e}"))?;
+    Ok((manifest_sha256, predicate.merkle_root))
 }
 
 /// Resolve the Merkle-root path. CLI `--merkle-root` override wins; the
@@ -503,9 +570,8 @@ fn map_error_to_exit_code(err: &AttestrumPublishError) -> ExitCode {
         Network(_) => ExitCode::NetworkError,
         Auth(_) => ExitCode::IdentityError,
         RepoExists(_) | RepoMissing(_) | Quota(_) | BundleMissing(_) | ReadmeRender(_)
-        | CroissantInvalid(_) | VerifyHtmlBuild(_) | NotImplemented(_) | Io(_) => {
-            ExitCode::RuntimeError
-        }
+        | CroissantInvalid(_) | CycloneDxInvalid(_) | VerifyHtmlBuild(_) | NotImplemented(_)
+        | Io(_) => ExitCode::RuntimeError,
     }
 }
 
@@ -539,6 +605,8 @@ mod tests {
             license: None,
             version: None,
             cite_as: None,
+            publisher: None,
+            classification: None,
             target: TargetKind::Huggingface,
             revision: "main".to_string(),
             workspace: None,
@@ -682,8 +750,8 @@ mod tests {
     }
 
     #[test]
-    fn error_mapping_covers_all_eleven_variants() {
-        // Locks the 11-variant `AttestrumPublishError` lock at the CLI
+    fn error_mapping_covers_all_twelve_variants() {
+        // Locks the 12-variant `AttestrumPublishError` lock at the CLI
         // boundary. If a new variant lands without explicit CLI mapping,
         // the compiler will refuse to compile `map_error_to_exit_code`.
         use AttestrumPublishError::*;
@@ -717,6 +785,10 @@ mod tests {
         );
         assert_eq!(
             map_error_to_exit_code(&CroissantInvalid("x".to_string())).as_u8(),
+            ExitCode::RuntimeError.as_u8(),
+        );
+        assert_eq!(
+            map_error_to_exit_code(&CycloneDxInvalid("x".to_string())).as_u8(),
             ExitCode::RuntimeError.as_u8(),
         );
         assert_eq!(

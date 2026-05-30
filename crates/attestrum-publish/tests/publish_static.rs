@@ -5,8 +5,8 @@
 //! backed by `tempfile::TempDir` fixture roots (auto-cleaned on drop). They
 //! prove the behavioral contract from `docs/diagrams/overview/static-publish.md`:
 //!
-//! 1. the canonical six files land at the right relative paths;
-//! 2. the three rendered artifacts are byte-equal to the `attestrum_emit::render_*`
+//! 1. the canonical seven files land at the right relative paths;
+//! 2. the four rendered artifacts are byte-equal to the `attestrum_emit::render_*`
 //!    outputs (proves publish actually renders, not a stale string);
 //! 3. the three sealed inputs are copied verbatim;
 //! 4. the receipt carries `target=static`, `commit_oid=None`, and `file://` URLs;
@@ -18,8 +18,8 @@
 use std::path::Path;
 
 use attestrum_publish::{
-    AttestrumPublishError, CroissantPlan, DatasetCardPlan, ManifestStats, PublishPlan,
-    PublishReceipt, PublishTarget, StaticBundleTarget, VerifyHtmlPlan,
+    AttestrumPublishError, CroissantPlan, CycloneDxPlan, DatasetCardPlan, ManifestStats,
+    PublishPlan, PublishReceipt, PublishTarget, StaticBundleTarget, VerifyHtmlPlan,
 };
 use tempfile::TempDir;
 
@@ -31,10 +31,11 @@ const MANIFEST_BYTES: &[u8] = b"PAR1\x00\x00fake parquet payload";
 const MERKLE_BYTES: &[u8] = &[0xAB_u8; 32];
 const BUNDLE_BYTES: &[u8] = b"{\"fake\":\"sigstore-bundle\"}";
 
-/// The six canonical repo-relative paths every static publish must produce.
-const CANONICAL_PATHS: [&str; 6] = [
+/// The seven canonical repo-relative paths every static publish must produce.
+const CANONICAL_PATHS: [&str; 7] = [
     "README.md",
     "croissant.json",
+    "cyclonedx.json",
     "attestrum/manifest.parquet",
     "attestrum/merkle.root",
     "attestrum/bundle.sigstore.json",
@@ -67,6 +68,19 @@ fn write_fixture_plan(dir: &Path) -> PublishPlan {
             version: Some("1.0.0".to_string()),
             cite_as: None,
         },
+        cyclonedx_plan: CycloneDxPlan {
+            dataset_name: TEST_REPO.to_string(),
+            version: "1.0.0".to_string(),
+            source_date_epoch: 1_700_000_000,
+            manifest_sha256_hex: "a".repeat(64),
+            merkle_root_blake3_hex: "b".repeat(64),
+            manifest_stats: stats,
+            license: Some("Apache-2.0".to_string()),
+            publisher: None,
+            classification: None,
+            manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+            bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
+        },
         dataset_card_plan: DatasetCardPlan {
             pretty_name: "Test Dataset".to_string(),
             license_spdx: "Apache-2.0".to_string(),
@@ -95,7 +109,7 @@ fn write_fixture_plan(dir: &Path) -> PublishPlan {
 }
 
 #[test]
-fn publish_writes_the_canonical_six_files() {
+fn publish_writes_the_canonical_seven_files() {
     let fixtures = TempDir::new().expect("fixtures tempdir");
     let out = TempDir::new().expect("out tempdir");
     let plan = write_fixture_plan(fixtures.path());
@@ -108,7 +122,7 @@ fn publish_writes_the_canonical_six_files() {
         .expect("static publish should succeed");
     let root = &target.out_dir;
 
-    // All six canonical files present at the expected relative paths.
+    // All seven canonical files present at the expected relative paths.
     for rel in CANONICAL_PATHS {
         assert!(root.join(rel).is_file(), "missing expected artifact: {rel}");
     }
@@ -125,6 +139,12 @@ fn publish_writes_the_canonical_six_files() {
     assert_eq!(
         std::fs::read(root.join("croissant.json")).expect("read croissant.json"),
         expected_croissant.into_bytes(),
+    );
+    let expected_cyclonedx =
+        attestrum_emit::render_cyclonedx(&plan.cyclonedx_plan).expect("cyclonedx");
+    assert_eq!(
+        std::fs::read(root.join("cyclonedx.json")).expect("read cyclonedx.json"),
+        expected_cyclonedx.into_bytes(),
     );
     let expected_verify =
         attestrum_emit::render_verify_html_stub(&plan.verify_html_plan).expect("verify");

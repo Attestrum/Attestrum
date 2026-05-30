@@ -1,21 +1,22 @@
 //! S5-D3 E3 — wiremock-backed integration tests for `HuggingFaceTarget::publish()`.
-//! S5-D3 E6 — fixture-plan refactor to the new three-`*_plan` field shape +
-//!            `publish_commits_six_ops_with_rendered_content` test that captures
-//!            the create_commit NDJSON body and asserts the 6 ops' paths and
-//!            base64-decoded content against the render fns called separately.
+//! S5-D3 E6 — fixture-plan refactor to the new `*_plan` field shape +
+//!            `publish_commits_seven_ops_with_rendered_content` test that
+//!            captures the create_commit NDJSON body and asserts the ops' paths
+//!            and base64-decoded content against the render fns called
+//!            separately (cyclonedx.json added 2026-05-30).
 //!
 //! Each test spins its own `wiremock::MockServer` on a dedicated tokio
 //! runtime (clean isolation, sub-50ms startup) and points
 //! `HuggingFaceTarget::new_with_endpoint()` at the mock's `uri()` instead of
 //! `https://huggingface.co`. The six tests cover:
 //!
-//! 1. happy path — 6-op commit round-trips, receipt fields are correct.
+//! 1. happy path — 7-op commit round-trips, receipt fields are correct.
 //! 2. 401 on `/api/repos/create` → `AttestrumPublishError::Auth`.
 //! 3. 429 on `/api/repos/create` → `AttestrumPublishError::Quota`.
 //! 4. 409 on `/api/repos/create` with `exist_ok=true` → idempotent (commit completes).
 //! 5. connection refused (mock server torn down before publish) → `Network`.
-//! 6. (E6) commit body contains exactly the 6 expected paths in order, and the
-//!    three `add_bytes` payloads decode to byte-equal `attestrum-emit` outputs.
+//! 6. (E6) commit body contains exactly the 7 expected paths in order, and the
+//!    four `add_bytes` payloads decode to byte-equal `attestrum-emit` outputs.
 //!
 //! hf-hub's commit flow is `create_repo → preupload → create_commit` (three
 //! HTTP calls per publish). The preupload classifies each file as `"regular"`
@@ -54,8 +55,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use attestrum_publish::{
-    AttestrumPublishError, CroissantPlan, DatasetCardPlan, HuggingFaceTarget, ManifestStats,
-    PublishPlan, PublishReceipt, PublishTarget, VerifyHtmlPlan,
+    AttestrumPublishError, CroissantPlan, CycloneDxPlan, DatasetCardPlan, HuggingFaceTarget,
+    ManifestStats, PublishPlan, PublishReceipt, PublishTarget, VerifyHtmlPlan,
 };
 use base64::Engine;
 use serde_json::{json, Value};
@@ -110,6 +111,19 @@ fn write_fixture_plan(dir: &Path) -> PublishPlan {
             version: Some("1.0.0".to_string()),
             cite_as: None,
         },
+        cyclonedx_plan: CycloneDxPlan {
+            dataset_name: TEST_REPO.to_string(),
+            version: "1.0.0".to_string(),
+            source_date_epoch: 1_700_000_000,
+            manifest_sha256_hex: "a".repeat(64),
+            merkle_root_blake3_hex: "b".repeat(64),
+            manifest_stats: stats,
+            license: Some("Apache-2.0".to_string()),
+            publisher: None,
+            classification: None,
+            manifest_path_in_repo: "attestrum/manifest.parquet".to_string(),
+            bundle_path_in_repo: "attestrum/bundle.sigstore.json".to_string(),
+        },
         dataset_card_plan: DatasetCardPlan {
             pretty_name: "Test Dataset".to_string(),
             license_spdx: "Apache-2.0".to_string(),
@@ -154,6 +168,7 @@ async fn mount_happy_path(server: &MockServer) {
             "files": [
                 {"path": "README.md", "uploadMode": "regular"},
                 {"path": "croissant.json", "uploadMode": "regular"},
+                {"path": "cyclonedx.json", "uploadMode": "regular"},
                 {"path": "attestrum/manifest.parquet", "uploadMode": "regular"},
                 {"path": "attestrum/merkle.root", "uploadMode": "regular"},
                 {"path": "attestrum/bundle.sigstore.json", "uploadMode": "regular"},
@@ -284,6 +299,7 @@ fn publish_treats_409_on_create_repo_as_idempotent() {
                 "files": [
                     {"path": "README.md", "uploadMode": "regular"},
                     {"path": "croissant.json", "uploadMode": "regular"},
+                {"path": "cyclonedx.json", "uploadMode": "regular"},
                     {"path": "attestrum/manifest.parquet", "uploadMode": "regular"},
                     {"path": "attestrum/merkle.root", "uploadMode": "regular"},
                     {"path": "attestrum/bundle.sigstore.json", "uploadMode": "regular"},
@@ -346,13 +362,14 @@ fn publish_maps_connection_refused_to_network() {
     );
 }
 
-/// E6: the create_commit endpoint receives exactly the 6 expected file
-/// operations in order, and the three `add_bytes` payloads decode to the
-/// byte-equal outputs of `attestrum_emit::render_*` called separately. This
-/// is the contract that proves publish() actually consumes attestrum-emit
-/// at runtime (rather than e.g. silently re-using a stale fixture string).
+/// E6 (+ cyclonedx-mlbom-shape): the create_commit endpoint receives exactly
+/// the 7 expected file operations in order, and the four `add_bytes` payloads
+/// decode to the byte-equal outputs of `attestrum_emit::render_*` called
+/// separately. This is the contract that proves publish() actually consumes
+/// attestrum-emit at runtime (rather than e.g. silently re-using a stale
+/// fixture string).
 #[test]
-fn publish_commits_six_ops_with_rendered_content() {
+fn publish_commits_seven_ops_with_rendered_content() {
     let captured: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
     let captured_for_closure = Arc::clone(&captured);
 
@@ -372,6 +389,7 @@ fn publish_commits_six_ops_with_rendered_content() {
                 "files": [
                     {"path": "README.md", "uploadMode": "regular"},
                     {"path": "croissant.json", "uploadMode": "regular"},
+                {"path": "cyclonedx.json", "uploadMode": "regular"},
                     {"path": "attestrum/manifest.parquet", "uploadMode": "regular"},
                     {"path": "attestrum/merkle.root", "uploadMode": "regular"},
                     {"path": "attestrum/bundle.sigstore.json", "uploadMode": "regular"},
@@ -425,14 +443,15 @@ fn publish_commits_six_ops_with_rendered_content() {
 
     assert_eq!(
         file_entries.len(),
-        6,
-        "expected 6 file operations, got {}: {body_str}",
+        7,
+        "expected 7 file operations, got {}: {body_str}",
         file_entries.len()
     );
 
     let expected_paths = [
         "README.md",
         "croissant.json",
+        "cyclonedx.json",
         "attestrum/manifest.parquet",
         "attestrum/merkle.root",
         "attestrum/bundle.sigstore.json",
@@ -454,7 +473,7 @@ fn publish_commits_six_ops_with_rendered_content() {
         assert_eq!(encoding, "base64", "op {i}: expected base64 encoding");
     }
 
-    // The three add_bytes payloads MUST match what the emit fns produce on
+    // The four add_bytes payloads MUST match what the emit fns produce on
     // the same plan. Re-call the render fns and compare base64-decoded
     // content. add_file payloads (parquet/merkle.root/bundle) are tested
     // for path + encoding above; their content is the raw file bytes which
@@ -477,7 +496,16 @@ fn publish_commits_six_ops_with_rendered_content() {
         "croissant.json content must equal attestrum_emit::render_croissant output"
     );
 
-    let decoded_verify_html = decode_op_content(&file_entries[5]);
+    let decoded_cyclonedx = decode_op_content(&file_entries[2]);
+    let expected_cyclonedx =
+        attestrum_emit::render_cyclonedx(&plan.cyclonedx_plan).expect("render cyclonedx");
+    assert_eq!(
+        decoded_cyclonedx,
+        expected_cyclonedx.into_bytes(),
+        "cyclonedx.json content must equal attestrum_emit::render_cyclonedx output"
+    );
+
+    let decoded_verify_html = decode_op_content(&file_entries[6]);
     let expected_verify_html =
         attestrum_emit::render_verify_html_stub(&plan.verify_html_plan).expect("render verify");
     assert_eq!(

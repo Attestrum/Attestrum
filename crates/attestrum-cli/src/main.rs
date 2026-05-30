@@ -254,6 +254,19 @@ enum Command {
         #[arg(long, value_name = "TEXT")]
         cite_as: Option<String>,
 
+        /// Corpus-publisher organisation name for the CycloneDX ML-BOM
+        /// (`supplier` + `componentData.governance.owners`). Omitted when not
+        /// supplied (honest omission). For public demos this is the Attestrum
+        /// GitHub Actions workflow identity — never an individual.
+        #[arg(long, value_name = "ORG")]
+        publisher: Option<String>,
+
+        /// Data-classification / sensitivity label for the CycloneDX
+        /// `componentData.classification` (e.g. `public`). Omitted when not
+        /// supplied — never fabricated.
+        #[arg(long, value_name = "LABEL")]
+        classification: Option<String>,
+
         /// Publish target. `huggingface` pushes to the HF Hub; `static`
         /// writes the same artifact set to a local `--out-dir` (no network;
         /// upload to Zenodo / GitHub Pages / S3 / any static host).
@@ -545,6 +558,8 @@ fn main() -> ExitCode {
             license,
             version,
             cite_as,
+            publisher,
+            classification,
             target,
             revision,
             workspace,
@@ -570,6 +585,8 @@ fn main() -> ExitCode {
                 license,
                 version,
                 cite_as,
+                publisher,
+                classification,
                 target: target_kind,
                 revision,
                 workspace,
