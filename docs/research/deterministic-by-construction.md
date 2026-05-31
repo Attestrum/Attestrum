@@ -37,7 +37,9 @@ commits. The §4 full-corpus double-seal experiment was run on 2026-05-31.
   one exception), nor — on its own — a cross-platform claim (that is §3's matrix).
 - Validated three ways: a fixture double-seal unit test, the 4-target cross-platform
   CI matrix, and — reported here — a **full double-seal of the entire WikiText-103
-  corpus** (~824,850 passages), sealed twice and compared byte-for-byte.
+  corpus**, sealed twice and compared byte-for-byte. (That double-seal ran on the corpus
+  *as first sealed* — 824,850 passages; the detokenizer was then corrected and the corpus
+  re-sealed to the **current canonical 822,559 passages / root `de95bddc…`**, see §4.1.)
 
 ---
 
@@ -221,8 +223,9 @@ two Merkle roots are byte-for-byte identical.
 
 **Input.** `wikitext-103-raw-v1`, train split, 2 Parquet shards (~314 MB), pinned by
 SHA-256 (see [`../lookback/corpus-source.md`](../lookback/corpus-source.md)). After
-segmentation + the minimum-word floor, the corpus yields **824,850 passages** (one
-sealed leaf each).
+segmentation + the minimum-word floor, this *pre-fix* seal yielded **824,850 passages**
+(one sealed leaf each). The detokenizer fix in §4.1 later dropped the ~2,291
+mis-segmented stat-table glossary lines, giving the current canonical 822,559.
 
 **Method.** Two runs of the seal generator (`examples/seal-wikitext.rs`, release
 build) over the identical input directory, into separate output dirs (`run1`, `run2`).
