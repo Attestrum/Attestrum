@@ -1,0 +1,167 @@
+name: lookback-seal-crosscheck
+
+# Lookback Phase A — Item 3: the C1 "seal-path divergence" gate.
+#
+# The canonical WikiText-103 Merkle root (`de95bddc…`) was produced LOCALLY on a
+# macOS/arm64 machine by the `seal-wikitext` example. The eventual signing happens
+# in CI on `ubuntu-24.04` (x86_64/glibc) — a platform we have never confirmed
+# reproduces the same bytes. The existing `determinism.yml` matrix only gates the
+# protected backend (BLAKE3 → CAS → Parquet → Merkle) over a tiny in-memory
+# fixture; it does NOT exercise the `seal-wikitext` front-end (Parquet read +
+# segmentation/detok) over the real 822,559-leaf corpus.
+#
+# This workflow closes that gap: on the real signing platform it downloads the two
+# pinned WikiText shards (SHA-256-verified against docs/lookback/corpus-source.md),
+# runs `seal-wikitext`, and asserts the resulting Merkle root, manifest.parquet
+# SHA-256, and leaf count all equal the canonical values. Green here = the seal
+# path is byte-reproducible on Linux, which is the precondition for signing.
+#
+# It SIGNS NOTHING and PUBLISHES NOTHING — no id-token permission, no Fulcio, no
+# Rekor entry, no Hugging Face push. It is fully reversible: a public-dataset
+# download and a hash comparison.
+#
+# Trigger = workflow_dispatch ONLY. Each run downloads ~314 MB and seals for ~90+
+# minutes (the seal is fsync-bound), far too heavy for per-push. This is a
+# PROCEDURAL gate — it must be run-and-green before the signing phase, not a
+# per-commit check. (Mirrors build-sign-publish.yml's manual-only stance.)
+#
+# Scope: ONE target (ubuntu-24.04 / x86_64-glibc), the signing platform. Cross-
+# arch/libc byte-identity of the protected backend is already proven by
+# determinism.yml; the only new surface here is the platform-independent Parquet +
+# segmentation front-end, so a single decision-relevant target suffices. Item 5
+# will EXTEND this workflow (merkle.root emission, RSS/time reporting, the
+# `--target static` publish dry-run) — out of scope for this gate.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: lookback-seal-crosscheck-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Repo-relative dirs the job writes into. DATA/train/{0000,0001}.parquet receives
+  # the downloaded shards; WS receives the seal output
+  # (.attestrum/{cas,manifests}/…). Both are ephemeral on the runner.
+  DATA: lookback-data
+  WS: lookback-seal-ws
+  # The auto-converted Parquet mirror branch + train split (corpus-source.md §Source).
+  HF_BASE: "https://huggingface.co/datasets/Salesforce/wikitext/resolve/refs%2Fconvert%2Fparquet/wikitext-103-raw-v1/train"
+  # Canonical seal — source of truth: docs/lookback/corpus-source.md §"Canonical seal".
+  CANONICAL_ROOT: "de95bddc1c0d17123b8ab5960b3300f31a713b8804e32184ed03e606696726dc"
+  CANONICAL_MANIFEST_SHA256: "eafa3dd76ff9bcebfa6e115a1886fa761dd7c376256b053dd9e6ac9634e275a0"
+  CANONICAL_LEAVES: "822559"
+  # Pinned shard digests (= HF Git-LFS oids), corpus-source.md §Shards.
+  SHARD_0000_SHA256: "74da360f23826045b3e6ac6375411fdb15f003030aa74f2596ed08b857cb9212"
+  SHARD_0001_SHA256: "ba090ac30dbf5461e8dcbdd1a1b8e6f3cf9c2c756d64f0c1220450acd514f720"
+
+jobs:
+  seal-crosscheck:
+    name: seal-wikitext on Linux x86_64/glibc reproduces de95bddc…
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-seal-crosscheck-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-seal-crosscheck-
+
+      - name: Build seal-wikitext (release)
+        run: cargo build --release -p attestrum-pipeline --example seal-wikitext
+
+      # Download the two pinned shards. Public dataset — no auth. --fail-with-body
+      # makes an HTTP error a non-zero exit (curl is otherwise happy to write an
+      # error page to the output file).
+      - name: Download pinned WikiText-103 shards
+        run: |
+          set -euo pipefail
+          mkdir -p "$DATA/train"
+          for shard in 0000 0001; do
+            echo "downloading $shard.parquet"
+            curl --fail-with-body -sSL -o "$DATA/train/$shard.parquet" \
+              "$HF_BASE/$shard.parquet"
+          done
+          ls -la "$DATA/train"
+
+      # Integrity gate: the seal is only meaningful over the EXACT bytes the
+      # canonical root was sealed from. If HF regenerates the convert/parquet
+      # mirror with different bytes, this fails loudly instead of silently sealing
+      # a different corpus.
+      - name: Verify shard SHA-256 against pinned digests
+        run: |
+          set -euo pipefail
+          cat > shards.sha256 <<EOF
+          $SHARD_0000_SHA256  $DATA/train/0000.parquet
+          $SHARD_0001_SHA256  $DATA/train/0001.parquet
+          EOF
+          echo "--- expected ---"; cat shards.sha256
+          sha256sum -c shards.sha256
+
+      # Run the seal. stdout is exactly the 65-byte root line (64 hex + \n);
+      # stderr carries `leaves=… bytes=… manifest=…`. Capture each separately.
+      - name: Run seal-wikitext over the pinned corpus
+        run: |
+          set -euo pipefail
+          ./target/release/examples/seal-wikitext "$DATA/train" "$WS" \
+            > root.txt 2> seal.stderr
+          echo "--- stdout (root) ---"; cat root.txt
+          echo "--- stderr ---"; cat seal.stderr
+
+      # Triple assertion. The trio (root + manifest hash + leaf count) guards
+      # against a root collision masking a different corpus: a wrong corpus that
+      # happened to collide on the root would still miss on the manifest bytes
+      # and/or the leaf count.
+      - name: Assert canonical root, manifest SHA-256, and leaf count
+        run: |
+          set -euo pipefail
+          fail=0
+
+          got_root="$(tr -d '\n' < root.txt)"
+          if [ "$got_root" = "$CANONICAL_ROOT" ]; then
+            echo "OK   root:        $got_root"
+          else
+            echo "::error::root mismatch — expected $CANONICAL_ROOT, got $got_root"
+            fail=1
+          fi
+
+          manifest="$WS/.attestrum/manifests/manifest.parquet"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::manifest not found at $manifest"
+            exit 1
+          fi
+          got_manifest_sha="$(sha256sum "$manifest" | awk '{print $1}')"
+          if [ "$got_manifest_sha" = "$CANONICAL_MANIFEST_SHA256" ]; then
+            echo "OK   manifest:    $got_manifest_sha"
+          else
+            echo "::error::manifest.parquet SHA-256 mismatch — expected $CANONICAL_MANIFEST_SHA256, got $got_manifest_sha"
+            fail=1
+          fi
+
+          # Parse `leaves=<N>` out of the stderr summary line.
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          if [ "$got_leaves" = "$CANONICAL_LEAVES" ]; then
+            echo "OK   leaves:      $got_leaves"
+          else
+            echo "::error::leaf count mismatch — expected $CANONICAL_LEAVES, got '$got_leaves'"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::C1 seal-path cross-check FAILED — Linux did not reproduce the canonical seal"
+            exit 1
+          fi
+          echo "Linux x86_64/glibc reproduced the canonical WikiText-103 seal byte-for-byte — C1 retired."
