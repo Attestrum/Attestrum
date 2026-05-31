@@ -344,6 +344,21 @@ mod tests {
     }
 
     #[test]
+    fn detok_unbalanced_quote_is_stable_and_degraded() {
+        // An odd number of `"` (a quotation that spans a paragraph/line break)
+        // cannot be perfectly resolved by alternation. The contract is only that
+        // the result is DETERMINISTIC and degrades predictably — the lone `"` is
+        // treated as an opener (hugs the following word). Pinned so this known
+        // limitation cannot silently worsen.
+        assert_eq!(detokenize("she said \" hi there"), "she said \"hi there");
+        // Stable across repeated calls (state resets per call — no cross-line bleed).
+        assert_eq!(
+            detokenize("she said \" hi there"),
+            detokenize("she said \" hi there")
+        );
+    }
+
+    #[test]
     fn heading_rejects_semicolon_glossary_lines() {
         // Real article titles (incl. parenthetical disambiguators) are titles.
         assert_eq!(classify_heading("= Valkyria Chronicles III ="), Some(true));

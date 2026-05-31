@@ -69,10 +69,27 @@ curl -sSL -o 0001.parquet "$base/0001.parquet"
 shasum -a 256 0000.parquet 0001.parquet   # must match the table above
 ```
 
-The sealed corpus is then produced by the seal generator (full build measured in a
-later Phase A commit):
+The sealed corpus is then produced by the seal generator:
 
 ```bash
 cargo run -p attestrum-pipeline --release --example seal-wikitext \
   -- _lookback-data/wikitext-103-raw-v1/train _lookback-out
 ```
+
+## Canonical seal (input → output, closeable)
+
+Sealing the pinned input shards above with the seal generator yields this canonical
+result. A verifier who re-runs the command on the byte-identical input must reproduce
+the same Merkle root.
+
+| Field | Value |
+|---|---|
+| Merkle root (BLAKE3, RFC 6962) | `de95bddc1c0d17123b8ab5960b3300f31a713b8804e32184ed03e606696726dc` |
+| Leaves (passages) / unique CAS objects | 822,559 / 808,823 |
+| `manifest.parquet` SHA-256 | `eafa3dd76ff9bcebfa6e115a1886fa761dd7c376256b053dd9e6ac9634e275a0` |
+| Sealed by | `attestrum-pipeline` example `seal-wikitext` (release) |
+
+The root is printed to stdout by the seal command; the manifest lands at
+`<output-dir>/.attestrum/manifests/manifest.parquet`. See
+`docs/research/deterministic-by-construction.md` §4.1 for the reproducibility analysis.
+Cross-platform reproduction of this root is a pending gate before the corpus is signed.
