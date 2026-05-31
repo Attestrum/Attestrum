@@ -10,6 +10,12 @@ name: ci
 #               protocol layer 6 — post-push verification that no
 #               credential patterns landed even if local hooks were
 #               disabled).
+#   - cyclonedx: validates the committed cyclonedx.json golden against the
+#               public CycloneDX validator (sbom-utility, pinned v0.19.0,
+#               checksum-verified) — proves the emitted ML-BOM passes stock
+#               tooling 0/0 (CLAUDE.md §12 vendor-neutrality). Decision
+#               cyclonedx-mlbom-shape, 2026-05-30. The Croissant validator
+#               CI gate remains a separate deferred item.
 #
 # Determinism matrix (Linux x86 + ARM + macOS + musl) is a separate
 # workflow (.github/workflows/determinism.yml) landing in Sprint 2 E3.
@@ -164,3 +170,31 @@ jobs:
       # or a `git commit --no-verify` that violated CLAUDE.md §0.5.4).
       - name: Run secret-scanner --all
         run: cargo run -p secret-scanner --release --quiet -- check --all
+
+  cyclonedx:
+    name: cyclonedx (sbom-utility validate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Vendor the public CycloneDX validator, pinned to an exact release and
+      # verified by its published MD5. v0.19.0 embeds the CycloneDX 1.6 schema,
+      # so pinning the binary pins the schema revision (decision I). No Rust /
+      # cargo needed — this job validates the committed golden bytes directly.
+      - name: Download + verify sbom-utility v0.19.0 (pinned, linux-amd64)
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o sbom-utility.tar.gz \
+            https://github.com/CycloneDX/sbom-utility/releases/download/v0.19.0/sbom-utility-v0.19.0-linux-amd64.tar.gz
+          echo "4d3463c4708b67c64e28a1dfd4e81a8e  sbom-utility.tar.gz" | md5sum -c -
+          tar xzf sbom-utility.tar.gz
+          ./sbom-utility version
+
+      # The committed golden is the byte-identical emitter output (pinned by the
+      # attestrum-emit cyclonedx tests). Validating it proves the bytes we emit
+      # pass the public CycloneDX 1.6 schema with zero errors — `validate`
+      # exits non-zero on any schema violation.
+      - name: Validate cyclonedx.json golden (CycloneDX 1.6, 0 errors)
+        run: |
+          "$RUNNER_TEMP/sbom-utility" validate \
+            -i crates/attestrum-emit/tests/fixtures/cyclonedx-5entry.golden.json
