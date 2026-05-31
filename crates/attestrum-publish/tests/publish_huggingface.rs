@@ -136,6 +136,7 @@ fn write_fixture_plan(dir: &Path) -> PublishPlan {
             verify_url: format!(
                 "https://huggingface.co/datasets/{TEST_REPO}/blob/{TEST_BRANCH}/attestrum/verify.html"
             ),
+            attribution: None,
         },
         verify_html_plan: VerifyHtmlPlan {
             dataset_name: TEST_REPO.to_string(),

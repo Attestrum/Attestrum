@@ -93,6 +93,7 @@ fn write_fixture_plan(dir: &Path) -> PublishPlan {
             // Static-target convention: relative, re-hostable. (Only affects
             // the rendered README content; the receipt URL is built separately.)
             verify_url: "attestrum/verify.html".to_string(),
+            attribution: None,
         },
         verify_html_plan: VerifyHtmlPlan {
             dataset_name: TEST_REPO.to_string(),

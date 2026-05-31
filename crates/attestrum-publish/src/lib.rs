@@ -720,6 +720,7 @@ mod tests {
                     total_bytes: 1,
                 },
                 verify_url: "https://example/verify.html".to_string(),
+                attribution: None,
             },
             verify_html_plan: VerifyHtmlPlan {
                 dataset_name: "my-org/my-dataset".to_string(),

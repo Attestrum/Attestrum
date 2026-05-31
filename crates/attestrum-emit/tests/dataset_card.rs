@@ -1,6 +1,6 @@
 //! S5-D3 E5 — integration tests for the dataset card README emitter.
 //!
-//! Seven tests pin the structural and byte-level contracts:
+//! Nine tests pin the structural and byte-level contracts:
 //!
 //! 1. `render_matches_golden` — byte-identity against `tests/fixtures/
 //!    readme-5entry.golden.md`. Regenerate via
@@ -17,6 +17,11 @@
 //!    are appended regardless of caller-supplied tags.
 //! 7. `render_rejects_empty_pretty_name` — validation rejects empty
 //!    required fields with `AttestrumEmitError::Readme(_)`.
+//! 8. `render_includes_attribution_when_present` — the `## Source &
+//!    attribution` section renders the caller's markdown verbatim, between
+//!    Corpus stats and Attestrum metadata.
+//! 9. `render_omits_attribution_when_absent` — no section when `attribution`
+//!    is `None` (the golden baseline path).
 
 use attestrum_emit::{render_readme, DatasetCardPlan, ManifestStats};
 
@@ -38,6 +43,10 @@ fn fixture_plan() -> DatasetCardPlan {
         verify_url:
             "https://huggingface.co/datasets/my-org/my-dataset/blob/main/attestrum/verify.html"
                 .to_string(),
+        // No attribution in the golden baseline — keeps `render_matches_golden`
+        // and the structural tests on the no-section path. The attribution
+        // rendering is covered by the two dedicated tests below.
+        attribution: None,
     }
 }
 
@@ -56,6 +65,41 @@ fn render_matches_golden() {
         actual, golden,
         "README output drifted from golden — regen via \
          ATTESTRUM_REGEN_README_GOLDEN=1 if intentional"
+    );
+}
+
+#[test]
+fn render_includes_attribution_when_present() {
+    let mut plan = fixture_plan();
+    plan.attribution =
+        Some("Derived from **Example Source**.\n\n- Link: https://example.org\n".to_string());
+    let out = render_readme(&plan).expect("render");
+
+    assert!(
+        out.contains("## Source & attribution\n\n"),
+        "attribution heading must appear when attribution is Some"
+    );
+    assert!(
+        out.contains("Derived from **Example Source**."),
+        "the supplied attribution body must be rendered verbatim"
+    );
+    // Placement: between Corpus stats and Attestrum metadata.
+    let attr = out.find("## Source & attribution").expect("attr section");
+    let stats = out.find("## Corpus stats").expect("stats section");
+    let meta = out.find("## Attestrum metadata").expect("metadata section");
+    assert!(
+        stats < attr && attr < meta,
+        "attribution must sit between Corpus stats and Attestrum metadata"
+    );
+}
+
+#[test]
+fn render_omits_attribution_when_absent() {
+    let plan = fixture_plan(); // attribution: None
+    let out = render_readme(&plan).expect("render");
+    assert!(
+        !out.contains("## Source & attribution"),
+        "no attribution section when attribution is None (backward-compatible)"
     );
 }
 

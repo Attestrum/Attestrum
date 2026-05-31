@@ -303,6 +303,12 @@ enum Command {
         /// Output directory. Only consulted by `--target static`.
         #[arg(long, value_name = "DIR")]
         out_dir: Option<PathBuf>,
+
+        /// Path to a markdown file rendered verbatim as the dataset card's
+        /// `## Source & attribution` section (e.g. CC-BY-SA-3.0 source/credit/
+        /// ShareAlike for a Wikipedia-derived corpus). Omit for no section.
+        #[arg(long, value_name = "PATH")]
+        attribution_file: Option<PathBuf>,
     },
 
     /// Sign a sealed manifest into a Sigstore Bundle v0.3 carrying an
@@ -567,6 +573,7 @@ fn main() -> ExitCode {
             token_file,
             no_sign_commits,
             out_dir,
+            attribution_file,
         } => {
             // Parse --target into the enum here so a bad value exits 2
             // before the run() helper is invoked.
@@ -594,6 +601,7 @@ fn main() -> ExitCode {
                 token_file,
                 no_sign_commits,
                 out_dir,
+                attribution_file,
             });
             ExitCode::from(code)
         }

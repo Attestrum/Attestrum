@@ -24,6 +24,11 @@ and the rationale in `docs/diagrams/lookback/wikitext-seal-pipeline.md`. Detoken
 lives in segmentation only; it never touches the protected fingerprint normalization
 (CLAUDE.md §4).
 
+**Attribution.** Because the corpus is Wikipedia text under CC-BY-SA-3.0, the publish
+path renders a source / attribution / modification / ShareAlike section on the dataset
+card from [`wikitext-attribution.md`](./wikitext-attribution.md) (passed verbatim to
+`attestrum publish --attribution-file`), satisfying the source license's §4 terms.
+
 ## Shards (train split — 2 files, ~314 MB total)
 
 Resolved from the dataset's auto-converted Parquet branch

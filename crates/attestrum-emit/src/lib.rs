@@ -269,6 +269,14 @@ pub struct DatasetCardPlan {
     /// prose. Typically
     /// `"https://huggingface.co/datasets/<org>/<name>/blob/<branch>/attestrum/verify.html"`.
     pub verify_url: String,
+
+    /// Optional caller-supplied attribution markdown, rendered verbatim under a
+    /// `## Source & attribution` heading in the card body. `None` omits the
+    /// section. The emitter authors no attribution text itself — the publisher
+    /// supplies the license-required credit / source link / modification
+    /// disclosure / ShareAlike notice (e.g. CC-BY-SA-3.0 §4 for a
+    /// Wikipedia-derived corpus). Kept generic: no corpus-specific text here.
+    pub attribution: Option<String>,
 }
 
 /// Caller-supplied inputs for `render_verify_html_stub()`. The output
@@ -420,6 +428,7 @@ mod tests {
             verify_url:
                 "https://huggingface.co/datasets/my-org/my-dataset/blob/main/attestrum/verify.html"
                     .to_string(),
+            attribution: None,
         };
     }
 

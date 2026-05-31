@@ -184,6 +184,13 @@ pub struct Args {
     /// output directory; defaults to `.attestrum-static`). Ignored by the
     /// other targets.
     pub out_dir: Option<PathBuf>,
+
+    /// `--attribution-file <PATH>`. Optional path to a markdown file whose
+    /// contents are rendered verbatim as the dataset card's
+    /// `## Source & attribution` section (e.g. CC-BY-SA-3.0 source/credit/
+    /// ShareAlike for a Wikipedia-derived corpus). `None` → no such section.
+    /// The CLI authors no attribution text; the publisher supplies it.
+    pub attribution_file: Option<PathBuf>,
 }
 
 /// The three publish-target values the CLI accepts. Mirrors
@@ -330,6 +337,22 @@ pub fn run(args: Args) -> u8 {
         bundle_path_in_repo: BUNDLE_PATH_IN_REPO.to_string(),
     };
 
+    // Optional attribution markdown, read verbatim from --attribution-file and
+    // rendered as the card's `## Source & attribution` section (license-required
+    // credit / source / modification disclosure / ShareAlike for, e.g., a
+    // CC-BY-SA-3.0 Wikipedia-derived corpus). Absent → no section. The CLI
+    // authors none of this text; the publisher supplies the file.
+    let attribution = match &args.attribution_file {
+        Some(path) => match std::fs::read_to_string(path) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("attestrum publish: --attribution-file {path:?}: {e}");
+                return ExitCode::RuntimeError.as_u8();
+            }
+        },
+        None => None,
+    };
+
     let dataset_card_plan = DatasetCardPlan {
         pretty_name,
         // Same resolved license as the Croissant descriptor (real value or the
@@ -342,6 +365,7 @@ pub fn run(args: Args) -> u8 {
         dataset_name: args.dataset.clone(),
         manifest_stats,
         verify_url,
+        attribution,
     };
 
     let verify_html_plan = VerifyHtmlPlan {
@@ -614,6 +638,7 @@ mod tests {
             token_file: None,
             no_sign_commits: false,
             out_dir: None,
+            attribution_file: None,
         }
     }
 

@@ -135,6 +135,17 @@ pub fn render(plan: &DatasetCardPlan) -> Result<String, AttestrumEmitError> {
     writeln!(out, "- Documents: {}", plan.manifest_stats.leaf_count).unwrap();
     writeln!(out, "- Total bytes: {}\n", plan.manifest_stats.total_bytes).unwrap();
 
+    // Optional source/attribution section, rendered verbatim from the
+    // caller-supplied markdown. The emitter authors no attribution text — the
+    // publisher owns the license-required credit / source / modification /
+    // ShareAlike content. `trim_end()` + a fixed `\n\n` keeps the section
+    // byte-deterministic regardless of the supplied string's trailing whitespace.
+    if let Some(attribution) = &plan.attribution {
+        out.push_str("## Source & attribution\n\n");
+        out.push_str(attribution.trim_end());
+        out.push_str("\n\n");
+    }
+
     out.push_str("## Attestrum metadata\n\n");
     writeln!(
         out,
