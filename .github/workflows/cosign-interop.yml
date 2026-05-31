@@ -18,9 +18,11 @@ name: cosign-interop
 # the v0.3 predicate URI, and the empty-corpus synthetic manifest's BLAKE3
 # hash. No corpus content leaks because the manifest is synthetic.
 #
-# First GREEN CI run is gated on the founder's first public push to
-# `github.com/Attestrum/Attestrum`. Until that push, this workflow does
-# not run.
+# The repository is public and this workflow runs green on every push to
+# `main`, so the v0.3 predicate URI already appears in permanent public
+# Rekor entries. The build-sign-publish.yml workflow extends this same
+# GHA-OIDC keyless pattern from "sign a synthetic manifest" to "build +
+# sign + publish a real fixture corpus".
 
 on:
   push:
