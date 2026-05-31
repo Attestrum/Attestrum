@@ -31,5 +31,9 @@ blake3         = { workspace = true }
 # arrow/parquet are dev-only (the library stays Parquet-free). Same
 # workspace-pinned versions attestrum-manifest already uses.
 arrow          = { workspace = true }
-parquet        = { workspace = true }
+# `snap` feature added on top of the workspace's `arrow + zstd`: the
+# HF-published WikiText-103 shards are Snappy-compressed (Parquet's default),
+# so the seal reader must decompress snappy. Reader-only — does NOT change the
+# attestrum-manifest zstd-level-3 writer (CLAUDE.md §4/§7 determinism).
+parquet        = { workspace = true, features = ["snap"] }
 thiserror      = { workspace = true }
