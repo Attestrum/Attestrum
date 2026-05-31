@@ -210,6 +210,11 @@ check — the experiment this document was written to record.
 
 ## 4. Experiment: full WikiText-103 double-seal
 
+> The double-seal below established the **determinism property** on the corpus as first
+> sealed. The seal *content* was subsequently corrected (see §4.1), which changed the
+> sealed bytes; the **current canonical root is in §4.1**. The result here stands as the
+> same-machine byte-reproducibility proof, which is independent of the content fix.
+
 **Goal.** Seal the entire WikiText-103 (raw) corpus twice, into two independent output
 directories on the same machine, and confirm the two `manifest.parquet` files and the
 two Merkle roots are byte-for-byte identical.
@@ -284,6 +289,42 @@ data point.
 > wall-clock dominated by waiting on those durable writes. Peak RSS (~2.5 GB) came in
 > well under the ~5 GB pre-experiment estimate; the Parquet writer buffering its row
 > group is the memory high-water mark.
+
+### 4.1 Content-quality fix and re-seal (current canonical root)
+
+The double-seal above proved the **determinism property** — that the pipeline emits
+byte-identical output for the same input. That property is independent of *what* text is
+sealed, so it carries forward unchanged through the content fix described here.
+
+An adversarial review of the seal *content* (not its determinism) then found two defects
+in the WikiText-specific preparation, both since fixed:
+
+- **Detokenizer completeness.** Measured over the full corpus, **39.65%** of sealed
+  passages carried a residual tokenization artifact a clean paste would not match —
+  dominated by spaced straight quotes (33%), plus spaced slash, currency, and
+  digit-colons. The detokenizer now handles these; the residual artifact rate fell to
+  **0.10%**.
+- **Backref attribution.** WikiText-103 linearizes some stat-table glossaries as
+  single-`=` lines mid-article, which were mis-read as article titles, mis-attributing
+  the following passages and producing **328** colliding `source_uri` slugs. After
+  rejecting those lines and disambiguating slugs, collisions are **0**. (Leaf-level
+  provenance was never affected — each leaf always carried its own `source_url`; this
+  fixed the human-facing backref.)
+
+Re-sealing the corrected corpus is the **current canonical seal**:
+
+| Metric | Value |
+|---|---|
+| Merkle root (BLAKE3) | `de95bddc1c0d17123b8ab5960b3300f31a713b8804e32184ed03e606696726dc` |
+| Leaves / unique CAS objects | 822,559 / 808,823 |
+| `manifest.parquet` SHA-256 | `eafa3dd76ff9bcebfa6e115a1886fa761dd7c376256b053dd9e6ac9634e275a0` |
+| `manifest.parquet` size | 66,038,259 B |
+| Wall-clock / peak RSS / disk | ~94.3 min / ~2.07 GB / 3.1 GB |
+
+Because the pipeline is unchanged, this artifact is reproducible by the same disciplines.
+Independent **cross-platform** reproduction of this root (sealing on Linux and confirming
+the identical `de95bddc…` — the property a Linux CI signer/verifier depends on) is the
+next gate and will be recorded here once run.
 
 ---
 

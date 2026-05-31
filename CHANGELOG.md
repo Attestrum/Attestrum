@@ -6,6 +6,12 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Fixed — Lookback detokenizer completeness + backref attribution; corpus re-sealed
+
+- **Detokenizer completeness.** An adversarial review + full-corpus measurement found the WikiText-103 detokenizer left a residual tokenization artifact on **39.65%** of sealed passages (dominated by spaced straight quotes, plus spaced slash, currency, digit-colons) — text a clean paste would not match, defeating the demo's "paste-to-match" purpose. The detokenizer now handles straight/`` ``/'' `` quotes, currency, digit-colon (`3 : 30` → `3:30`), spaced slash, and em-dash; the residual rate fell to **0.10%**.
+- **Backref attribution.** WikiText-103 linearizes stat-table glossaries as single-`=` lines mid-article, which were mis-read as article titles — mis-attributing the following passages and producing **328** colliding `source_uri` backrefs. Those lines are now rejected as titles and colliding slugs are disambiguated; collisions are **0**. Leaf-level provenance was never affected (each leaf carried its own `source_url`).
+- **Re-sealed.** The corrected corpus was re-sealed; the new canonical Merkle root is `de95bddc…696726dc` over 822,559 leaves (808,823 unique content objects). `docs/research/deterministic-by-construction.md` records the new artifact (§4.1); cross-platform reproduction of this root is the next gate.
+
 ### Added — research note: the dream cycle (nightly agentic process reflection)
 
 - **New `docs/research/the-dream-cycle-nightly-agentic-reflection.md`** — a vendor-neutral methodology report (with four fresh Mermaid diagrams) explaining the "dream cycle": a scheduled, read-only autonomous agent that reflects on the project's own development transcripts each night, runs six fixed lenses (protocol-audit, near-miss, voice-mine, decision-arch, handoff, creative) plus a reconcile loop-closer, and files structured proposals a human triages into done/declined/deferred. Covers the architecture, the trust disciplines (no-signal-is-virtuous, gap-proof window, dedup/self-check, read-only by construction), the generation-vs-judgment boundary, and honest limitations. Carries the method only — no internal outputs, paths, or data. Companion to `specification-first-agentic-engineering.md` and `adversarial-review-high-stakes-decisions.md`.
