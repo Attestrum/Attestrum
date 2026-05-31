@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — research note: the disclosure floor and verifiable provenance
+
+- **New `docs/research/disclosure-mandates-and-verifiable-provenance.md`** — a vendor-neutral positioning/explanation report mapping California **AB 2013** (in effect 1 Jan 2026) and **EU AI Act Article 53(1)(d)** (new GPAI models from 2 Aug 2025; enforcement powers from 2 Aug 2026; legacy models 2 Aug 2027) onto what a verifiable corpus record can and cannot substantiate. Core thesis: both mandates require a **narrative summary** (the floor), not a proof; a deterministic, signed, Merkle-committed record is a separate **backing layer** that makes the *factual* fields independently checkable while leaving every legal determination (copyright, licensing, personal-data) to the publisher and their counsel. Companion to `provenance-without-disclosure.md`; offers no legal advice. Regulatory facts verified against primary EU Commission / AI Office and California Legislature sources (incl. the template's top-10%-of-scraped-domains rule, top 5% or 1,000 for SMEs).
+
 ### Added — `build → sign → publish` CI workflow under the GHA keyless identity
 
 - **New `workflow_dispatch` workflow `.github/workflows/build-sign-publish.yml`** runs the full `attestrum build → sign → publish` pipeline **inside GitHub Actions**, signing the corpus **keyless under the ambient GitHub Actions OIDC identity** (via Fulcio/Rekor) — the publish-from-CI identity Attestrum's public-publish story requires, **never an individual's identity**. It is the first workflow that runs `attestrum publish`; the existing `cosign-interop.yml` only signs a synthetic empty-corpus manifest.
