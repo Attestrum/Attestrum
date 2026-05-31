@@ -113,13 +113,20 @@ jobs:
 
       # Run the seal. stdout is exactly the 65-byte root line (64 hex + \n);
       # stderr carries `leaves=… bytes=… manifest=…`. Capture each separately.
-      - name: Run seal-wikitext over the pinned corpus
+      - name: Run seal-wikitext over the pinned corpus (with time + peak RSS)
         run: |
           set -euo pipefail
-          ./target/release/examples/seal-wikitext "$DATA/train" "$WS" \
+          # /usr/bin/time -v (GNU time, present on ubuntu-24.04) records peak RSS and
+          # wall-clock. Its report goes to -o time.txt so the seal's own stderr
+          # (leaves=…) stays clean for the leaf-count assertion below. Observability
+          # only — it does not gate; the triple assertion is unchanged.
+          /usr/bin/time -v -o time.txt \
+            ./target/release/examples/seal-wikitext "$DATA/train" "$WS" \
             > root.txt 2> seal.stderr
           echo "--- stdout (root) ---"; cat root.txt
           echo "--- stderr ---"; cat seal.stderr
+          echo "--- resource usage (Linux x86_64/glibc) ---"
+          grep -E 'Elapsed \(wall clock\) time|Maximum resident set size' time.txt
 
       # Triple assertion. The trio (root + manifest hash + leaf count) guards
       # against a root collision masking a different corpus: a wrong corpus that

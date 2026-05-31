@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use arrow::array::{Array, StringArray};
 use attestrum_cas::CasStore;
-use attestrum_core::{BuildContext, Modality, SourceType};
+use attestrum_core::{hex, BuildContext, Modality, SourceType};
 use attestrum_manifest::ManifestSignals;
 use attestrum_pipeline::{build_corpus, BuildError, BuildOutput, ContentSource, CorpusEntry};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -181,7 +181,26 @@ pub fn seal(
     })?;
     let ctx = BuildContext::new(output_dir.to_path_buf(), epoch);
     let manifest_dir = output_dir.join(".attestrum").join("manifests");
-    Ok(build_corpus(&ctx, &cas, entries, &manifest_dir)?)
+    let output = build_corpus(&ctx, &cas, entries, &manifest_dir)?;
+
+    // Write `merkle.root` as a sibling to manifest.parquet — 64 lowercase hex chars
+    // + trailing newline, byte-identical to what `attestrum build` emits
+    // (`attestrum-cli/src/commands/build.rs`). This is the file the publish path's
+    // `--merkle-root` argument points at; sealing here keeps the example's output a
+    // drop-in for that path. It is an additional sibling file: it does not affect
+    // manifest.parquet or the Merkle root, so the stdout root stays the source of
+    // truth for the seal-crosscheck gate.
+    let merkle_root_path = manifest_dir.join("merkle.root");
+    fs::write(
+        &merkle_root_path,
+        format!("{}\n", hex::encode_32(&output.merkle_root)),
+    )
+    .map_err(|source| SealError::Io {
+        path: merkle_root_path,
+        source,
+    })?;
+
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -292,6 +311,23 @@ mod tests {
             fs::read(&out1.manifest_path).unwrap(),
             fs::read(&out2.manifest_path).unwrap(),
             "manifest.parquet bytes must be identical"
+        );
+
+        // merkle.root sibling: written beside manifest.parquet, formatted as 64
+        // lowercase hex + newline (matching `attestrum build`), and byte-identical
+        // across the two deterministic runs.
+        let root_file_1 = ws1.join(".attestrum").join("manifests").join("merkle.root");
+        let root_file_2 = ws2.join(".attestrum").join("manifests").join("merkle.root");
+        let root_text_1 = fs::read_to_string(&root_file_1).unwrap();
+        assert_eq!(
+            root_text_1,
+            format!("{}\n", hex::encode_32(&out1.merkle_root)),
+            "merkle.root must be 64 lowercase hex + newline matching the manifest root"
+        );
+        assert_eq!(
+            root_text_1,
+            fs::read_to_string(&root_file_2).unwrap(),
+            "merkle.root must be byte-identical across deterministic runs"
         );
 
         for d in [&input, &ws1, &ws2] {
