@@ -6,6 +6,14 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — CycloneDX 1.6 ML-BOM export (`cyclonedx.json`)
+
+- **`attestrum publish` now emits a deterministic `cyclonedx.json` beside `croissant.json`** — a CycloneDX 1.6 ML-BOM describing the sealed corpus for the software-supply-chain ecosystem. It validates against the public CycloneDX validator (`sbom-utility`) as **CycloneDX 1.6 with zero errors**, gated in CI against the committed golden (pinned validator). The canonical published file set grows from six to seven; both the Hugging Face and `--target static` targets emit it.
+- **The honesty contract:** `hashes` carries **only the SHA-256** of `manifest.parquet` — exactly the Sigstore-signed in-toto subject digest, which a third party can recompute (`sha256sum manifest.parquet`) and match. The BLAKE3 **Merkle root** is a tree root, not a flat byte digest, so it is **never** placed in `hashes`; it lives in a namespaced `attestrum:merkle.root.blake3` property alongside the corpus leaf-count / total-bytes. The document never shows two BLAKE3 values in two semantic roles. (Decision: multi-reviewer `cyclonedx-mlbom-shape`, 2026-05-30.)
+- **New `attestrum publish` flags `--publisher` and `--classification`** feed the ML-BOM's dataset `supplier` / `componentData.governance.owners` and `classification` — emitted only when supplied (honest omission, never fabricated), mirroring the `croissant.json` `license: "unknown"` precedent. The corpus `license` is reused from the same resolved value as Croissant (valid SPDX → `license.id`, otherwise `license.name`) so the two sidecars agree. Output is byte-deterministic (`metadata.timestamp` from `--source-date-epoch`, no `serialNumber`).
+- **Vendor-neutral:** the artifact verifies with stock CycloneDX tooling and no Attestrum install. "attestrum" appears only as the `metadata.tools` name, the referenced in-toto predicate URI, and the explicit `attestrum:` property namespace — never in a vendor-neutral identity field.
+- `AttestrumPublishError` gains a `CycloneDxInvalid` variant (parallel to `CroissantInvalid` → exit 1).
+
 ### Added — `attestrum publish` license / version / citation flags
 
 - **`attestrum publish` gains `--license`, `--version`, and `--cite-as`** so a published dataset can reach a `croissant.json` that validates with **zero `mlcroissant` warnings**. A default publish (no flags) records `license: "unknown"` (an honest token both `mlcroissant` and the HF Hub accept — with a one-line stderr notice) and `version: "1.0.0"`, leaving a single benign "no citation provided" warning; pass `--cite-as` for a clean zero/zero file. None of these values is ever fabricated — `--cite-as` is simply omitted when absent.
