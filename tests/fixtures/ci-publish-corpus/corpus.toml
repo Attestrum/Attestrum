@@ -1,0 +1,35 @@
+# Tiny fixture corpus for the build → sign → publish CI dry-run
+# (.github/workflows/build-sign-publish.yml). Three small public-domain
+# text entries — enough to exercise the full pipeline (hash → CAS →
+# manifest → Merkle root → sign → publish --target static) without any
+# real-world content. Kept deliberately minimal and deterministic.
+#
+# source_url values are relative filenames resolved against this file's
+# directory. The CI workflow overrides source_date_epoch with the commit
+# time (--source-date-epoch); the value below is the local-run fallback
+# (CLI flag > [corpus] toml > 0).
+
+[corpus]
+name = "attestrum-ci-publish-fixture"
+source_date_epoch = 1748563200
+
+[[entry]]
+source_url = "doc01.txt"
+modality = "text"
+source_type = "synthetic"
+license_spdx = "CC0-1.0"
+language = "en"
+
+[[entry]]
+source_url = "doc02.txt"
+modality = "text"
+source_type = "synthetic"
+license_spdx = "CC0-1.0"
+language = "en"
+
+[[entry]]
+source_url = "doc03.txt"
+modality = "text"
+source_type = "synthetic"
+license_spdx = "CC0-1.0"
+language = "en"
