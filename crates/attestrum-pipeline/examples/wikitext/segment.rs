@@ -35,45 +35,95 @@ pub struct Passage {
 /// Detokenize one WikiText-103-raw line into natural English.
 ///
 /// Reverses the moses tokenization wikitext-103-raw still carries: the `@-@` /
-/// `@,@` / `@.@` joiners, and the spaces moses inserts around punctuation,
-/// brackets, and split contractions. Pure and deterministic.
+/// `@,@` / `@.@` joiners; the em-dash (` -- `) and spaced slash (` / `); and the
+/// spaces moses inserts around punctuation, brackets, quotes, currency symbols,
+/// and split contractions. Straight double quotes are resolved to opening /
+/// closing by alternation within the line (the corpus uses spaced straight `"`,
+/// not moses `` `` ``/`''`, for ~a third of passages). Pure and deterministic.
+///
+/// Best-effort, not byte-perfect: an unbalanced `"` within a single line (a
+/// quotation spanning a paragraph break) can mis-resolve, and rare spacing in
+/// the source survives. The goal is natural English that matches a pasted
+/// passage, not a perfect inverse of moses.
 pub fn detokenize(line: &str) -> String {
-    // Step 1: WikiText-103 joiners (always space-padded in the corpus).
+    // Step 1: joiners + spaced separators that need bidirectional context
+    // (cheaper as string replaces than carried through the token loop).
     let pre = line
         .replace(" @-@ ", "-")
         .replace(" @,@ ", ",")
-        .replace(" @.@ ", ".");
+        .replace(" @.@ ", ".")
+        .replace(" -- ", "\u{2014}") // em-dash
+        .replace(" / ", "/");
 
-    // Step 2: re-attach punctuation/brackets/contractions over the moses
-    // single-space token stream.
+    // Step 2: walk the moses single-space token stream. A space is inserted
+    // between two tokens unless the current token hugs the previous one
+    // (`hug_left`) or the previous token hugs the next (`hug_right`).
+    let tokens: Vec<&str> = pre.split_whitespace().collect();
     let mut out = String::with_capacity(pre.len());
-    let mut prev_was_open = false;
-    for (i, tok) in pre.split_whitespace().enumerate() {
-        let attach_left = i == 0 || prev_was_open || attaches_left(tok);
-        if !attach_left {
+    let mut prev_hugs_next = false;
+    let mut dquote_open = false;
+    for i in 0..tokens.len() {
+        let tok = tokens[i];
+        let prev_ends_digit = i > 0 && tokens[i - 1].ends_with(|c: char| c.is_ascii_digit());
+        let next_starts_digit =
+            i + 1 < tokens.len() && tokens[i + 1].starts_with(|c: char| c.is_ascii_digit());
+
+        // (emitted text, hugs_left, hugs_right); updates straight-quote state.
+        let (emit, hug_left, hug_right): (&str, bool, bool) = if tok == "\"" {
+            if dquote_open {
+                dquote_open = false;
+                ("\"", true, false) // closing quote hugs the previous token
+            } else {
+                dquote_open = true;
+                ("\"", false, true) // opening quote hugs the next token
+            }
+        } else if tok == "``" {
+            ("\"", false, true) // moses opening double quote
+        } else if tok == "''" {
+            ("\"", true, false) // moses closing double quote
+        } else if matches!(tok, "$" | "\u{00a3}" | "\u{20ac}" | "\u{00a5}") {
+            (tok, false, true) // currency symbol hugs the amount that follows
+        } else if tok == ":" && prev_ends_digit && next_starts_digit {
+            (tok, true, true) // clock time / ratio: 3 : 30 -> 3:30
+        } else {
+            (tok, attaches_left(tok), is_open(tok))
+        };
+
+        if i != 0 && !prev_hugs_next && !hug_left {
             out.push(' ');
         }
-        out.push_str(tok);
-        prev_was_open = is_open(tok);
+        out.push_str(emit);
+        prev_hugs_next = hug_right;
     }
     out
 }
 
 /// Tokens that hug the *preceding* token (no space before them): sentence /
-/// clause punctuation, closing brackets, closing quotes, and split
-/// contractions / possessives (`'s`, `n't`, `'re`, ...).
+/// clause punctuation, closing brackets, and split contractions / possessives
+/// (`'s`, `n't`, `'re`, ...). Quotes and currency are handled in [`detokenize`].
 fn attaches_left(tok: &str) -> bool {
     matches!(
         tok,
-        "," | "." | ";" | ":" | "!" | "?" | "%" | ")" | "]" | "}" | "''" | "’" | "n't" | "n’t"
+        "," | "."
+            | ";"
+            | ":"
+            | "!"
+            | "?"
+            | "%"
+            | ")"
+            | "]"
+            | "}"
+            | "\u{2019}"
+            | "n't"
+            | "n\u{2019}t"
     ) || (tok.starts_with('\'') && tok.len() > 1)
-        || (tok.starts_with('’') && tok.chars().count() > 1)
+        || (tok.starts_with('\u{2019}') && tok.chars().count() > 1)
 }
 
 /// Tokens after which the *following* token hugs (no space after them): opening
-/// brackets and opening quotes.
+/// brackets and the opening curly quote.
 fn is_open(tok: &str) -> bool {
-    matches!(tok, "(" | "[" | "{" | "``" | "‘")
+    matches!(tok, "(" | "[" | "{" | "\u{2018}")
 }
 
 /// Classify a heading line.
@@ -94,7 +144,19 @@ fn classify_heading(trimmed: &str) -> Option<bool> {
     if inner.is_empty() {
         return None;
     }
-    Some(!(inner.starts_with('=') && inner.ends_with('=')))
+    // Section heading (level 2+): the inner span is itself `= ... =`.
+    if inner.starts_with('=') && inner.ends_with('=') {
+        return Some(false);
+    }
+    // A real Wikipedia article title never contains a semicolon. WikiText-103
+    // linearizes some stat-table glossaries as single-`=` lines mid-article
+    // (e.g. ` = Goals ; A = `, ` = Wins ; L = `); treat any `;`-bearing
+    // single-`=` line as a non-title heading so it neither becomes the article
+    // slug nor mis-attributes the passages that follow it.
+    if inner.contains(';') {
+        return Some(false);
+    }
+    Some(true)
 }
 
 /// Slugify a (detokenized) article title into the `<slug>` of the source
@@ -114,9 +176,15 @@ fn word_count(s: &str) -> usize {
 /// article slug and resets the per-article passage counter; section headings are
 /// skipped. Deterministic: input order in -> passage order out.
 pub fn segment(text: &str) -> Vec<Passage> {
+    use std::collections::BTreeMap;
     let mut out = Vec::new();
     let mut slug = String::from("_unknown");
     let mut passage_idx = 0usize;
+    // Per-slug occurrence counter so two articles that would otherwise share a
+    // slug get distinct backref namespaces (`Foo`, `Foo-2`, ...). Walked in
+    // input order, so the assignment is deterministic; the map is only ever
+    // point-looked-up, never iterated.
+    let mut slug_seen: BTreeMap<String, u32> = BTreeMap::new();
 
     for raw in text.lines() {
         let line = raw.trim();
@@ -126,11 +194,14 @@ pub fn segment(text: &str) -> Vec<Passage> {
         match classify_heading(line) {
             Some(true) => {
                 let title = detokenize(line.trim_matches('=').trim());
-                slug = slugify(&title);
+                let base = slugify(&title);
+                let n = slug_seen.entry(base.clone()).or_insert(0);
+                *n += 1;
+                slug = if *n == 1 { base } else { format!("{base}-{n}") };
                 passage_idx = 0;
                 continue;
             }
-            Some(false) => continue, // section heading
+            Some(false) => continue, // section heading / mangled glossary line
             None => {}
         }
         let detok = detokenize(line);
@@ -249,5 +320,75 @@ mod tests {
     fn segment_is_deterministic() {
         let doc = " = A = \n\n the quick brown fox jumps over the lazy dog .\n";
         assert_eq!(segment(doc), segment(doc));
+    }
+
+    #[test]
+    fn detok_quotes_currency_units_and_emdash() {
+        // Straight double quotes (the corpus's dominant quote form) resolve to
+        // opening/closing by alternation within the line.
+        assert_eq!(
+            detokenize("Squad 422 , also known as \" The Nameless \" , are"),
+            "Squad 422, also known as \"The Nameless\", are"
+        );
+        // Currency hugs the amount.
+        assert_eq!(detokenize("it cost $ 5 million"), "it cost $5 million");
+        // Spaced slash joins; clock time / ratio colon joins between digits.
+        assert_eq!(detokenize("5 kg / m at 3 : 30 pm"), "5 kg/m at 3:30 pm");
+        // Em-dash.
+        assert_eq!(
+            detokenize("war -- peace as a theme"),
+            "war\u{2014}peace as a theme"
+        );
+        // moses `` / '' double quotes also map to straight quotes.
+        assert_eq!(detokenize("he said `` hi there ''"), "he said \"hi there\"");
+    }
+
+    #[test]
+    fn heading_rejects_semicolon_glossary_lines() {
+        // Real article titles (incl. parenthetical disambiguators) are titles.
+        assert_eq!(classify_heading("= Valkyria Chronicles III ="), Some(true));
+        assert_eq!(classify_heading("= USS Atlanta ( 1861 ) ="), Some(true));
+        // Linearized stat-table glossary lines must NOT be treated as titles.
+        assert_eq!(classify_heading("= Goals ; A ="), Some(false));
+        assert_eq!(classify_heading("= Wins ; L ="), Some(false));
+    }
+
+    #[test]
+    fn segment_skips_glossary_and_keeps_attribution() {
+        // A `;`-glossary line mid-article must not steal attribution from the
+        // real article that precedes it.
+        let doc = "\
+ = Real Article =
+
+ the quick brown fox jumps over the lazy dog repeatedly today .
+
+ = Goals ; A =
+
+ another full sentence with at least five words here now .
+";
+        let passages = segment(doc);
+        assert_eq!(passages.len(), 2);
+        assert_eq!(passages[0].source_uri, "wikipedia://Real_Article#p1");
+        // The line after the glossary stays under Real Article (p2), NOT under a
+        // spurious "Goals" slug, and the counter does not reset.
+        assert_eq!(passages[1].source_uri, "wikipedia://Real_Article#p2");
+    }
+
+    #[test]
+    fn segment_disambiguates_colliding_slugs() {
+        // Two distinct articles with the same title get distinct backrefs.
+        let doc = "\
+ = Mercury =
+
+ the first article about the planet has enough words to pass the floor .
+
+ = Mercury =
+
+ the second article about the element also clears the word floor easily .
+";
+        let passages = segment(doc);
+        assert_eq!(passages.len(), 2);
+        assert_eq!(passages[0].source_uri, "wikipedia://Mercury#p1");
+        assert_eq!(passages[1].source_uri, "wikipedia://Mercury-2#p1");
     }
 }
