@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — research note: the dream cycle (nightly agentic process reflection)
+
+- **New `docs/research/the-dream-cycle-nightly-agentic-reflection.md`** — a vendor-neutral methodology report (with four fresh Mermaid diagrams) explaining the "dream cycle": a scheduled, read-only autonomous agent that reflects on the project's own development transcripts each night, runs six fixed lenses (protocol-audit, near-miss, voice-mine, decision-arch, handoff, creative) plus a reconcile loop-closer, and files structured proposals a human triages into done/declined/deferred. Covers the architecture, the trust disciplines (no-signal-is-virtuous, gap-proof window, dedup/self-check, read-only by construction), the generation-vs-judgment boundary, and honest limitations. Carries the method only — no internal outputs, paths, or data. Companion to `specification-first-agentic-engineering.md` and `adversarial-review-high-stakes-decisions.md`.
+
 ### Added — research note: deterministic-by-construction (byte-identical seals)
 
 - **New `docs/research/deterministic-by-construction.md`** — an engineering report on *how* Attestrum produces reproducible corpus seals: the seven disciplines (deterministic input ordering, pure transformations, parallel-but-order-stable accumulation via `input_ordinal` stamping, no wall-clock, no floating-point in the hash path, canonical/pinned serialization, content-addressed storage) that make the `manifest.parquet` + Merkle root byte-identical across re-runs on the same machine. The "how" companion to `cross-target-determinism.md` (which covers cross-*platform* identity). Includes four diagrams (verifier loop, the order-stability mechanism, the double-seal experiment, the disciplines overview).
