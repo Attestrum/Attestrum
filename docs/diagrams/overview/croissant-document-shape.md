@@ -2,7 +2,7 @@
 title: "Croissant 1.0 croissant.json emitted document shape"
 models: "crates/attestrum-emit/src/croissant.rs, render_croissant, CroissantPlan"
 source_of_truth: code
-last_verified: fe559ab 2026-05-30
+last_verified: 7f90a6d 2026-05-31
 diagram_type: flowchart
 ---
 
