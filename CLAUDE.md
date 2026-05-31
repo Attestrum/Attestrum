@@ -149,6 +149,16 @@ diagram_type: flowchart    # or stateDiagram-v2, sequenceDiagram, classDiagram, 
 
 ---
 
+## 2.5 Third-Party Validators In CI — Non-Negotiable For Emitters
+
+For every emitter in `crates/attestrum-emit/` whose output is validated by a third-party public tool — `mlcroissant` for Croissant, `sbom-utility` for CycloneDX — that validator MUST be a named CI gate by the time the emitter reaches `main`, landed in the same work window as the emitter.
+
+Running the validator locally once is not sufficient, and a Rust golden-file test cannot substitute: a golden pins emitter output to a committed fixture, but only the live validator proves that fixture still passes the public schema. Without the gate, a later change to the emitter can silently regress conformance while every CI check stays green — and an artifact a third party downloads and validates would then fail. That is the vendor-neutrality promise (§12) broken without warning.
+
+The gate validates the committed golden directly — modeled on `cyclonedx (sbom-utility validate)` and `croissant (mlcroissant validate)` in `.github/workflows/ci.yml`. Pin the validator version so the gate pins the schema revision; the emitter's byte-identity golden test links emitter output to the validated golden.
+
+---
+
 ## 3. Plan-First Gate
 
 You start every feature, fix, or refactor in plan mode. In plan mode:
