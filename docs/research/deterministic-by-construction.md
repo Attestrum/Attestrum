@@ -325,9 +325,29 @@ Re-sealing the corrected corpus is the **current canonical seal**:
 | Wall-clock / peak RSS / disk | ~94.3 min / ~2.07 GB / 3.1 GB |
 
 Because the pipeline is unchanged, this artifact is reproducible by the same disciplines.
-Independent **cross-platform** reproduction of this root (sealing on Linux and confirming
-the identical `de95bddc…` — the property a Linux CI signer/verifier depends on) is the
-next gate and will be recorded here once run.
+
+**Cross-platform reproduction (2026-05-31).** The canonical root was first sealed on
+macOS/arm64. It has now been **independently reproduced on Linux** — the property a Linux
+CI signer/verifier depends on. The `lookback-seal-crosscheck` workflow (`workflow_dispatch`,
+`.github/workflows/lookback-seal-crosscheck.yml`) runs the *same* `seal-wikitext` path on a
+GitHub Actions `ubuntu-24.04` (x86_64/glibc) runner: it re-downloads the two pinned shards
+(SHA-256-verified against [`corpus-source.md`](../lookback/corpus-source.md)), seals, and
+asserts the result against the canonical values. All three matched byte-for-byte:
+
+| Property | Canonical (macOS/arm64) | Linux x86_64/glibc | Match |
+|---|---|---|---|
+| Merkle root | `de95bddc…696726dc` | `de95bddc…696726dc` | ✅ |
+| `manifest.parquet` SHA-256 | `eafa3dd7…e275a0` | `eafa3dd7…e275a0` | ✅ |
+| Leaves | 822,559 | 822,559 | ✅ |
+
+The seal ran in ~5 min on the Linux runner versus ~94 min on macOS: the durable-write
+(`fsync`) cost that dominated the macOS wall-clock (§4) is roughly an order of magnitude
+cheaper on the runner's Linux filesystem. Execution time differed ~19× — the sealed bytes
+did not differ at all. That is the determinism property a signature depends on, now
+confirmed across a change of OS *and* libc *and* CPU architecture in one run. This retires
+the **seal-path-divergence** gate that blocked signing: the artifact the CI keyless
+identity will sign is produced by exactly the path proven here. Run: GitHub Actions
+`lookback-seal-crosscheck` #26725803592 (commit `372da9a`).
 
 ---
 

@@ -92,4 +92,7 @@ the same Merkle root.
 The root is printed to stdout by the seal command; the manifest lands at
 `<output-dir>/.attestrum/manifests/manifest.parquet`. See
 `docs/research/deterministic-by-construction.md` §4.1 for the reproducibility analysis.
-Cross-platform reproduction of this root is a pending gate before the corpus is signed.
+This root has been **reproduced byte-for-byte on Linux** (GitHub Actions `ubuntu-24.04`,
+x86_64/glibc) via the `lookback-seal-crosscheck` workflow — re-downloading the pinned
+shards, re-sealing, and asserting the identical root, `manifest.parquet` SHA-256, and leaf
+count. See §4.1 for the cross-platform result.

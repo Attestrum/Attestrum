@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — Lookback seal reproduced on Linux (seal-path-divergence gate retired)
+
+- **New `lookback-seal-crosscheck` CI workflow** (`.github/workflows/lookback-seal-crosscheck.yml`, `workflow_dispatch`) proves the WikiText-103 canonical seal is reproducible on the Linux platform that will perform signing. On a GitHub Actions `ubuntu-24.04` (x86_64/glibc) runner it re-downloads the two pinned shards (SHA-256-verified against `docs/lookback/corpus-source.md`), runs the same `seal-wikitext` path, and asserts the Merkle root, `manifest.parquet` SHA-256, **and** leaf count all equal the canonical values. First run (#26725803592): all three matched byte-for-byte (`de95bddc…696726dc` / `eafa3dd7…e275a0` / 822,559 leaves). The seal ran ~5 min on Linux vs ~94 min on macOS (the macOS `fsync` cost collapses on the runner) — execution time differed ~19×, the sealed bytes did not differ at all. This closes the gap where the determinism matrix gated only the protected backend over a fixture, not the `seal-wikitext` front-end over the real corpus; the artifact CI will sign is now produced by a path proven byte-reproducible across OS, libc, and CPU architecture. Signs/publishes nothing (no `id-token`, no Rekor entry, no Hub push). Recorded in `docs/research/deterministic-by-construction.md` §4.1.
+
 ### Fixed — Lookback detokenizer completeness + backref attribution; corpus re-sealed
 
 - **Detokenizer completeness.** An adversarial review + full-corpus measurement found the WikiText-103 detokenizer left a residual tokenization artifact on **39.65%** of sealed passages (dominated by spaced straight quotes, plus spaced slash, currency, digit-colons) — text a clean paste would not match, defeating the demo's "paste-to-match" purpose. The detokenizer now handles straight/`` ``/'' `` quotes, currency, digit-colon (`3 : 30` → `3:30`), spaced slash, and em-dash; the residual rate fell to **0.10%**.
