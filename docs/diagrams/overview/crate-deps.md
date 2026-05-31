@@ -2,7 +2,7 @@
 title: "crate dependency graph"
 models: "Cargo.toml workspace + per-crate Cargo.toml manifests"
 source_of_truth: code
-last_verified: 4065d9d 2026-05-29
+last_verified: af97d09 2026-05-30
 diagram_type: flowchart
 ---
 
@@ -38,10 +38,14 @@ flowchart TD
   FR[attestrum-fingerprint-registry] --> FP
   PB --> L
 
+  BD[attestrum-bind] --> AT
+  BD --> PV
+
   CLI[attestrum-cli] --> P
   CLI --> AT
   CLI --> EM
   CLI --> PV
   CLI --> PB
   CLI --> FR
+  CLI --> BD
 ```
