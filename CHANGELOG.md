@@ -6,6 +6,12 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — Lookback demo: WikiText-103 seal generator (Phase A)
+
+- **New example `attestrum-pipeline/examples/seal-wikitext.rs`** seals the public `wikitext-103-raw-v1` corpus into a deterministic `manifest.parquet` + Merkle root. It reads the dataset's Parquet `text` column, segments each article into one-passage-per-leaf entries, and runs the existing `build_corpus` pipeline — the input half of the Lookback "paste a paragraph, prove it was in the corpus" demo.
+- **Passages are detokenized to natural English before sealing.** WikiText-103-raw still ships moses-tokenized (` @-@ `, spaced punctuation); a pasted natural paragraph matches a raw passage at ~0.32 Jaccard but ~1.00 once detokenized. Detokenization lives in segmentation (`examples/wikitext/segment.rs`), never in the protected fingerprint normalization. A determinism test seals a fixture Parquet twice and asserts byte-identical manifest + root.
+- **`arrow` + `parquet` added as `attestrum-pipeline` dev-dependencies** (already used by `attestrum-manifest`; Apache-2.0, already allow-listed). Dev-only — the library stays Parquet-free.
+
 ### Added — research note: the disclosure floor and verifiable provenance
 
 - **New `docs/research/disclosure-mandates-and-verifiable-provenance.md`** — a vendor-neutral positioning/explanation report mapping California **AB 2013** (in effect 1 Jan 2026) and **EU AI Act Article 53(1)(d)** (new GPAI models from 2 Aug 2025; enforcement powers from 2 Aug 2026; legacy models 2 Aug 2027) onto what a verifiable corpus record can and cannot substantiate. Core thesis: both mandates require a **narrative summary** (the floor), not a proof; a deterministic, signed, Merkle-committed record is a separate **backing layer** that makes the *factual* fields independently checkable while leaving every legal determination (copyright, licensing, personal-data) to the publisher and their counsel. Companion to `provenance-without-disclosure.md`; offers no legal advice. Regulatory facts verified against primary EU Commission / AI Office and California Legislature sources (incl. the template's top-10%-of-scraped-domains rule, top 5% or 1,000 for SMEs).

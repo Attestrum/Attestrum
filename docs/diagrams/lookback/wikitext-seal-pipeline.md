@@ -1,18 +1,18 @@
 ---
 title: "Lookback Phase A — WikiText-103 seal generator pipeline"
 models: "crates/attestrum-pipeline/examples/seal-wikitext.rs, crates/attestrum-pipeline/src/lib.rs"
-source_of_truth: diagram
-last_verified: 4226bba 2026-05-31
+source_of_truth: code
+last_verified: 62b0dea 2026-05-31
 diagram_type: flowchart
 ---
 
-# Lookback Phase A — WikiText-103 seal generator (planning)
+# Lookback Phase A — WikiText-103 seal generator
 
-**Source of truth: `diagram`** — forward-looking design for the programmatic seal
-generator `crates/attestrum-pipeline/examples/seal-wikitext.rs`. Flips to
-`source_of_truth: code` once the example lands. Models the deterministic
-`sprint-3-corpus.rs` pattern but reads the real corpus from the Hugging Face parquet
-`text` column instead of synthesising bytes in memory.
+**Source of truth: `code`** — the programmatic seal generator
+`crates/attestrum-pipeline/examples/seal-wikitext.rs` (with its Parquet-reading core
+`examples/wikitext/seal.rs`) has landed; this diagram is now a derived view of it.
+It follows the deterministic `sprint-3-corpus.rs` pattern but reads the real corpus
+from the Hugging Face parquet `text` column instead of synthesising bytes in memory.
 
 Three decisions shape the pipeline:
 

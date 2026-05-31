@@ -544,11 +544,13 @@ dependencies = [
 name = "attestrum-pipeline"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "attestrum-cas",
  "attestrum-core",
  "attestrum-manifest",
  "attestrum-merkle",
  "blake3",
+ "parquet",
  "rayon",
  "thiserror 1.0.69",
 ]
