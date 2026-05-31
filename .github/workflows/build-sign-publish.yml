@@ -1,0 +1,191 @@
+name: build-sign-publish
+
+# Roadmap v0.2a — the first workflow that runs the full `attestrum build →
+# sign → publish` pipeline INSIDE GitHub Actions and proves a third party can
+# verify the result with `cosign` alone. The existing cosign-interop.yml only
+# signs a synthetic empty-corpus manifest; this one builds a real (fixture)
+# corpus, signs it under the AMBIENT GHA KEYLESS OIDC IDENTITY (never a
+# personal one — roadmap §21.1), publishes the artifact set via
+# `--target static`, and asserts the signed bundle carries the Attestrum GHA
+# workflow SAN.
+#
+# Why `--target static` (no Hugging Face push here): the provenance identity
+# lives in the BUNDLE, which `sign` produces BEFORE `publish`. `cosign
+# verify-blob-attestation` checks the bundle, so the static target (local
+# write, no network, no secret) fully exercises the §21.1 keyless-identity
+# proof. Hugging Face Hub has no GitHub-OIDC federation — a real HF push needs
+# a static token and is the next gated phase (P1), deliberately out of scope.
+#
+# Trigger = workflow_dispatch ONLY. Every signed run leaves one permanent
+# public Sigstore Rekor transparency-log entry; manual dispatch caps that to
+# deliberate runs (mirrors cosign-interop.yml's push:main-only reasoning, but
+# stricter — no automatic trigger at all).
+#
+# The visible Rekor content is the workflow URL (GHA OIDC identity), the v0.3
+# predicate URI, and the fixture manifest's BLAKE3/SHA-256 digests. No
+# sensitive content leaks: the corpus is the public-domain fixture under
+# tests/fixtures/ci-publish-corpus/.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-sign-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write    # GHA OIDC token exchange → Fulcio keyless identity
+  contents: read
+
+env:
+  # Repo-relative workspace the pipeline writes into. `build` writes
+  # .attestrum/manifests/{manifest.parquet,merkle.root}; `sign` writes
+  # bundles/manifest.sigstore.json under the same workspace.
+  WS: ci-dryrun-ws
+  FIXTURE_CORPUS: tests/fixtures/ci-publish-corpus/corpus.toml
+
+jobs:
+  build-sign-publish:
+    name: build → sign (keyless GHA OIDC) → publish --target static → cosign verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-sign-publish-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-sign-publish-
+
+      - name: Build the attestrum CLI (release)
+        run: cargo build --release -p attestrum-cli
+
+      # Determinism (CLAUDE.md §7): derive the epoch from the commit time, NOT
+      # wall-clock, and thread the SAME value through build, sign, and publish.
+      # checkout@v4 leaves HEAD at the dispatched SHA, so %ct is that commit's
+      # committer timestamp — reproducible for a given ref.
+      - name: Derive SOURCE_DATE_EPOCH from the commit
+        run: |
+          set -euo pipefail
+          sde="$(git show -s --format=%ct HEAD)"
+          echo "SOURCE_DATE_EPOCH=$sde" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$sde"
+
+      - name: attestrum build (fixture corpus → sealed manifest)
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum build \
+            --corpus "$FIXTURE_CORPUS" \
+            --workspace "$WS" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH"
+          test -f "$WS/.attestrum/manifests/manifest.parquet"
+          test -f "$WS/.attestrum/manifests/merkle.root"
+
+      # Exchange the GHA-issued ID-token-request for a sigstore-audience token
+      # Fulcio accepts. Audience MUST be `sigstore`. Mask the token in logs
+      # before exporting it to the sign step via GITHUB_ENV. (Identical pattern
+      # to cosign-interop.yml — the proven GHA-OIDC → Fulcio bridge.)
+      - name: Fetch SIGSTORE_ID_TOKEN via GHA OIDC exchange
+        run: |
+          set -euo pipefail
+          token="$(curl --fail-with-body -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" \
+            | jq -r '.value')"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to obtain sigstore-audience OIDC token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "SIGSTORE_ID_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # sign consumes SIGSTORE_ID_TOKEN from the env (CLI precedence:
+      # --oidc-token-file > SIGSTORE_ID_TOKEN). Hits Fulcio (ephemeral cert
+      # bound to the GHA workflow SAN) + Rekor v2 (transparency log). Bundle is
+      # written to <workspace>/bundles/<manifest-stem>.sigstore.json.
+      - name: attestrum sign (ambient GHA keyless OIDC)
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum sign \
+            "$WS/.attestrum/manifests/manifest.parquet" \
+            --workspace "$WS" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --publication-intent hf
+          test -f "$WS/bundles/manifest.sigstore.json"
+
+      - name: attestrum publish --target static (local artifact set)
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target static \
+            --dataset attestrum/ci-dryrun \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license CC0-1.0 \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public \
+            --out-dir "$WS/static-out"
+          echo "--- static-out tree ---"
+          find "$WS/static-out" -type f | sort
+
+      # Belt + suspenders pin — see cosign-interop.yml for the full rationale.
+      # @v3 is the cosign-INSTALLER action major pin; it installs the latest
+      # cosign binary (>= v2.5.x), which supports --new-bundle-format (landed
+      # in cosign v2.3.0).
+      - name: Install cosign (sigstore/cosign-installer@v3)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
+        run: |
+          set -euo pipefail
+          version_json="$(cosign version --json)"
+          echo "$version_json"
+          git_version="$(echo "$version_json" | jq -r '.gitVersion')"
+          case "$git_version" in
+            v2.[5-9].*|v2.[1-9][0-9].*|v3.*)
+              echo "cosign $git_version: OK (>= v2.5 or any v3.x)"
+              ;;
+            *)
+              echo "::error::cosign binary is below v2.5 or unrecognised: $git_version" >&2
+              exit 1
+              ;;
+          esac
+
+      # THE acceptance gate. A third party with zero Attestrum installed
+      # verifies the signed bundle with cosign alone, AND we assert the signing
+      # identity is the ATTESTRUM GHA WORKFLOW — not a personal identity
+      # (roadmap §21.1). The identity-regexp pins the cert SAN to this
+      # workflow's URI and the issuer to GitHub's OIDC provider; a personal
+      # identity (different SAN and/or a non-GitHub issuer) fails BOTH checks,
+      # so this step is the §21.1 guard, not just an interop smoke test.
+      - name: cosign verify-blob-attestation (assert Attestrum GHA SAN)
+        run: |
+          set -euo pipefail
+          bundle="$WS/bundles/manifest.sigstore.json"
+          manifest="$WS/.attestrum/manifests/manifest.parquet"
+          # SAN of a keyless GHA signature is the workflow ref URI, e.g.
+          # https://github.com/Attestrum/Attestrum/.github/workflows/build-sign-publish.yml@refs/heads/<branch>
+          identity_re='^https://github\.com/Attestrum/Attestrum/\.github/workflows/build-sign-publish\.yml@refs/.+$'
+          issuer='https://token.actions.githubusercontent.com'
+          echo "asserting identity matches: $identity_re"
+          echo "asserting issuer:           $issuer"
+          out="$(cosign verify-blob-attestation \
+            --new-bundle-format \
+            --bundle "$bundle" \
+            --certificate-identity-regexp "$identity_re" \
+            --certificate-oidc-issuer "$issuer" \
+            "$manifest" 2>&1)"
+          echo "$out"
+          echo "$out" | grep -q "Verified OK" \
+            || { echo "::error::cosign did not report 'Verified OK' — identity is NOT the Attestrum GHA workflow (a personal identity would fail here, as intended)"; exit 1; }
+          echo "cosign verify-blob-attestation: Verified OK with the Attestrum GHA workflow SAN"

@@ -1,8 +1,8 @@
 ---
 title: "build → sign → publish CI dry-run flow"
 models: ".github/workflows/build-sign-publish.yml, .github/workflows/cosign-interop.yml, tests/fixtures/ci-publish-corpus/corpus.toml"
-source_of_truth: diagram
-last_verified: dba8145 2026-05-30
+source_of_truth: code
+last_verified: adf2046 2026-05-30
 diagram_type: flowchart
 ---
 
@@ -13,8 +13,8 @@ pipeline **inside GitHub Actions** and proves a third party can verify the resul
 `cosign` alone. It is the first workflow that runs `attestrum publish`; the existing
 `cosign-interop.yml` only signs a synthetic empty-corpus manifest.
 
-`source_of_truth: diagram` while this is the planning contract; it flips to `code` in the
-same commit that lands the YAML (roadmap v0.2a, §2 diagram-first).
+`source_of_truth: code` — the YAML at `.github/workflows/build-sign-publish.yml` is now
+authoritative and this diagram is a derived view (roadmap v0.2a, §2 diagram-first).
 
 **Identity split (the load-bearing point).** The provenance identity is the **ambient GHA
 keyless OIDC** identity (`permissions: id-token: write`), exchanged to a `sigstore`-audience
