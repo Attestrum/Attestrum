@@ -2,7 +2,7 @@
 title: "Sigstore sign-and-verify sequence — Bundle v0.3"
 models: "Sigstore Bundle v0.3 / in-toto Statement v1 / Fulcio / Rekor v2 (external specs); crates/attestrum-attest/src/sign.rs, crates/attestrum-attest/src/verify.rs"
 source_of_truth: spec
-last_verified: 304757a 2026-05-30
+last_verified: 4226bba 2026-05-30
 diagram_type: sequenceDiagram
 ---
 

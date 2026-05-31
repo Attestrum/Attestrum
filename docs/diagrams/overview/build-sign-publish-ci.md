@@ -2,7 +2,7 @@
 title: "build → sign → publish CI dry-run flow"
 models: ".github/workflows/build-sign-publish.yml, .github/workflows/cosign-interop.yml, tests/fixtures/ci-publish-corpus/corpus.toml"
 source_of_truth: code
-last_verified: adf2046 2026-05-30
+last_verified: 4226bba 2026-05-30
 diagram_type: flowchart
 ---
 
