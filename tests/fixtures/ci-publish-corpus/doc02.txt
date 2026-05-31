@@ -1,0 +1,3 @@
+The second fixture document differs from the first so the corpus contains
+more than one distinct leaf. Distinct content yields distinct content
+addresses, which keeps the Merkle tree honest about having three leaves.

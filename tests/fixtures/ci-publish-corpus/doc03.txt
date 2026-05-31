@@ -1,0 +1,3 @@
+A third and final fixture document rounds out the sample corpus. Three
+short public-domain notes are enough to produce a non-trivial manifest
+and a stable Merkle root for the sign-and-publish dry run to operate on.

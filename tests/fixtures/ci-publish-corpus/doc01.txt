@@ -1,0 +1,3 @@
+A small fixture document for the Attestrum continuous-integration dry run.
+This text carries no real-world provenance; it exists only to give the
+build pipeline a few deterministic bytes to hash, store, and seal.
