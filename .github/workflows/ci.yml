@@ -14,8 +14,11 @@ name: ci
 #               public CycloneDX validator (sbom-utility, pinned v0.19.0,
 #               checksum-verified) — proves the emitted ML-BOM passes stock
 #               tooling 0/0 (CLAUDE.md §12 vendor-neutrality). Decision
-#               cyclonedx-mlbom-shape, 2026-05-30. The Croissant validator
-#               CI gate remains a separate deferred item.
+#               cyclonedx-mlbom-shape, 2026-05-30.
+#   - croissant: validates the committed croissant.json golden against the
+#               public Croissant validator (mlcroissant, pinned 1.1.0) —
+#               proves the emitted JSON-LD passes stock tooling with 0
+#               errors / 0 warnings (CLAUDE.md §12 vendor-neutrality).
 #
 # Determinism matrix (Linux x86 + ARM + macOS + musl) is a separate
 # workflow (.github/workflows/determinism.yml) landing in Sprint 2 E3.
@@ -198,3 +201,43 @@ jobs:
         run: |
           "$RUNNER_TEMP/sbom-utility" validate \
             -i crates/attestrum-emit/tests/fixtures/cyclonedx-5entry.golden.json
+
+  croissant:
+    name: croissant (mlcroissant validate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin the validator version — pinning mlcroissant pins the Croissant
+      # JSON-LD validation rules, mirroring how the sbom-utility version pin
+      # pins the CycloneDX schema (decision cyclonedx-mlbom-shape). Python is
+      # pinned; mlcroissant's transitive deps float — a hash-locked
+      # requirements file was deliberately declined as too heavy to maintain.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install mlcroissant (pinned)
+        run: python -m pip install --no-cache-dir mlcroissant==1.1.0
+
+      # Validate the committed golden — the byte-identical emitter output pinned
+      # by the attestrum-emit croissant tests (render_matches_golden). mlcroissant
+      # exits non-zero on ERRORS; WARNINGS only log (exit stays 0), so we also
+      # fail on a warning. Two warning channels exist: the structured issue
+      # report ("warning(s) during the validation") and absl warning lines
+      # ("W#### ..." e.g. a non-standard @context). Both are mlcroissant-specific,
+      # so a stray Python DeprecationWarning from a floating transitive dep does
+      # not trip the gate. The golden is clean of both (0 errors / 0 warnings).
+      - name: Validate croissant.json golden (mlcroissant 1.1.0, 0 errors / 0 warnings)
+        run: |
+          golden=crates/attestrum-emit/tests/fixtures/croissant-5entry.golden.json
+          out=$(mlcroissant validate --jsonld "$golden" 2>&1) || {
+            echo "$out"
+            echo "FAIL: mlcroissant reported errors (non-zero exit)"
+            exit 1
+          }
+          echo "$out"
+          if printf '%s\n' "$out" | grep -Eq 'warning\(s\) during the validation|^W[0-9]{4} '; then
+            echo "FAIL: mlcroissant reported warnings — 0/0 contract broken"
+            exit 1
+          fi
+          echo "OK: mlcroissant 0 errors / 0 warnings"

@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — `mlcroissant` validator CI gate (`croissant.json`)
+
+- **New `croissant (mlcroissant validate)` CI job** continuously validates the committed Croissant golden against the public `mlcroissant` reference validator (pinned `1.1.0`), enforcing **0 errors / 0 warnings**. Closes the gap where `croissant.json` was validated only by Rust golden tests — which could pass while the live validator regressed. The job validates the byte-identical emitter golden (pinned by `render_matches_golden`), so a regression in `crates/attestrum-emit/src/croissant.rs` now flips CI red instead of silently breaking the published artifact. Parallels the existing `cyclonedx (sbom-utility validate)` gate; vendor-neutral (CLAUDE.md §12) — proves a third party gets 0/0 from stock tooling with no Attestrum install. (Carried forward from the `cyclonedx-mlbom-shape` review's "add both validators" recommendation; surfaced again by the 2026-05-31 dream-cycle protocol-audit.)
+
 ### Added — Lookback demo: WikiText-103 seal generator (Phase A)
 
 - **New example `attestrum-pipeline/examples/seal-wikitext.rs`** seals the public `wikitext-103-raw-v1` corpus into a deterministic `manifest.parquet` + Merkle root. It reads the dataset's Parquet `text` column, segments each article into one-passage-per-leaf entries, and runs the existing `build_corpus` pipeline — the input half of the Lookback "paste a paragraph, prove it was in the corpus" demo.
