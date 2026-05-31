@@ -2,7 +2,7 @@
 title: "attestrum-attest three predicate types — v0.3 schema bump (f32 → u32 PPM at E3.6 for cross-target byte determinism)"
 models: "crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/canonicalize.rs, crates/attestrum-attest/src/json.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/tests/api_surface.rs, crates/attestrum-attest/tests/schema_derive.rs, docs/schemas/training-corpus-v0.3.schema.json, docs/schemas/inclusion-proof-v0.3.schema.json, docs/schemas/non-inclusion-proof-v0.3.schema.json, docs/migration/v0.2-to-v0.3-attestrum-rebrand.md, TRAINING_CORPUS_PREDICATE_TYPE, INCLUSION_PROOF_PREDICATE_TYPE, NON_INCLUSION_PROOF_PREDICATE_TYPE, ALL_PREDICATE_TYPES, AttestrumAttestError, canonicalize, json, in-toto Statement v1, Sigstore Bundle v0.3"
 source_of_truth: code
-last_verified: e8d8773 2026-05-29
+last_verified: 304757a 2026-05-30
 diagram_type: classDiagram
 ---
 

@@ -2,7 +2,7 @@
 title: "takedown flow with public witness"
 models: "crates/attestrum-ledger/src/lib.rs::append_takedown, crates/attestrum-ledger/src/witness.rs"
 source_of_truth: diagram
-last_verified: 3cbeee7 2026-05-29
+last_verified: 304757a 2026-05-30
 diagram_type: flowchart
 ---
 
