@@ -6,6 +6,13 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — `build → sign → publish` CI workflow under the GHA keyless identity
+
+- **New `workflow_dispatch` workflow `.github/workflows/build-sign-publish.yml`** runs the full `attestrum build → sign → publish` pipeline **inside GitHub Actions**, signing the corpus **keyless under the ambient GitHub Actions OIDC identity** (via Fulcio/Rekor) — the publish-from-CI identity Attestrum's public-publish story requires, **never an individual's identity**. It is the first workflow that runs `attestrum publish`; the existing `cosign-interop.yml` only signs a synthetic empty-corpus manifest.
+- **The acceptance gate is a third-party `cosign verify-blob-attestation --new-bundle-format`** that asserts the signed bundle's certificate SAN is the **Attestrum GitHub Actions workflow** and the issuer is GitHub's OIDC provider — a personal identity fails the gate by construction. Proves a verifier with zero Attestrum installed can both verify the bundle *and* confirm who signed it.
+- **Dry-run uses `--target static`** (local artifact set, no network, no repo secret). The provenance identity lives in the bundle, which `sign` produces before `publish`, so the static target fully exercises the keyless-identity proof; a real Hugging Face push (which needs a static HF token — the Hub has no GitHub-OIDC federation) is a deliberate follow-on. The run is exercised against a tiny committed fixture corpus (`tests/fixtures/ci-publish-corpus/`), and `SOURCE_DATE_EPOCH` is derived from the commit time so the published artifacts are reproducible.
+- Trigger is `workflow_dispatch` only — every signed run leaves one permanent public Rekor transparency-log entry, so the cadence is capped to deliberate runs.
+
 ### Added — CycloneDX 1.6 ML-BOM export (`cyclonedx.json`)
 
 - **`attestrum publish` now emits a deterministic `cyclonedx.json` beside `croissant.json`** — a CycloneDX 1.6 ML-BOM describing the sealed corpus for the software-supply-chain ecosystem. It validates against the public CycloneDX validator (`sbom-utility`) as **CycloneDX 1.6 with zero errors**, gated in CI against the committed golden (pinned validator). The canonical published file set grows from six to seven; both the Hugging Face and `--target static` targets emit it.
