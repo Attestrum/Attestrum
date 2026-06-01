@@ -103,6 +103,8 @@ flowchart LR
   class B cmd
 ```
 
+> **Where to run a large seal.** The seal is identical on every platform — byte-for-byte, guaranteed by the determinism property and verified across Linux and macOS. The only thing that changes is *speed*: sealing is dominated by durable disk writes, which are far cheaper on a Linux server than on a laptop. For a large corpus, run the production seal on **Linux — a cloud VM, a CI runner, or a Linux box** (our reference WikiText-103 seal of 822,559 passages took ~5 minutes there versus ~94 minutes on macOS). It is also where signing happens — Sigstore keyless signing uses your CI/cloud identity — so sealing and signing land in one place. macOS produces the *identical, correct* seal; it is simply slower, which suits development and smaller corpora.
+
 ## 4. Step 2 — `sign`: turn the sealed manifest into a bundle
 
 `sign` wraps a statement about the sealed corpus in an in-toto attestation and signs it with Sigstore, producing the bundle — the portable "seal."

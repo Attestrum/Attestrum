@@ -357,6 +357,12 @@ CI keyless identity signs is produced by exactly the path proven here. Run: GitH
 `lookback-seal-crosscheck` #26725803592 (commit `372da9a`). The corpus was then signed and
 published — see §4.2.
 
+> **Practical takeaway.** Because the bytes are platform-independent, *where* you seal is
+> purely a speed choice, never an accuracy one. The recommendation for a production seal is
+> therefore Linux — a cloud VM, CI runner, or Linux box — which is also where keyless signing
+> runs, so seal and sign share one environment. macOS yields the identical root; it is slower
+> only because it pays the full `fsync` durability cost on every content-store write.
+
 ### 4.2 Closing the loop: signed, published, verifiable with stock tooling
 
 §1 framed the whole point: a seal is only trustworthy if a third party can reproduce its
