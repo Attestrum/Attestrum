@@ -1,0 +1,286 @@
+name: lookback-publish
+
+# Lookback Phase A — the flagship gated pipeline: seal the REAL WikiText-103 corpus
+# in CI, gate on the canonical root, SIGN the manifest keyless under Attestrum's
+# GitHub Actions identity, and PUBLISH (static = local artifacts; huggingface = Hub
+# push). This is the first workflow that signs and publishes the real corpus —
+# build-sign-publish.yml only does the FIXTURE corpus to --target static, and HF push
+# has never been exercised in CI.
+#
+# ⛔ RUNNING THIS IS IRREVERSIBLE. On ANY dispatch (including target=static), the sign
+# step writes a PERMANENT public Rekor transparency-log entry binding the corpus to the
+# Attestrum workflow identity — there is no "sign without Rekor". target=huggingface
+# additionally pushes to the Hub and requires the HF_TOKEN repo secret. Trigger is
+# workflow_dispatch ONLY; the file existing on main runs nothing until a human dispatches
+# it. Do not dispatch without an explicit decision to publish.
+#
+# Safety: the pre-sign gate (root == de95bddc… / manifest SHA == eafa3dd7… / leaves ==
+# 822,559, the lookback-seal-crosscheck triple assertion) runs BEFORE Fulcio/Rekor are
+# ever contacted, so a divergent seal aborts the run before anything is signed. The
+# closing cosign step asserts the Attestrum GHA workflow SAN (the §21.1 guard), so a
+# wrong signing identity fails the run.
+#
+# See docs/diagrams/lookback/wikitext-publish-pipeline.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target (both SIGN; static = local artifacts, huggingface = Hub push + needs HF_TOKEN)"
+        type: choice
+        options:
+          - static
+          - huggingface
+        default: static
+      dataset:
+        description: "Hugging Face dataset repo (org/name)"
+        type: string
+        default: "Attestrum/wikitext-103-sealed"
+
+concurrency:
+  # Never cancel an in-flight sign/push — a partial run could leave a Rekor entry or a
+  # half-committed Hub repo. Serialize instead.
+  group: lookback-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # GHA OIDC token exchange → Fulcio keyless identity
+  contents: read
+
+env:
+  WS: lookback-publish-ws
+  DATA: lookback-data
+  HF_BASE: "https://huggingface.co/datasets/Salesforce/wikitext/resolve/refs%2Fconvert%2Fparquet/wikitext-103-raw-v1/train"
+  # Canonical seal — source of truth: docs/lookback/corpus-source.md.
+  CANONICAL_ROOT: "de95bddc1c0d17123b8ab5960b3300f31a713b8804e32184ed03e606696726dc"
+  CANONICAL_MANIFEST_SHA256: "eafa3dd76ff9bcebfa6e115a1886fa761dd7c376256b053dd9e6ac9634e275a0"
+  CANONICAL_LEAVES: "822559"
+  SHARD_0000_SHA256: "74da360f23826045b3e6ac6375411fdb15f003030aa74f2596ed08b857cb9212"
+  SHARD_0001_SHA256: "ba090ac30dbf5461e8dcbdd1a1b8e6f3cf9c2c756d64f0c1220450acd514f720"
+
+jobs:
+  publish:
+    name: "seal → gate → sign (keyless) → publish ${{ inputs.target }} → cosign verify"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-lookback-publish-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-lookback-publish-
+
+      - name: Guard — huggingface target needs HF_TOKEN
+        if: inputs.target == 'huggingface'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::error::target=huggingface requires the HF_TOKEN repo secret (not set). Add it or run target=static." >&2
+            exit 1
+          fi
+          echo "HF_TOKEN present (masked)."
+
+      - name: Build attestrum CLI + seal-wikitext (release)
+        run: |
+          set -euo pipefail
+          cargo build --release -p attestrum-cli
+          cargo build --release -p attestrum-pipeline --example seal-wikitext
+
+      - name: Download pinned WikiText-103 shards
+        run: |
+          set -euo pipefail
+          mkdir -p "$DATA/train"
+          for shard in 0000 0001; do
+            echo "downloading $shard.parquet"
+            curl --fail-with-body -sSL -o "$DATA/train/$shard.parquet" \
+              "$HF_BASE/$shard.parquet"
+          done
+          ls -la "$DATA/train"
+
+      - name: Verify shard SHA-256 against pinned digests
+        run: |
+          set -euo pipefail
+          cat > shards.sha256 <<EOF
+          $SHARD_0000_SHA256  $DATA/train/0000.parquet
+          $SHARD_0001_SHA256  $DATA/train/0001.parquet
+          EOF
+          echo "--- expected ---"; cat shards.sha256
+          sha256sum -c shards.sha256
+
+      - name: Seal WikiText (seal-wikitext → manifest.parquet + merkle.root)
+        run: |
+          set -euo pipefail
+          ./target/release/examples/seal-wikitext "$DATA/train" "$WS" \
+            > root.txt 2> seal.stderr
+          echo "--- stdout (root) ---"; cat root.txt
+          echo "--- stderr ---"; cat seal.stderr
+          test -f "$WS/.attestrum/manifests/manifest.parquet"
+          test -f "$WS/.attestrum/manifests/merkle.root"
+
+      - name: Pre-sign gate — assert canonical root, manifest SHA-256, leaf count
+        run: |
+          set -euo pipefail
+          fail=0
+          got_root="$(tr -d '\n' < root.txt)"
+          [ "$got_root" = "$CANONICAL_ROOT" ] \
+            && echo "OK   root:     $got_root" \
+            || { echo "::error::root mismatch — expected $CANONICAL_ROOT, got $got_root"; fail=1; }
+
+          got_manifest_sha="$(sha256sum "$WS/.attestrum/manifests/manifest.parquet" | awk '{print $1}')"
+          [ "$got_manifest_sha" = "$CANONICAL_MANIFEST_SHA256" ] \
+            && echo "OK   manifest: $got_manifest_sha" \
+            || { echo "::error::manifest.parquet SHA-256 mismatch — expected $CANONICAL_MANIFEST_SHA256, got $got_manifest_sha"; fail=1; }
+
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          [ "$got_leaves" = "$CANONICAL_LEAVES" ] \
+            && echo "OK   leaves:   $got_leaves" \
+            || { echo "::error::leaf count mismatch — expected $CANONICAL_LEAVES, got '$got_leaves'"; fail=1; }
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::pre-sign gate FAILED — seal diverged from canonical; NOT signing." >&2
+            exit 1
+          fi
+          echo "pre-sign gate passed — canonical artifact confirmed; safe to sign."
+
+      # Determinism (CLAUDE.md §7): derive sign/publish epoch from the commit time, NOT
+      # wall-clock. The seal itself is epoch-0 (canonical de95bddc…); this SDE only
+      # drives the predicate / dataset-card timestamps.
+      - name: Derive SOURCE_DATE_EPOCH from the commit
+        run: |
+          set -euo pipefail
+          sde="$(git show -s --format=%ct HEAD)"
+          echo "SOURCE_DATE_EPOCH=$sde" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$sde"
+
+      # Exchange the GHA ID-token request for a sigstore-audience token Fulcio accepts.
+      # Audience MUST be `sigstore`. Mask before exporting. (Proven cosign-interop.yml /
+      # build-sign-publish.yml pattern.)
+      - name: Fetch SIGSTORE_ID_TOKEN via GHA OIDC exchange
+        run: |
+          set -euo pipefail
+          token="$(curl --fail-with-body -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" \
+            | jq -r '.value')"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to obtain sigstore-audience OIDC token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "SIGSTORE_ID_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # ⛔ The irreversible step: Fulcio (ephemeral cert, Attestrum workflow SAN) +
+      # Rekor (PERMANENT public DSSE entry). Bundle → <workspace>/bundles/<stem>.sigstore.json.
+      - name: attestrum sign (ambient GHA keyless OIDC) — PERMANENT Rekor entry
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum sign \
+            "$WS/.attestrum/manifests/manifest.parquet" \
+            --workspace "$WS" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --publication-intent hf
+          test -f "$WS/bundles/manifest.sigstore.json"
+
+      - name: attestrum publish --target static (local artifact set)
+        if: inputs.target == 'static'
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target static \
+            --dataset "${{ inputs.dataset }}" \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license CC-BY-SA-3.0 \
+            --attribution-file docs/lookback/wikitext-attribution.md \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public \
+            --out-dir "$WS/static-out"
+          echo "--- static-out tree ---"
+          find "$WS/static-out" -type f | sort
+
+      - name: Upload static artifact set (inspect before any HF push)
+        if: inputs.target == 'static'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lookback-static-out
+          path: ${{ env.WS }}/static-out
+          if-no-files-found: error
+          retention-days: 14
+
+      # ⛔ HF push — needs HF_TOKEN (hf-hub reads it from the env; the --token-file flag
+      # is reserved/unused at v0.1). Idempotent (exist_ok + re-commit).
+      - name: attestrum publish --target huggingface (Hub push)
+        if: inputs.target == 'huggingface'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target huggingface \
+            --dataset "${{ inputs.dataset }}" \
+            --revision main \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license CC-BY-SA-3.0 \
+            --attribution-file docs/lookback/wikitext-attribution.md \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public
+
+      - name: Install cosign (sigstore/cosign-installer@v3)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
+        run: |
+          set -euo pipefail
+          version_json="$(cosign version --json)"
+          echo "$version_json"
+          git_version="$(echo "$version_json" | jq -r '.gitVersion')"
+          case "$git_version" in
+            v2.[5-9].*|v2.[1-9][0-9].*|v3.*)
+              echo "cosign $git_version: OK (>= v2.5 or any v3.x)"
+              ;;
+            *)
+              echo "::error::cosign binary is below v2.5 or unrecognised: $git_version" >&2
+              exit 1
+              ;;
+          esac
+
+      # THE acceptance gate: a third party with no Attestrum installed verifies the
+      # signed bundle with cosign alone, AND we assert the signing identity is the
+      # Attestrum GHA workflow — not a personal identity (CLAUDE-LOCAL §A9 / roadmap
+      # §21.1). Verbatim structure from build-sign-publish.yml.
+      - name: cosign verify-blob-attestation (assert Attestrum GHA SAN)
+        run: |
+          set -euo pipefail
+          bundle="$WS/bundles/manifest.sigstore.json"
+          manifest="$WS/.attestrum/manifests/manifest.parquet"
+          identity_re='^https://github\.com/Attestrum/Attestrum/\.github/workflows/lookback-publish\.yml@refs/.+$'
+          issuer='https://token.actions.githubusercontent.com'
+          echo "asserting identity matches: $identity_re"
+          echo "asserting issuer:           $issuer"
+          out="$(cosign verify-blob-attestation \
+            --new-bundle-format \
+            --bundle "$bundle" \
+            --certificate-identity-regexp "$identity_re" \
+            --certificate-oidc-issuer "$issuer" \
+            "$manifest" 2>&1)"
+          echo "$out"
+          echo "$out" | grep -q "Verified OK" \
+            || { echo "::error::cosign did not report 'Verified OK' — signing identity is NOT the Attestrum lookback-publish workflow"; exit 1; }
+          echo "cosign verify-blob-attestation: Verified OK with the Attestrum GHA workflow SAN"

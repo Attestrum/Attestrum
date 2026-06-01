@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — Gated WikiText build→sign→publish workflow (dispatch-only)
+
+- **New `.github/workflows/lookback-publish.yml`** (`workflow_dispatch` only) assembles the full Lookback publish pipeline for the **real** WikiText-103 corpus: download + SHA-256-precheck the pinned shards → seal via `seal-wikitext` → **pre-sign gate** (asserts the canonical `de95bddc…` root / `eafa3dd7…` manifest hash / 822,559 leaves before anything is signed) → keyless sign under the Attestrum GHA OIDC identity → publish → `cosign verify-blob-attestation` asserting the Attestrum workflow SAN. Two dispatch inputs: `target` (`static` = sign + local artifact set for inspection; `huggingface` = sign + Hub push, requires the `HF_TOKEN` secret) and `dataset`. **Running it is irreversible** — any dispatch writes a permanent public Rekor entry; committing the file runs nothing. Diagrammed at `docs/diagrams/lookback/wikitext-publish-pipeline.md`. (Closes the gap where `build-sign-publish.yml` only exercised a fixture corpus to `--target static` and HF push had no CI path.)
+
 ### Added — Dataset card source/attribution section (CC-BY-SA-3.0 compliance)
 
 - **`attestrum publish --attribution-file <PATH>`** renders a markdown file verbatim as a `## Source & attribution` section on the generated dataset card. New optional `DatasetCardPlan.attribution` field; absent → no section (the existing card golden is unchanged). The emitter authors no attribution text — the publisher supplies the license-required credit / source link / modification disclosure / ShareAlike notice, keeping the emitter generic across corpora. Lets a redistributor satisfy attribution obligations such as **CC-BY-SA-3.0 §4** for Wikipedia-derived corpora. The founder-approved WikiText-103 attribution text ships at `docs/lookback/wikitext-attribution.md` for the (gated) Lookback publish.
