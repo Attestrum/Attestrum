@@ -206,6 +206,7 @@ jobs:
             --source-date-epoch "$SOURCE_DATE_EPOCH" \
             --license CC-BY-SA-3.0 \
             --attribution-file docs/lookback/wikitext-attribution.md \
+            --pretty-name "WikiText-103 (Attestrum-sealed)" \
             --publisher "Attestrum GitHub Actions" \
             --classification public \
             --out-dir "$WS/static-out"
@@ -239,6 +240,7 @@ jobs:
             --source-date-epoch "$SOURCE_DATE_EPOCH" \
             --license CC-BY-SA-3.0 \
             --attribution-file docs/lookback/wikitext-attribution.md \
+            --pretty-name "WikiText-103 (Attestrum-sealed)" \
             --publisher "Attestrum GitHub Actions" \
             --classification public
 

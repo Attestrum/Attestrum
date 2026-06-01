@@ -309,6 +309,11 @@ enum Command {
         /// ShareAlike for a Wikipedia-derived corpus). Omit for no section.
         #[arg(long, value_name = "PATH")]
         attribution_file: Option<PathBuf>,
+
+        /// Human-friendly dataset display title for the card heading. Default:
+        /// derived from the --dataset slug (org dropped, dashes → spaces).
+        #[arg(long, value_name = "TITLE")]
+        pretty_name: Option<String>,
     },
 
     /// Sign a sealed manifest into a Sigstore Bundle v0.3 carrying an
@@ -574,6 +579,7 @@ fn main() -> ExitCode {
             no_sign_commits,
             out_dir,
             attribution_file,
+            pretty_name,
         } => {
             // Parse --target into the enum here so a bad value exits 2
             // before the run() helper is invoked.
@@ -602,6 +608,7 @@ fn main() -> ExitCode {
                 no_sign_commits,
                 out_dir,
                 attribution_file,
+                pretty_name,
             });
             ExitCode::from(code)
         }

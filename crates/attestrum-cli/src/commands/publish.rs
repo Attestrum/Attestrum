@@ -25,13 +25,13 @@
 //!   defaults to the honest token `"unknown"` (threaded into BOTH the
 //!   Croissant descriptor and the README so they agree); `--version`
 //!   defaults to `"1.0.0"`; `--cite-as` is omitted when absent (never
-//!   synthesized). The remaining metadata flags (`--pretty-name`,
-//!   `--language`, `--task-category`, `--tag`, `--size-category`) are NOT
-//!   present: `pretty_name` is derived from the last segment of
-//!   `--dataset` (with `-` and `_` replaced by spaces); `size_category` is
-//!   derived from `manifest_stats.leaf_count` via the HF size-tag table;
-//!   `language`, `task_categories`, `tags` are empty vecs. Richer metadata
-//!   deferred to v0.2.
+//!   synthesized). `--pretty-name` is OPTIONAL: when supplied it sets the
+//!   dataset card's display title, otherwise it is derived from the last
+//!   segment of `--dataset` (with `-` and `_` replaced by spaces). The
+//!   remaining metadata flags (`--language`, `--task-category`, `--tag`,
+//!   `--size-category`) are NOT present: `size_category` is derived from
+//!   `manifest_stats.leaf_count` via the HF size-tag table; `language`,
+//!   `task_categories`, `tags` are empty vecs. Richer metadata deferred to v0.2.
 //! - `--target {huggingface|github-release|static}` defaults to
 //!   `huggingface`. `static` writes the artifact set to a local `--out-dir`
 //!   (Stage A1). `github-release` remains a v0.2 deferral — its `publish()`
@@ -191,6 +191,11 @@ pub struct Args {
     /// ShareAlike for a Wikipedia-derived corpus). `None` → no such section.
     /// The CLI authors no attribution text; the publisher supplies it.
     pub attribution_file: Option<PathBuf>,
+
+    /// `--pretty-name <TITLE>`. Optional human-friendly dataset display title
+    /// for the card heading + provenance prose. `None` → derived from the
+    /// `--dataset` slug (`derive_pretty_name`: org dropped, `-`/`_` → spaces).
+    pub pretty_name: Option<String>,
 }
 
 /// The three publish-target values the CLI accepts. Mirrors
@@ -277,7 +282,13 @@ pub fn run(args: Args) -> u8 {
     };
 
     // 5. Derive metadata (Q1 → A): defaults from inputs.
-    let pretty_name = derive_pretty_name(&args.dataset);
+    // CLI override > derived-from-slug. The explicit title lets a publisher set a
+    // proper display name (e.g. "WikiText-103 (Attestrum-sealed)") instead of the
+    // slug-derived "wikitext 103 sealed".
+    let pretty_name = args
+        .pretty_name
+        .clone()
+        .unwrap_or_else(|| derive_pretty_name(&args.dataset));
     let size_category = derive_size_category(manifest_stats.leaf_count);
 
     // 6. Resolve the Merkle-root path. CLI override > <workspace>/manifests/merkle.root.
@@ -639,7 +650,26 @@ mod tests {
             no_sign_commits: false,
             out_dir: None,
             attribution_file: None,
+            pretty_name: None,
         }
+    }
+
+    #[test]
+    fn pretty_name_override_beats_slug_derivation() {
+        // With no --pretty-name, the title derives from the slug.
+        assert_eq!(
+            derive_pretty_name("Attestrum/wikitext-103-sealed"),
+            "wikitext 103 sealed"
+        );
+        // The CLI override (args.pretty_name) takes precedence over the derivation;
+        // this mirrors the run() resolution `args.pretty_name.unwrap_or_else(derive)`.
+        let mut a = args_with("Attestrum/wikitext-103-sealed", Some(0));
+        a.pretty_name = Some("WikiText-103 (Attestrum-sealed)".to_string());
+        let resolved = a
+            .pretty_name
+            .clone()
+            .unwrap_or_else(|| derive_pretty_name(&a.dataset));
+        assert_eq!(resolved, "WikiText-103 (Attestrum-sealed)");
     }
 
     #[test]
