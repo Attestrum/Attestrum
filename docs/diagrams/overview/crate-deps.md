@@ -2,50 +2,48 @@
 title: "crate dependency graph"
 models: "Cargo.toml workspace + per-crate Cargo.toml manifests"
 source_of_truth: code
-last_verified: 4226bba 2026-05-30
+last_verified: 6430a9a 2026-05-30
 diagram_type: flowchart
 ---
 
 # Crate dependency graph
 
-Source of truth: `code` — verified against `cargo metadata --no-deps` output as of Sprint 2 E5 (workspace `Cargo.toml` adds `blake3 = "1.5"` and `sha2 = "0.10"` to `[workspace.dependencies]`; `attestrum-cas` consumes both). Inter-crate `[dependencies]` edges remain unwired — they land progressively across Sprints 2–6 as each crate's real implementation arrives. The graph itself is unchanged from E2.
+Source of truth: `code`. The edges are the **transitive reduction** of the **normal** (non-dev) inter-crate `[dependencies]` from `cargo metadata --no-deps`: an edge `A → B` is omitted when `B` is already reachable from `A` through a longer path, which keeps reachability identical while removing visual clutter. For example `attestrum-cli`'s manifest lists `attestrum-core`, `attestrum-cas`, `attestrum-manifest`, `attestrum-merkle`, and `attestrum-prove` directly, but each is reachable via `bind` / `pipeline` / `publish`, so those skip-level edges are not drawn. Test-only `[dev-dependencies]` are likewise not drawn.
 
-**Arrow convention:** `A --> B` means "A depends on B" — the arrow points from the dependent crate to its dependency, matching `cargo-tree` / `cargo-deps` convention. (This is the inverse of PATH-A-BRIEF §1.10's drawn direction, which is corrected here per cross-check; the caption in PATH-A-BRIEF §1.10 is the canonical statement of intent — "`attestrum-core` has zero inbound dependencies and every leaf crate depends transitively on `attestrum-core`.")
+**Arrow convention:** `A --> B` means "A depends on B" — the arrow points from the dependent crate to its dependency, matching `cargo-tree` convention.
 
-`attestrum-core` has zero outbound project dependencies and only depends on `std` plus `serde`, `thiserror`, `blake3`. Every leaf crate depends transitively on `attestrum-core`; no other cycles or skip-level deps are allowed. The diagram-linter forwards this graph to a `cargo-deny` rule (Sprint 2+) that fails the build on any disallowed edge.
+`attestrum-core` has zero outbound project dependencies (externally it pulls only `serde`, `thiserror`, `schemars`) and is the foundation every wired crate reaches. Three crates are **not yet wired into the runtime graph**: `attestrum-ledger` and `attestrum-fingerprint-registry` have no project edges at all, and `attestrum-signals` depends on `attestrum-core` but nothing depends on it yet — all three are scaffolded ahead of the CLI paths that will consume them. `attestrum-merkle` has no *normal* project dependency (it reaches `attestrum-core` only in tests). No cycles exist.
 
 ```mermaid
 flowchart TD
-  S[attestrum-signals] --> C[attestrum-core]
-  CAS[attestrum-cas] --> C
-  MK[attestrum-merkle] --> C
-  M[attestrum-manifest] --> C
-  FP[attestrum-fingerprint] --> C
-  L[attestrum-ledger] --> C
+  CLI[attestrum-cli] --> BD[attestrum-bind]
+  CLI --> P[attestrum-pipeline]
+  CLI --> PB[attestrum-publish]
 
-  P[attestrum-pipeline] --> S
+  BD --> PV[attestrum-prove]
+  PB --> EM[attestrum-emit]
+
+  PV --> AT[attestrum-attest]
+  PV --> CAS[attestrum-cas]
+  PV --> FP[attestrum-fingerprint]
+  PV --> M[attestrum-manifest]
+  PV --> MK[attestrum-merkle]
+
+  EM --> AT
+  EM --> M
+
   P --> CAS
   P --> M
-  P --> FP
-  P --> L
-  M --> MK
+  P --> MK
 
-  AT[attestrum-attest] --> M
-  AT --> FP
-  EM[attestrum-emit] --> AT
-  PV[attestrum-prove] --> AT
-  PB[attestrum-publish] --> AT
-  FR[attestrum-fingerprint-registry] --> FP
-  PB --> L
+  S[attestrum-signals] --> C[attestrum-core]
+  CAS --> C
+  M --> C
+  FP --> C
+  AT --> C
 
-  BD[attestrum-bind] --> AT
-  BD --> PV
+  L[attestrum-ledger]:::unwired
+  FR[attestrum-fingerprint-registry]:::unwired
 
-  CLI[attestrum-cli] --> P
-  CLI --> AT
-  CLI --> EM
-  CLI --> PV
-  CLI --> PB
-  CLI --> FR
-  CLI --> BD
+  classDef unwired stroke-dasharray: 4 3,opacity:0.7
 ```
