@@ -49,18 +49,22 @@ cargo test --workspace
 
 Requires Rust 1.85+ (toolchain pinned via `rust-toolchain.toml`).
 
-## CLI subcommands shipped so far
+## CLI subcommands
 
 ```bash
-attestrum build    --corpus <corpus.toml> --workspace <dir>   # compile a corpus into a deterministic artifact
-attestrum inspect  <manifest.parquet>                          # read-only manifest inspector
-attestrum plan     --corpus <corpus.toml> --shards <n>        # deterministic sub-corpus sharding
-attestrum merge    --shards <dir>                             # merge sharded sub-corpus builds
-attestrum sign     <manifest> --predicate training-corpus     # emit DSSE-wrapped Sigstore Bundle v0.3
-attestrum verify   <bundle>                                    # local-only verifier
+attestrum build    --corpus <corpus.toml> --workspace <dir>          # compile a corpus into a deterministic sealed manifest
+attestrum inspect  <manifest.parquet>                                # read-only manifest inspector
+attestrum plan     --corpus <corpus.toml> --shards <n> --out <dir>   # deterministic sub-corpus sharding
+attestrum merge    --inputs '<dir>/shard-*.parquet' --out <path>     # merge sharded builds (merged root == unsharded)
+attestrum sign     <manifest> --source-date-epoch <ts>               # keyless Sigstore Bundle v0.3 (needs an OIDC id_token)
+attestrum publish  --target huggingface|static --dataset <org/name>  # publish the verifiable artifact set
+attestrum prove    <doc-or-blake3-hex> --against <manifest>          # inclusion / non-inclusion proof
+attestrum verify   <bundle> --manifest <m> --certificate-identity <re>   # full verifier (cert + DSSE + Rekor + schema)
 ```
 
-`attestrum prove` (inclusion / non-inclusion proofs over the corpus) and `attestrum publish` (Hugging Face Hub publish flow) ship in Sprint 5 + 6.
+Plus `attestrum bind` / `attestrum walk-chain` for model-to-corpus binding and chain-walk verification. Run any subcommand with `--help` for the full flag set.
+
+**For the end-to-end `build → sign → publish → verify` walkthrough — with exact flags and a copy-paste CI workflow — see the [Guide](./docs/guide/).**
 
 ## Architecture
 
