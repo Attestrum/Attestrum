@@ -6,6 +6,10 @@ Attestrum takes a directory of training data — text, images, audio, video, cod
 
 Attestrum is for anyone publishing a training corpus who wants it independently auditable without writing one-off README files — frontier labs included. It produces cryptographic, audit-ready evidence backing the EU AI Act Article 53(1)(d) training-content summary: provable corpus composition with inclusion and non-inclusion proofs. The bundle format is standards-based — Sigstore Bundle v0.3, in-toto Statement v1, RFC 6962 Merkle over BLAKE3 — so there is no Attestrum-only lock-in for downstream consumers.
 
+## Guide
+
+**New here? Start with the [Guide](./docs/guide/) — `build → sign → publish → verify`, end to end.** It covers the recommended path (seal and sign on Linux / CI, where keyless signing and fast `fsync` both live), the exact commands, a copy-paste GitHub Actions workflow, and verifying with stock `cosign`.
+
 ## Status
 
 Pre-MVP. Sprint 4 of 6 just landed (DSSE-wrapped Sigstore Bundle v0.3 + Rekor v1 `dsse@0.0.1` transparency-log entry, cosign-verified end-to-end). Sprint 5 (fingerprinting + EU Article 53 emit) is in progress. The first tagged release will be `v0.1.0` at the end of Sprint 6.
