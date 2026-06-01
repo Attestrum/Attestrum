@@ -2,7 +2,7 @@
 title: "Lookback public fuzzy-search demo — end-to-end architecture"
 models: "crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-manifest/src/lib.rs, crates/attestrum-fingerprint-registry/src/lib.rs, crates/attestrum-publish/src/lib.rs"
 source_of_truth: diagram
-last_verified: 4226bba 2026-05-31
+last_verified: 6430a9a 2026-06-01
 diagram_type: flowchart
 ---
 

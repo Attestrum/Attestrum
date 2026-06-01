@@ -2,7 +2,7 @@
 title: "attestrum build pipeline — happy path"
 models: "crates/attestrum-pipeline/src/lib.rs::run, crates/attestrum-cas/src/store.rs, crates/attestrum-signals, crates/attestrum-merkle, crates/attestrum-manifest"
 source_of_truth: diagram
-last_verified: 4226bba 2026-05-30
+last_verified: 6430a9a 2026-06-01
 diagram_type: flowchart
 ---
 

@@ -2,7 +2,7 @@
 title: "ai.txt parser — directive resolution"
 models: "crates/attestrum-signals/src/ai_txt.rs"
 source_of_truth: code
-last_verified: 4226bba 2026-05-30
+last_verified: 6430a9a 2026-06-01
 diagram_type: flowchart
 ---
 
