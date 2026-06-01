@@ -47,7 +47,7 @@ attestrum build \
 
 - `--corpus` — a TOML file listing the corpus contents.
 - `--workspace work` — outputs land under `work/.attestrum/`: the sealed manifest at `work/.attestrum/manifests/manifest.parquet` and the Merkle root at `work/.attestrum/manifests/merkle.root`.
-- `--source-date-epoch` — a **fixed** timestamp (epoch seconds). Required on purpose: Attestrum never reads the wall clock, so the same corpus sealed twice is byte-identical. Use any stable value (in CI, the commit timestamp works well).
+- `--source-date-epoch` — a **fixed** timestamp (epoch seconds). Attestrum never reads the wall clock, so the same corpus sealed twice is byte-identical. `build` defaults it to `0` if omitted, but `sign`, `publish`, and `prove` **hard-require** it (via the flag or the `SOURCE_DATE_EPOCH` env var) — so set it explicitly here and reuse the same value everywhere. In CI, the commit timestamp works well.
 
 `build` never makes network calls. For a large corpus you can shard the work with `attestrum plan --corpus corpus.toml --shards N --out shards/`, build each shard, then `attestrum merge --inputs 'shards/shard-*.parquet' --out manifest.parquet` — the merged root equals an unsharded build.
 
@@ -72,8 +72,9 @@ attestrum sign \
 Two targets work today: **`huggingface`** (push to the Hub) and **`static`** (write the artifact set locally for Zenodo / GitHub Pages / S3 / any static host). `--target github-release` is not yet implemented (returns exit 1).
 
 ```bash
-# Hugging Face Hub. Auth is the HF_TOKEN env var (the --token-file flag is
-# reserved/unused at this version).
+# Hugging Face Hub. Auth resolves via the hf-hub token chain
+# (HF_TOKEN env → HF_TOKEN_PATH file → $HF_HOME/token); HF_TOKEN is the
+# simplest for CI. The --token-file flag is reserved/unused at this version.
 HF_TOKEN=hf_... attestrum publish \
   --target huggingface \
   --dataset my-org/my-dataset \
@@ -84,7 +85,7 @@ HF_TOKEN=hf_... attestrum publish \
   --license CC-BY-4.0
 ```
 
-For a static artifact set instead, swap `--target static` and add `--out-dir out/` (no network, nothing signed by this step — safe to inspect before any push). `--license` accepts an SPDX id, `mixed`, or is omitted (recorded as the honest token `unknown`). Other optional metadata: `--version`, `--cite-as`, `--publisher`, `--classification`, `--pretty-name`, `--attribution-file`.
+For a static artifact set instead, swap `--target static` (writes to `--out-dir`, default `.attestrum-static/`; no network, nothing signed by this step — safe to inspect before any push). `--license` accepts an SPDX id, `mixed`, or is omitted (recorded as the honest token `unknown`). Other optional metadata: `--version`, `--cite-as`, `--publisher`, `--classification`, `--pretty-name`, `--attribution-file`.
 
 ## Step 4 — verify with stock `cosign` (no Attestrum)
 
@@ -107,12 +108,20 @@ Attestrum also ships its own richer verifier — `attestrum verify <bundle> --ma
 ## Optional — `prove`: is a specific work in the corpus?
 
 ```bash
-attestrum prove <file-or-64char-blake3-hex> \
+# Exact match by BLAKE3 hash:
+attestrum prove <64-char-blake3-hex> \
   --against work/.attestrum/manifests/manifest.parquet \
+  --source-date-epoch 1735689600
+
+# Fuzzy match by file — also needs --cas-root so the prover can
+# re-fingerprint the document against the corpus's stored fingerprints:
+attestrum prove path/to/document.txt \
+  --against work/.attestrum/manifests/manifest.parquet \
+  --cas-root work/.attestrum \
   --source-date-epoch 1735689600
 ```
 
-Emits a signed inclusion- or non-inclusion-proof attestation (add `--unsigned` to skip signing). `--against` also accepts `hf://repo[@revision]` or an `https://` URL.
+Emits a signed inclusion- or non-inclusion-proof attestation (add `--unsigned` to skip signing). `--against` also accepts `hf://repo[@revision]`, `https://`, or `http://`.
 
 ## The serverless path, concretely (GitHub Actions)
 
