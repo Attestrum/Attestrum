@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Changed — `deterministic-by-construction.md` closes the loop (publish + verification)
+
+- The determinism research note, written pre-publish, now records the completed pipeline: a new **§4.2 "Closing the loop"** documents that the canonical seal was signed keyless under Attestrum's GitHub Actions identity and published at `Attestrum/wikitext-103-sealed`, with a copy-paste recipe to verify the *published* bundle using stock `cosign` + `curl` alone (no Attestrum binary), and to re-derive `de95bddc…` from the pinned shards. Adds the measured Linux seal figures (5 min 04 s / ~2.3 GB RSS) and fixes the pre-publish future tense. Claims scoped per a skeptic review (the project confirming its own pipeline with stock tooling — not yet an outside audit).
+
 ### Changed — CI cosign verify asserts the predicate type (`--type`)
 
 - The `cosign verify-blob-attestation` acceptance gate in `lookback-publish.yml` and `build-sign-publish.yml` now passes `--type https://attestrum.com/attestation/training-corpus/v0.3`, matching the command the dataset card documents for third parties. Previously the gate omitted `--type`: it confirmed *who* signed the manifest but not *what kind* of attestation it is, and recent cosign (v3.x) rejects the non-default predicate type outright when `--type` is absent — so the looser gate both under-checked and risked breaking on a cosign upgrade. No emitted artifact changes; the already-published dataset is unaffected (independently re-verified with stock cosign).

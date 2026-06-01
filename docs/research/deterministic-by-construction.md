@@ -16,7 +16,9 @@ macOS, ARM) and documents the one field that is not. This document covers the
 reports a full-corpus, same-machine reproducibility experiment on WikiText-103.
 
 Status: applies to the `attestrum-pipeline` seal path as of the Lookback Phase A
-commits. The §4 full-corpus double-seal experiment was run on 2026-05-31.
+commits. The §4 full-corpus double-seal experiment was run on 2026-05-31; the canonical
+seal was then signed, published to a public Hugging Face dataset, and re-verified with
+stock `cosign` (no Attestrum binary) on 2026-06-01 (see §4.2).
 
 ---
 
@@ -40,6 +42,10 @@ commits. The §4 full-corpus double-seal experiment was run on 2026-05-31.
   corpus**, sealed twice and compared byte-for-byte. (That double-seal ran on the corpus
   *as first sealed* — 824,850 passages; the detokenizer was then corrected and the corpus
   re-sealed to the **current canonical 822,559 passages / root `de95bddc…`**, see §4.1.)
+- **The loop is now closed on a live public artifact.** The canonical seal is signed under
+  Attestrum's keyless GitHub Actions identity and published at
+  `Attestrum/wikitext-103-sealed`; its bundle was re-verified with stock `cosign` and
+  `curl` alone — no Attestrum install — straight from the public Hub (§4.2).
 
 ---
 
@@ -327,8 +333,8 @@ Re-sealing the corrected corpus is the **current canonical seal**:
 Because the pipeline is unchanged, this artifact is reproducible by the same disciplines.
 
 **Cross-platform reproduction (2026-05-31).** The canonical root was first sealed on
-macOS/arm64. It has now been **independently reproduced on Linux** — the property a Linux
-CI signer/verifier depends on. The `lookback-seal-crosscheck` workflow (`workflow_dispatch`,
+macOS/arm64. It has now been **reproduced on Linux** (a separate machine, OS, libc, and
+CPU architecture) — the property a Linux CI signer/verifier depends on. The `lookback-seal-crosscheck` workflow (`workflow_dispatch`,
 `.github/workflows/lookback-seal-crosscheck.yml`) runs the *same* `seal-wikitext` path on a
 GitHub Actions `ubuntu-24.04` (x86_64/glibc) runner: it re-downloads the two pinned shards
 (SHA-256-verified against [`corpus-source.md`](../lookback/corpus-source.md)), seals, and
@@ -340,14 +346,80 @@ asserts the result against the canonical values. All three matched byte-for-byte
 | `manifest.parquet` SHA-256 | `eafa3dd7…e275a0` | `eafa3dd7…e275a0` | ✅ |
 | Leaves | 822,559 | 822,559 | ✅ |
 
-The seal ran in ~5 min on the Linux runner versus ~94 min on macOS: the durable-write
-(`fsync`) cost that dominated the macOS wall-clock (§4) is roughly an order of magnitude
-cheaper on the runner's Linux filesystem. Execution time differed ~19× — the sealed bytes
-did not differ at all. That is the determinism property a signature depends on, now
-confirmed across a change of OS *and* libc *and* CPU architecture in one run. This retires
-the **seal-path-divergence** gate that blocked signing: the artifact the CI keyless
-identity will sign is produced by exactly the path proven here. Run: GitHub Actions
-`lookback-seal-crosscheck` #26725803592 (commit `372da9a`).
+The seal ran in **5 min 04 s wall-clock at ~2.3 GB peak RSS** on the Linux runner
+(measured with `/usr/bin/time -v`, run #26726650991) versus ~94 min / ~2.07 GB on macOS:
+the durable-write (`fsync`) cost that dominated the macOS wall-clock (§4) is roughly an
+order of magnitude cheaper on the runner's Linux filesystem. Execution time differed ~19×
+— the sealed bytes did not differ at all. That is the determinism property a signature
+depends on, now confirmed across a change of OS *and* libc *and* CPU architecture in one
+run. This retired the **seal-path-divergence** gate that blocked signing: the artifact the
+CI keyless identity signs is produced by exactly the path proven here. Run: GitHub Actions
+`lookback-seal-crosscheck` #26725803592 (commit `372da9a`). The corpus was then signed and
+published — see §4.2.
+
+### 4.2 Closing the loop: signed, published, verifiable with stock tooling
+
+§1 framed the whole point: a seal is only trustworthy if a third party can reproduce its
+root and confirm the signature covers those exact bytes. As of 2026-06-01 the artifacts
+and the procedure for that are **live and public** — the §1 verifier path runs against
+public bytes with stock tools, which the project has exercised end-to-end (a genuinely
+outside audit is a separate, future step — see the close of this section).
+
+**What ran.** A single `workflow_dispatch` pipeline (`.github/workflows/lookback-publish.yml`)
+sealed the corpus on a GitHub Actions `ubuntu-24.04` runner — re-downloading the pinned
+shards, re-sealing via the `seal-wikitext` path — then signed the manifest keyless under
+Attestrum's GitHub Actions OIDC identity (a Fulcio certificate plus an immutable, public
+Rekor transparency-log entry) and published the artifact set to the public Hugging Face dataset
+[`Attestrum/wikitext-103-sealed`](https://huggingface.co/datasets/Attestrum/wikitext-103-sealed).
+
+**Determinism is enforced as a gate, not just observed.** Before the pipeline contacts
+Fulcio or Rekor, a pre-sign step asserts the freshly-sealed root, `manifest.parquet`
+SHA-256, and leaf count equal the canonical `de95bddc…` / `eafa3dd7…` / 822,559. A
+divergent seal aborts the run *before any signature exists* — §1's "REJECT" branch is
+wired into the publish path, so only the reproducible artifact can ever be signed.
+
+**Verification with stock tooling (no Attestrum install).** Using only `curl` and stock
+`cosign` v3.0.6 — **no Attestrum binary** — the *published* bundle verifies straight from
+the public Hub:
+
+```bash
+base="https://huggingface.co/datasets/Attestrum/wikitext-103-sealed/resolve/main"
+curl -sSL -o bundle.sigstore.json "$base/attestrum/bundle.sigstore.json"
+curl -sSL -o manifest.parquet     "$base/attestrum/manifest.parquet"
+cosign verify-blob-attestation \
+  --new-bundle-format \
+  --type 'https://attestrum.com/attestation/training-corpus/v0.3' \
+  --bundle bundle.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/Attestrum/Attestrum/\.github/workflows/lookback-publish\.yml@refs/.+$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  manifest.parquet
+# → Verified OK
+```
+
+The signature is bound to the **Attestrum workflow identity**
+(`…/lookback-publish.yml@refs/heads/main`, issuer `token.actions.githubusercontent.com`),
+which the command asserts — a different (e.g. personal) identity fails the same check.
+This is §1's verifier path, run with stock tooling. We ran it ourselves to confirm the
+published artifacts verify end-to-end; because it needs only `curl` + `cosign`, any party
+can repeat it without trusting Attestrum. To be precise about what this is and isn't: this
+is the *project* confirming its own pipeline against the live public bytes — not yet an
+outside audit. A genuinely third-party verification is the natural next external step.
+
+> **One verification detail worth stating.** `cosign verify-blob-attestation` defaults to
+> the `custom` predicate type, and the cosign tested here (v3.0.6) rejects a non-default
+> predicate type outright when `--type` is omitted. So the command **names the predicate type**
+> (`--type https://attestrum.com/attestation/training-corpus/v0.3`). Without it the same
+> bundle fails to verify on current cosign — a command-usability detail, not a signature
+> problem. The CI acceptance gate passes the same `--type`.
+
+**Reproduce the root yourself.** The determinism claim is checkable end-to-end without
+trusting this repository: re-fetch the two shards pinned by SHA-256 in
+[`corpus-source.md`](../lookback/corpus-source.md), run `seal-wikitext` over them, and you
+obtain `de95bddc…`; then confirm the bundle above covers that manifest. Root reproduced +
+bundle verified means the signature provably covers bytes you re-derived independently —
+which is the entire point of §1.
+
+Run: GitHub Actions `lookback-publish` #26731092991; published commit `8978ccf`.
 
 ---
 
@@ -384,6 +456,7 @@ wall-clock).
 ### Diagrams
 - `docs/diagrams/lookback/wikitext-seal-pipeline.md` — the seal generator pipeline (source-of-truth: code).
 - `docs/diagrams/sprint-3/rayon-pipeline.md` — the parallel hash + CAS-put stage.
+- `docs/diagrams/lookback/wikitext-publish-pipeline.md` — the gated build→sign→publish pipeline (§4.2).
 
 ### Companion docs
 - `docs/research/cross-target-determinism.md` — cross-platform byte-identity guarantees and the one documented exception.
@@ -391,3 +464,8 @@ wall-clock).
 
 ### CI workflows
 - `.github/workflows/determinism.yml` — the 4-target byte-identity matrix.
+- `.github/workflows/lookback-seal-crosscheck.yml` — the Linux seal cross-check (§4.1).
+- `.github/workflows/lookback-publish.yml` — the gated build→sign→publish pipeline (§4.2).
+
+### Live artifact
+- [`Attestrum/wikitext-103-sealed`](https://huggingface.co/datasets/Attestrum/wikitext-103-sealed) — the signed, published corpus; verify with stock `cosign` per §4.2.
