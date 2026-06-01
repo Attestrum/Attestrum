@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Changed — CI cosign verify asserts the predicate type (`--type`)
+
+- The `cosign verify-blob-attestation` acceptance gate in `lookback-publish.yml` and `build-sign-publish.yml` now passes `--type https://attestrum.com/attestation/training-corpus/v0.3`, matching the command the dataset card documents for third parties. Previously the gate omitted `--type`: it confirmed *who* signed the manifest but not *what kind* of attestation it is, and recent cosign (v3.x) rejects the non-default predicate type outright when `--type` is absent — so the looser gate both under-checked and risked breaking on a cosign upgrade. No emitted artifact changes; the already-published dataset is unaffected (independently re-verified with stock cosign).
+
 ### Added — `attestrum publish --pretty-name <TITLE>`
 
 - Optional flag to set the dataset card's display title explicitly, overriding the slug derivation (which lowercases and drops hyphens — `Attestrum/wikitext-103-sealed` → "wikitext 103 sealed"). Absent → unchanged behavior. Affects only the rendered card, not the signed manifest. The Lookback publish workflow now passes `--pretty-name "WikiText-103 (Attestrum-sealed)"`.

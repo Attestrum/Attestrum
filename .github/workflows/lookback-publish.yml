@@ -274,10 +274,17 @@ jobs:
           manifest="$WS/.attestrum/manifests/manifest.parquet"
           identity_re='^https://github\.com/Attestrum/Attestrum/\.github/workflows/lookback-publish\.yml@refs/.+$'
           issuer='https://token.actions.githubusercontent.com'
+          # Assert the PREDICATE TYPE too, matching the command the dataset card
+          # documents for third parties. Without --type, cosign defaults to the
+          # "custom" predicate type and recent cosign (v3.x) rejects our v0.3 type
+          # outright — so omitting it both under-checks and risks version drift.
+          predicate_type='https://attestrum.com/attestation/training-corpus/v0.3'
           echo "asserting identity matches: $identity_re"
           echo "asserting issuer:           $issuer"
+          echo "asserting predicate type:   $predicate_type"
           out="$(cosign verify-blob-attestation \
             --new-bundle-format \
+            --type "$predicate_type" \
             --bundle "$bundle" \
             --certificate-identity-regexp "$identity_re" \
             --certificate-oidc-issuer "$issuer" \
