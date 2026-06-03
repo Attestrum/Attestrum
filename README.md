@@ -81,8 +81,11 @@ The workspace is 15 Rust crates under `crates/`:
 - `attestrum-attest` — in-toto Statement + Sigstore Bundle assembly.
 - `attestrum-bind` — corpus-to-model binding (`model-binding/v0.1` in-toto Statement).
 - `attestrum-fingerprint` — perceptual fingerprinting (PROTECTED text normalization).
+- `attestrum-prove` — inclusion / non-inclusion proof builder.
+- `attestrum-emit` — Croissant JSON-LD + CycloneDX ML-BOM + dataset-card + verify.html emitters.
+- `attestrum-publish` — Hugging Face Hub + static-bundle publish targets.
 - `attestrum-cli` — user-facing CLI binary.
-- Remaining crates (`attestrum-ledger`, `attestrum-emit`, `attestrum-prove`, `attestrum-publish`, `attestrum-fingerprint-registry`) ship in Sprints 5–6.
+- Remaining crates (`attestrum-ledger`, `attestrum-fingerprint-registry`) ship in a later sprint.
 
 ## Determinism
 

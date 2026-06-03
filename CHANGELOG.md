@@ -9,7 +9,7 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 ### Fixed — documentation accuracy (internal integrity audit, 2026-06-03)
 
 - Corrected two Sprint 1 / Sprint 3 entries that overstated signal-parser integration. The `attestrum-signals` parsers (`robots.txt` / `ai.txt` / `tdmrep`) are implemented and tested but **not yet wired into the `build` pipeline**, which records caller-supplied signals rather than parsing those documents. No change to the signed-artifact path (Merkle root, manifest digests, and signatures are unaffected).
-- `README.md` — corrected the workspace crate count (15, not 14) and added the omitted `attestrum-bind` to the crate list.
+- `README.md` — corrected the workspace crate count (15, not 14), added the omitted `attestrum-bind`, and re-bucketed `attestrum-emit` / `attestrum-prove` / `attestrum-publish` from "ships in Sprints 5–6" into the implemented-crate list (they have landed; only `attestrum-ledger` + `attestrum-fingerprint-registry` remain stubs).
 - `CLAUDE.md` §4 — marked the `attestrum-ledger` protected-system entry as not-yet-implemented; the listed protections apply once the crate ships.
 
 ### Added — `prove-sign-interop` CI gate (signed inclusion proofs verify with stock cosign)
