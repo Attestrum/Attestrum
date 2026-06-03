@@ -1,0 +1,105 @@
+name: prove-sign-interop
+
+# Commit 3 — §2.5 third-party-validator gate for the `inclusion-proof/v0.3`
+# emitter (crates/attestrum-prove). Proves a third party with zero Attestrum
+# installed can verify a SIGNED inclusion proof via
+# `cosign verify-blob-attestation --new-bundle-format` alone — the prove-side
+# analogue of cosign-interop.yml (which covers the training-corpus predicate).
+#
+# The test (crates/attestrum-prove/tests/prove_sign_interop.rs) seals a real
+# one-passage corpus, mints a signed inclusion proof under the Attestrum GHA
+# keyless identity, and verifies it with cosign against the PASSAGE FILE (the
+# inclusion proof's subject digest is the matched leaf's SHA-256, not the
+# manifest's), with `--type …/inclusion-proof/v0.3`, plus four tamper negatives.
+# It is `#[ignore]`d so `cargo test --workspace` lists but does not execute it;
+# this workflow is the only path that runs it under `--include-ignored`.
+#
+# Separate workflow (NOT a job in ci.yml) so an OIDC- or cosign-installer-side
+# failure does not mark the standard test job red — mirrors cosign-interop.yml.
+#
+# Trigger cadence: push: branches: [main] only — NO `pull_request` trigger.
+# Every successful run signs one inclusion proof, leaving ONE Sigstore
+# public-good Rekor transparency-log entry; the push:main-only cadence caps this
+# at ~one entry per merge. The entry's visible content is the workflow URL (GHA
+# OIDC identity), the inclusion-proof/v0.3 predicate URI, and the passage leaf's
+# hashes — all already public (the passage is a WikiText excerpt embedded in the
+# committed test source; the repo is public). No private content leaks.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: prove-sign-interop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write    # GHA OIDC token exchange → Fulcio identity proof
+  contents: read
+
+jobs:
+  prove-sign-interop:
+    name: cosign v2.5+ verify-blob-attestation interop (inclusion-proof)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-prove-sign-interop-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-prove-sign-interop-
+
+      # `@v3` is the sigstore/cosign-installer ACTION major pin (not the cosign
+      # binary version). The `--new-bundle-format` flag the test consumes landed
+      # in cosign v2.3.0; the explicit version grep below guards against drift
+      # below v2.5 (matches cosign-interop.yml's belt-and-suspenders pin).
+      - name: Install cosign (sigstore/cosign-installer@v3)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
+        run: |
+          set -euo pipefail
+          version_json="$(cosign version --json)"
+          echo "$version_json"
+          git_version="$(echo "$version_json" | jq -r '.gitVersion')"
+          case "$git_version" in
+            v2.[5-9].*|v2.[1-9][0-9].*|v3.*)
+              echo "cosign $git_version: OK (>= v2.5 or any v3.x)"
+              ;;
+            *)
+              echo "::error::cosign binary is below v2.5 or unrecognised: $git_version (test requires --new-bundle-format which landed in v2.3.0; pinning >= v2.5 for safety margin)" >&2
+              exit 1
+              ;;
+          esac
+
+      # Exchange the GHA-issued ID-token-request for a sigstore-audience token
+      # Fulcio accepts. Audience MUST be `sigstore`. Mask before exporting.
+      - name: Fetch SIGSTORE_ID_TOKEN via GHA OIDC exchange
+        run: |
+          set -euo pipefail
+          token="$(curl --fail-with-body -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" \
+            | jq -r '.value')"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to obtain sigstore-audience OIDC token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "SIGSTORE_ID_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: cargo test prove_sign_interop (ignored)
+        run: |
+          cargo test \
+            -p attestrum-prove \
+            --test prove_sign_interop \
+            -- --include-ignored prove_sign_interop

@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — `prove-sign-interop` CI gate (signed inclusion proofs verify with stock cosign)
+
+- New `.github/workflows/prove-sign-interop.yml` + `crates/attestrum-prove/tests/prove_sign_interop.rs` close the §2.5 third-party-validator gate for the `inclusion-proof/v0.3` emitter: on every push to `main`, a real one-passage corpus is sealed, a signed inclusion proof is minted under the Attestrum GitHub Actions keyless identity, and `cosign verify-blob-attestation --new-bundle-format --type …/inclusion-proof/v0.3` is asserted to return `Verified OK` — proving the emitted proof verifies with **no Attestrum install** (vendor neutrality). The cosign blob is the **passage file**, not the manifest: an inclusion proof's subject digest is the matched leaf's SHA-256. Four tamper negatives (flipped signature, wrong blob, identity mismatch, truncated bundle) assert both Attestrum's verifier and cosign reject forgeries. Mirrors the existing `cosign-interop` gate for the training-corpus predicate.
+
 ### Added — `attestrum prove --oidc-token-file` (signed inclusion proofs via the CLI)
 
 - The `attestrum prove` subcommand now resolves an OIDC id_token when signing (the default), so signed inclusion / non-inclusion proofs can be minted directly from the command line. Resolution mirrors `attestrum sign`/`bind`: `--oidc-token-file <PATH>` takes precedence over the `SIGSTORE_ID_TOKEN` env var, via the shared `commands::oidc` resolver. Previously the CLI hard-coded `oidc_id_token: None`, so a signed `prove` run always failed — only the library/test path could supply a token. A signed run with no token now exits `IdentityError` (4) with a hint listing `--oidc-token-file` / `SIGSTORE_ID_TOKEN` / `--unsigned`; `--unsigned` skips signing (and token resolution) entirely.

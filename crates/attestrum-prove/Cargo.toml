@@ -53,3 +53,15 @@ serde                  = { workspace = true }
 serde_json             = { workspace = true }
 sha2                   = { workspace = true }
 thiserror              = { workspace = true }
+
+[dev-dependencies]
+# Commit 3 — prove_sign_interop.rs §2.5 third-party-validator gate. All three
+# are already in the workspace lockfile + license inventory (no new external
+# crate enters the graph): attestrum-pipeline is a workspace member used to
+# seal a REAL one-passage corpus so the proof's subject digest matches real
+# file bytes; base64 decodes/flips the DSSE signature for the tamper negatives;
+# regex escapes the extracted SAN for the anchored identity policy (mirrors
+# crates/attestrum-attest/tests/cosign_interop.rs).
+attestrum-pipeline     = { path = "../attestrum-pipeline", version = "0.1.0" }
+base64                 = { workspace = true }
+regex                  = { workspace = true }
