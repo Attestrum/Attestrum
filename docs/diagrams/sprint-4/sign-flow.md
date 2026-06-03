@@ -2,7 +2,7 @@
 title: "attestrum sign flow — DSSE-wrapped Sigstore Bundle v0.3 emission (Session 2 contract for X→Y hybrid)"
 models: "crates/attestrum-attest/src/sign.rs, crates/attestrum-attest/src/dsse_sign.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-cli/src/commands/sign.rs, crates/attestrum-cli/src/lifecycle.rs, crates/attestrum-cli/tests/sign_flow_contract.rs, dsse_sign, statement, predicate, lifecycle, TRAINING_CORPUS_PREDICATE_TYPE, in-toto Statement v1, DSSE Envelope"
 source_of_truth: code
-last_verified: 7f90a6d 2026-05-31
+last_verified: 6430a9a 2026-06-03
 diagram_type: sequenceDiagram
 ---
 

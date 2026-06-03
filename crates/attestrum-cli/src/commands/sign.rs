@@ -119,14 +119,15 @@ pub fn run(args: Args) -> u8 {
     };
 
     // OfflineCheck → OidcResolved | Exit(IdentityError).
-    let oidc_token = match resolve_oidc_token(&args) {
-        Ok(t) => t,
-        Err(msg) => {
-            eprintln!("attestrum sign: {msg}");
-            state = sign_transition(state, SignEvent::OidcTokenMissing);
-            return terminal_code(state);
-        }
-    };
+    let oidc_token =
+        match crate::commands::oidc::resolve_oidc_token(args.oidc_token_file.as_deref(), false) {
+            Ok(t) => t,
+            Err(msg) => {
+                eprintln!("attestrum sign: {msg}");
+                state = sign_transition(state, SignEvent::OidcTokenMissing);
+                return terminal_code(state);
+            }
+        };
     state = sign_transition(state, SignEvent::OidcTokenLoaded);
 
     // OidcResolved → ManifestLoaded | Exit(RuntimeError) | Exit(SchemaError).
@@ -555,25 +556,6 @@ fn resolve_source_date_epoch(args: &Args) -> Result<i64, String> {
             .map_err(|e| format!("SOURCE_DATE_EPOCH env var is not a valid integer: {s:?} ({e})"));
     }
     Err("required: pass --source-date-epoch <SECS> or set SOURCE_DATE_EPOCH env var (deterministic-source guard per CLAUDE.md §7)".to_string())
-}
-
-fn resolve_oidc_token(args: &Args) -> Result<String, String> {
-    if let Some(path) = &args.oidc_token_file {
-        let raw = fs::read_to_string(path)
-            .map_err(|e| format!("failed to read --oidc-token-file {}: {e}", path.display()))?;
-        let trimmed = raw.trim().to_string();
-        if trimmed.is_empty() {
-            return Err(format!(
-                "--oidc-token-file {} is empty after trim",
-                path.display()
-            ));
-        }
-        return Ok(trimmed);
-    }
-    match std::env::var("SIGSTORE_ID_TOKEN") {
-        Ok(s) if !s.is_empty() => Ok(s),
-        _ => Err("OIDC id_token required: pass --oidc-token-file <PATH> or set SIGSTORE_ID_TOKEN env var".to_string()),
-    }
 }
 
 // ============================================================================

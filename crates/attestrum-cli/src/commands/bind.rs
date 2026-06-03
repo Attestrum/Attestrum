@@ -83,7 +83,7 @@ pub fn run(args: Args) -> u8 {
 
     let sign = !args.unsigned;
     let oidc_id_token = if sign {
-        match resolve_oidc_token(&args) {
+        match crate::commands::oidc::resolve_oidc_token(args.oidc_token_file.as_deref(), true) {
             Ok(t) => Some(t),
             Err(msg) => {
                 eprintln!("attestrum bind: {msg}");
@@ -143,29 +143,6 @@ fn resolve_source_date_epoch(args: &Args) -> Result<i64, String> {
             .map_err(|e| format!("SOURCE_DATE_EPOCH env var is not a valid integer: {s:?} ({e})"));
     }
     Err("required: pass --source-date-epoch <SECS> or set SOURCE_DATE_EPOCH env var".to_string())
-}
-
-fn resolve_oidc_token(args: &Args) -> Result<String, String> {
-    if let Some(path) = &args.oidc_token_file {
-        let raw = std::fs::read_to_string(path)
-            .map_err(|e| format!("failed to read --oidc-token-file {}: {e}", path.display()))?;
-        let trimmed = raw.trim().to_string();
-        if trimmed.is_empty() {
-            return Err(format!(
-                "--oidc-token-file {} is empty after trim",
-                path.display()
-            ));
-        }
-        return Ok(trimmed);
-    }
-    match std::env::var("SIGSTORE_ID_TOKEN") {
-        Ok(s) if !s.is_empty() => Ok(s),
-        _ => Err(
-            "OIDC id_token required to sign: pass --oidc-token-file <PATH>, set \
-                  SIGSTORE_ID_TOKEN env var, or pass --unsigned"
-                .to_string(),
-        ),
-    }
 }
 
 /// BLAKE3 + SHA-256 of a file's bytes (mirrors `attestrum sign`).

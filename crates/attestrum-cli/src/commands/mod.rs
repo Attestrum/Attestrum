@@ -5,6 +5,7 @@ pub mod bind;
 pub mod build;
 pub mod inspect;
 pub mod merge;
+pub mod oidc;
 pub mod plan;
 pub mod prove;
 pub mod publish;
