@@ -76,6 +76,11 @@ pub struct Args {
     /// library returns `InvalidManifest` if missing for those targets.
     pub cas_root: Option<PathBuf>,
 
+    /// `--oidc-token-file PATH`. Read the OIDC id_token (JWT) from this
+    /// file; overrides `SIGSTORE_ID_TOKEN` when signing. Mirrors `sign`
+    /// and `bind` via the shared `commands::oidc` resolver.
+    pub oidc_token_file: Option<PathBuf>,
+
     /// `--unsigned`. When set, skip Sigstore signing entirely. Default
     /// (false) signs via Fulcio + Rekor per the E4 MVP-gate decision.
     pub unsigned: bool,
@@ -100,10 +105,26 @@ pub fn run(args: Args) -> u8 {
         }
     };
 
+    // Resolve the OIDC id_token only when signing (the default). Mirrors
+    // `attestrum bind`: `--oidc-token-file` > `SIGSTORE_ID_TOKEN`, with the
+    // `--unsigned` hint enabled since `prove` can emit unsigned proofs.
+    let sign = !args.unsigned;
+    let oidc_id_token = if sign {
+        match crate::commands::oidc::resolve_oidc_token(args.oidc_token_file.as_deref(), true) {
+            Ok(t) => Some(t),
+            Err(msg) => {
+                eprintln!("attestrum prove: {msg}");
+                return ExitCode::IdentityError.as_u8();
+            }
+        }
+    } else {
+        None
+    };
+
     let opts = ProveOpts {
-        sign: !args.unsigned,
+        sign,
         source_date_epoch,
-        oidc_id_token: None,
+        oidc_id_token,
         workspace: args.workspace.clone(),
         corpus_bundle_path: args.corpus_bundle.clone(),
         cas_root: args.cas_root.clone(),
@@ -341,6 +362,37 @@ mod tests {
         assert_eq!(
             map_error_to_exit_code(&AttestrumProveError::Ambiguous(2)).as_u8(),
             ExitCode::RuntimeError.as_u8(),
+        );
+    }
+
+    #[test]
+    fn unsigned_skips_oidc_token_resolution() {
+        // With `--unsigned`, run() must NOT attempt OIDC token resolution: it
+        // proceeds straight to prove_lib, which fails on the nonexistent local
+        // manifest (RuntimeError), never IdentityError. If the unsigned path
+        // wrongly resolved a token, a missing token would surface as
+        // IdentityError instead. The signed missing-token path is covered by
+        // `attestrum-prove/tests/sign_integration.rs::sign_true_without_oidc_token_returns_sign_error`.
+        let args = Args {
+            doc: "a".repeat(64), // valid 64-char BLAKE3 hex → ProofTarget::Blake3
+            against: "this-manifest-does-not-exist.parquet".to_string(),
+            workspace: None,
+            source_date_epoch: Some(1_700_000_000),
+            corpus_bundle: None,
+            cas_root: None,
+            oidc_token_file: None,
+            unsigned: true,
+        };
+        let code = run(args);
+        assert_ne!(
+            code,
+            ExitCode::IdentityError.as_u8(),
+            "unsigned prove must not reach the OIDC/IdentityError path"
+        );
+        assert_eq!(
+            code,
+            ExitCode::RuntimeError.as_u8(),
+            "unsigned prove with a missing local manifest should fail RuntimeError"
         );
     }
 }

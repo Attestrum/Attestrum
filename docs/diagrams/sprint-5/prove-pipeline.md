@@ -2,7 +2,7 @@
 title: "Sprint 5 attestrum-prove pipeline — exact + fuzzy match (E1-E5) + non-inclusion (E6) + alternate manifest sources (E7) + CLI + API freeze (E8)"
 models: "crates/attestrum-prove/src/lib.rs, crates/attestrum-prove/Cargo.toml, crates/attestrum-prove/tests/api_surface.rs, crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-merkle/src/lib.rs, crates/attestrum-manifest/src/lib.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/sign.rs, crates/attestrum-cli/src/commands/prove.rs, prove, ProofTarget, ManifestSource, ProveOpts, ProofArtifact, ProofKind, AttestrumProveError, MerkleTree, audit_path, FingerprintBundle, fingerprint_text, fingerprint_image"
 source_of_truth: code
-last_verified: 7f90a6d 2026-05-31
+last_verified: 031b839 2026-06-03
 diagram_type: flowchart
 ---
 
@@ -13,6 +13,8 @@ Source of truth: **`code`** as of S5-D2 E8 (this commit). The `crates/attestrum-
 **This is the ONLY sprint-5 diagram for S5-D2** per the D1 cadence precedent (one diagram per deliverable; per-E-commit updates bump `last_verified` + flip branch nodes from grey-deferred to green-shipped rather than creating a new diagram per commit).
 
 **Post-E8 correction (2026-05-30, real-corpus shakedown) — `ProofTarget::Document` exact-first + non-inclusion routing.** A real-corpus run surfaced that `dispatch_document` hashed the document via `fingerprint_text`/`_image` and tried exact-match on *that* digest — but `fingerprint_text` hashes the **normalized** bytes while the manifest stores the **raw-bytes** BLAKE3 (`attestrum_cas::stream_hash`). So an exact text file present in the corpus was silently downgraded to a fuzzy 0.95 (grade-wall violation, roadmap §5), and pdf/other modalities errored as "unsupported" before they could match. Fix: `dispatch_document` now hashes the document's **raw bytes** via `stream_hash_path` and tries `find_exact_match` **first**, for every modality → exact present documents prove as `ExactBlake3` / 1.00 by path. When there's no exact match: with no `--cas-root` (the default CLI shape) the exact document is provably absent → a proof-grade **non-inclusion** (reusing the E6 `dispatch_non_inclusion` helper), replacing the old confusing `InvalidManifest("fuzzy non-inclusion is v0.2 work")` error. With `--cas-root`, fuzzy is attempted; a genuine fuzzy miss keeps the honest v0.2 fuzzy-non-inclusion deferral. **No PROTECTED change** (fingerprint normalization untouched), **no new error variant** (the 6-variant `AttestrumProveError` lock holds), public API surface unchanged. The Mermaid nodes new at this correction: `docExact`, `docCas`, `docAbsent` (replacing the old `docPath`/`fpErr` nodes).
+
+**Post-E8 addition — E8.1 (2026-06-03), CLI OIDC token wiring.** The `attestrum prove` CLI now resolves an OIDC id_token when signing (the default), mirroring `attestrum sign`/`bind`: `--oidc-token-file <PATH>` takes precedence over the `SIGSTORE_ID_TOKEN` env var, via the shared `crate::commands::oidc::resolve_oidc_token` helper. Before E8.1 the CLI hard-coded `ProveOpts.oidc_id_token = None`, so signed `prove` could not run from the command line — only the library/test path supplied a token. A missing token on a signed run now exits `IdentityError` (4) with a hint listing `--oidc-token-file` / `SIGSTORE_ID_TOKEN` / `--unsigned`; `--unsigned` skips resolution entirely. New Mermaid node `cliOidc` (🟩 thick green border = added this revision). No library, predicate, or PROTECTED change — CLI-only wiring into the unchanged `ProveOpts.oidc_id_token` field.
 
 **Branch state at E8** (this commit, CLI + API surface freeze + source_of_truth flip — v0.1 release-ready milestone): three deliverables land in one commit. (1) The new `attestrum prove <DOC> --against <MANIFEST>` CLI subcommand wraps `attestrum_prove::prove()` (file path or 64-char lowercase BLAKE3 hex digest in DOC; `Local` / `hf://repo[@revision]` / `https://...` URL in MANIFEST). The other four `ProofTarget` variants (`Sha256`, `Iscc`, `Perceptual`, `Bundle`) stay library-only at v0.1 — smaller surface, easier to freeze. Output is human key-value lines to stdout (no `--output json` flag at v0.1; deferred). `--source-date-epoch` is required (CLI flag > `SOURCE_DATE_EPOCH` env var > arg-error, mirroring the `sign.rs` precedent). HF auth is implicit via `$HF_TOKEN` env var (no `--hf-token` flag per the E7 D3-refactor-debt carry-forward). `--unsigned` toggles `opts.sign = false`; default is signed (E4 MVP-gate decision). Error → exit-code mapping reuses the existing `lifecycle::ExitCode` values (no new codes at E8): `SourceUnreachable` → 5 (`NetworkError`), `Sign` → 4 (`IdentityError`), all four runtime variants (`InvalidManifest` / `MerkleMismatch` / `Fingerprint` / `Ambiguous`) → 1 (`RuntimeError`), arg-parse → 2 (`ArgsError`), success → 0. (2) `crates/attestrum-prove/tests/api_surface.rs` + `tests/api-surface.golden.txt` freeze the `attestrum-prove` public surface against accidental drift, mirroring the proven S5-D1 E5 `attestrum-fingerprint` precedent. Extension over the precedent: a small pre-pass flattens multi-line `pub use prefix::{ ... };` re-export blocks into per-symbol synthetic lines, so the L91-96 attest re-export and the L97 fingerprint re-export each contribute one golden entry per symbol (16 + 2 = 18 re-export rows + 8 user-defined-type rows = 26 surface entries total). Regen via `ATTESTRUM_REGEN_API_SURFACE=1 cargo test -p attestrum-prove --test api_surface api_surface_matches_golden_file`. (3) This diagram's frontmatter flips from `source_of_truth: diagram` to `source_of_truth: code` — drift gate 6 now active. The `cliEntry` and `cliPrint` Mermaid nodes flip from grey-deferred to green-shipped at this commit. `ProveOpts` is unchanged (still 6 fields, locked at E7); `AttestrumProveError` is unchanged (still 6 variants, locked at E1 + E6 audit). No PROTECTED-system change. **Sprint 5 D2 closed; `attestrum-prove` v0.1 release-ready.**
 
@@ -36,6 +38,7 @@ flowchart TB
   classDef protected fill:#7a1f1f,stroke:#c63737,color:#fff
   classDef output fill:#1a3a6f,stroke:#3a8ed7,color:#fff
   classDef external fill:#5a4a1f,stroke:#a8902f,color:#fff
+  classDef added stroke:#3ec072,stroke-width:4px
 
   subgraph inputs["Caller inputs (E1)"]
     target["target: ProofTarget"]
@@ -121,6 +124,8 @@ flowchart TB
   signedOut --> result
 
   cliEntry["attestrum prove DOC --against MANIFEST<br/>(CLI subcommand, E8)"] --> target
+  cliEntry --> cliOidc["CLI resolves OIDC id_token when signing<br/>--oidc-token-file &gt; SIGSTORE_ID_TOKEN<br/>(E8.1; IdentityError exit 4 on miss)"]
+  cliOidc -. "oidc_id_token (signed runs)" .-> opts
   result --> cliPrint["print confidence + bundle_path + Exit 0 (E8)"]
 
   errFp["AttestrumProveError::Fingerprint<br/>#[from] AttestrumFingerprintError"]
@@ -147,7 +152,8 @@ flowchart TB
   fpText -.-> protectedFp
   fpImage -.-> protectedFp
 
-  class target,manifest,opts,dispatch,resolve,exactB3,exactS256,bundleExact,isccPath,perceptPath,docExact,docCas,docAbsent,fpDispatch,fpText,fpImage,docMulti,docMulti2,localPq,loadIdx,matchQuery,fuzzyScan,matchDec,fuzzyDec,auditPath,predIncl,evidenceVariant,evExact,evIscc,evPercept,evMinhash,stmt,signCheck,unsignedOut,dsseSign,signedOut,errMan,errAmb,errSign,errFp,nonInc,predNonIncl,stmtNI,hfFetch,urlFetch,errSrc,cliEntry,cliPrint shipped
+  class target,manifest,opts,dispatch,resolve,exactB3,exactS256,bundleExact,isccPath,perceptPath,docExact,docCas,docAbsent,fpDispatch,fpText,fpImage,docMulti,docMulti2,localPq,loadIdx,matchQuery,fuzzyScan,matchDec,fuzzyDec,auditPath,predIncl,evidenceVariant,evExact,evIscc,evPercept,evMinhash,stmt,signCheck,unsignedOut,dsseSign,signedOut,errMan,errAmb,errSign,errFp,nonInc,predNonIncl,stmtNI,hfFetch,urlFetch,errSrc,cliEntry,cliPrint,cliOidc shipped
+  class cliOidc added
   class errMerk deferred
   class protectedAttest,protectedMerkle,protectedFp protected
   class result output
@@ -159,6 +165,7 @@ flowchart TB
 - **Green nodes** (`shipped`): land in or before the current commit.
 - **Red nodes** (`protected`): PROTECTED dependencies per CLAUDE.md §4. Consumed but never modified by `attestrum-prove`.
 - **Blue nodes** (`output`): user-facing returned values.
+- **Thick green border** (`added`): 🟩 new this revision (2026-06-03 — E8.1 CLI OIDC token wiring).
 
 ## What lands at Sprint 5 D2 E1 — scaffold + types (proposed)
 

@@ -195,6 +195,11 @@ enum Command {
         #[arg(long, value_name = "DIR")]
         cas_root: Option<PathBuf>,
 
+        /// Read OIDC id_token (JWT) from this file. Overrides
+        /// `SIGSTORE_ID_TOKEN` when signing.
+        #[arg(long, value_name = "PATH")]
+        oidc_token_file: Option<PathBuf>,
+
         /// Skip Sigstore signing. Default is signed via Fulcio + Rekor
         /// (the E4 MVP-gate decision). Unsigned proofs are still
         /// cryptographically self-contained — they just don't carry a
@@ -547,6 +552,7 @@ fn main() -> ExitCode {
             source_date_epoch,
             corpus_bundle,
             cas_root,
+            oidc_token_file,
             unsigned,
         } => {
             let code = commands::prove::run(commands::prove::Args {
@@ -556,6 +562,7 @@ fn main() -> ExitCode {
                 source_date_epoch,
                 corpus_bundle,
                 cas_root,
+                oidc_token_file,
                 unsigned,
             });
             ExitCode::from(code)
