@@ -2,7 +2,7 @@
 title: "Lookback Phase A — WikiText-103 seal generator pipeline"
 models: "crates/attestrum-pipeline/examples/seal-wikitext.rs, crates/attestrum-pipeline/src/lib.rs"
 source_of_truth: code
-last_verified: 62b0dea 2026-05-31
+last_verified: c20b0d9 2026-06-03
 diagram_type: flowchart
 ---
 
