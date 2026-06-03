@@ -6,6 +6,12 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Fixed — documentation accuracy (internal integrity audit, 2026-06-03)
+
+- Corrected two Sprint 1 / Sprint 3 entries that overstated signal-parser integration. The `attestrum-signals` parsers (`robots.txt` / `ai.txt` / `tdmrep`) are implemented and tested but **not yet wired into the `build` pipeline**, which records caller-supplied signals rather than parsing those documents. No change to the signed-artifact path (Merkle root, manifest digests, and signatures are unaffected).
+- `README.md` — corrected the workspace crate count (15, not 14) and added the omitted `attestrum-bind` to the crate list.
+- `CLAUDE.md` §4 — marked the `attestrum-ledger` protected-system entry as not-yet-implemented; the listed protections apply once the crate ships.
+
 ### Added — `prove-sign-interop` CI gate (signed inclusion proofs verify with stock cosign)
 
 - New `.github/workflows/prove-sign-interop.yml` + `crates/attestrum-prove/tests/prove_sign_interop.rs` close the §2.5 third-party-validator gate for the `inclusion-proof/v0.3` emitter: on every push to `main`, a real one-passage corpus is sealed, a signed inclusion proof is minted under the Attestrum GitHub Actions keyless identity, and `cosign verify-blob-attestation --new-bundle-format --type …/inclusion-proof/v0.3` is asserted to return `Verified OK` — proving the emitted proof verifies with **no Attestrum install** (vendor neutrality). The cosign blob is the **passage file**, not the manifest: an inclusion proof's subject digest is the matched leaf's SHA-256. Four tamper negatives (flipped signature, wrong blob, identity mismatch, truncated bundle) assert both Attestrum's verifier and cosign reject forgeries. Mirrors the existing `cosign-interop` gate for the training-corpus predicate.
@@ -146,7 +152,7 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 - `attestrum build` — compiles a corpus from a `corpus.toml` spec into a sealed deterministic artifact.
 - `attestrum inspect` — read-only inspector for Attestrum-shaped Parquet manifests.
 - `attestrum plan` / `attestrum merge` — sub-corpus sharding for deterministic parallel builds.
-- Three-stage Rayon fold-reduce pipeline that wires the signal parsers + hash/CAS/Merkle layer + manifest writer into a single deterministic build.
+- Three-stage Rayon fold-reduce pipeline wiring the hash/CAS/Merkle layer + manifest writer into a single deterministic build. (Signals are recorded from caller-supplied per-entry data; the `attestrum-signals` parsers are not invoked by `build` — see the 2026-06-03 Fixed note.)
 
 ### Added — Sprint 2 (cryptographic foundation, PROTECTED)
 
@@ -158,7 +164,7 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 ### Added — Sprint 1 (workspace + top-3 signal parsers)
 
 - Rust workspace at edition 2021, resolver=2, `rustc` 1.85.0.
-- Three signal parsers with state-machine semantics: `robots.txt` (RFC 9309), `ai.txt` (Spawning), `tdmrep` (W3C, May 2024). Each emits a per-document `SignalVerdict` aggregated by the cross-parser pipeline.
+- Three signal parsers with state-machine semantics: `robots.txt` (RFC 9309), `ai.txt` (Spawning), `tdmrep` (W3C, May 2024), each emitting a per-document `SignalVerdict`. The parsers live in a standalone `attestrum-signals` crate; wiring their verdicts into the `build` pipeline is deferred to a later sprint (see the 2026-06-03 Fixed note).
 - Custom diagram-linter (`tools/diagram-linter/`) enforcing six checks on every PR: Mermaid parse, frontmatter completeness, `last_verified` SHA freshness within 30-commit window, forward-reference resolution, reverse-reference coverage, and code-vs-diagram drift detection.
 - `attestrum-core` — shared primitive types (`DocumentDigest`, `Modality`, `SourceType`, `SignalVerdict`, `Ruleset`).
 

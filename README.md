@@ -70,7 +70,7 @@ Plus `attestrum bind` / `attestrum walk-chain` for model-to-corpus binding and c
 
 Every module, CLI subcommand, public data structure, and multi-party flow has a Mermaid diagram under `docs/diagrams/`. GitHub renders them natively. Start with [`DIAGRAMS-OVERVIEW.md`](./DIAGRAMS-OVERVIEW.md) for the recommended reading order across the 27 diagrams.
 
-The workspace is 14 Rust crates under `crates/`:
+The workspace is 15 Rust crates under `crates/`:
 
 - `attestrum-core` — shared primitives.
 - `attestrum-signals` — robots.txt / ai.txt / TDMRep parsers.
@@ -79,6 +79,7 @@ The workspace is 14 Rust crates under `crates/`:
 - `attestrum-manifest` — Parquet manifest writer/reader (PROTECTED schema).
 - `attestrum-pipeline` — Rayon fold-reduce build pipeline.
 - `attestrum-attest` — in-toto Statement + Sigstore Bundle assembly.
+- `attestrum-bind` — corpus-to-model binding (`model-binding/v0.1` in-toto Statement).
 - `attestrum-fingerprint` — perceptual fingerprinting (PROTECTED text normalization).
 - `attestrum-cli` — user-facing CLI binary.
 - Remaining crates (`attestrum-ledger`, `attestrum-emit`, `attestrum-prove`, `attestrum-publish`, `attestrum-fingerprint-registry`) ship in Sprints 5–6.

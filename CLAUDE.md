@@ -194,7 +194,7 @@ These subsystems are stable enough that touching them risks corpus-incompatible 
 - **`crates/attestrum-merkle/`** — RFC 6962 binary Merkle over BLAKE3. Determinism foundation. A wrong byte invalidates every signed bundle ever issued.
 - **`crates/attestrum-attest/` predicate types** — the three URIs `https://attestrum.com/attestation/{training-corpus,inclusion-proof,non-inclusion-proof}/v0.3`. Schema changes require a version bump (`v0.4`), a migration document, and an in-toto vetted catalog re-submission.
 - **`crates/attestrum-cas/` directory layout** — `.attestrum/objects/`, `.attestrum/cas/`, `.attestrum/manifests/`. Layout change is corpus-incompatible — major version bump.
-- **`crates/attestrum-ledger/` tile layout** — append-only. Never rewrite a tile. Never delete a leaf. Witness mode changes require approval.
+- **`crates/attestrum-ledger/` tile layout** *(not yet implemented — the crate is currently a stub; the protections below apply once it ships)* — append-only. Never rewrite a tile. Never delete a leaf. Witness mode changes require approval.
 - **`tests/golden/article53/`** — EU Article 53 template golden files. Regenerating without visually verifying against the Commission's published template is release-blocking.
 - **`crates/attestrum-fingerprint/` text normalization** — changing tokenization (NFC, lowercase, whitespace collapse) invalidates every inclusion proof emitted so far.
 
