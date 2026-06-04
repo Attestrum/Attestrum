@@ -59,6 +59,8 @@ If step 3 fails on a clean clone, surface it — the baseline has drifted.
 | `/LICENSE-APACHE`, `/LICENSE-MIT` | License files |
 | `/README.md`, `/SECURITY.md`, `/CHANGELOG.md`, `/CLAUDE.md`, `/DIAGRAMS-OVERVIEW.md`, `/.gitignore` | Public docs and repo config |
 
+**Table maintenance.** When a commit introduces a new tracked top-level path, update this table in the SAME commit. A path absent from the table is unclassified — the publication boundary above can't be reasoned about for it. (`docs/guide/` shipped unclassified on 2026-06-02 and was backfilled two minutes later; this rule closes that gap.)
+
 ### 0.5.2 Internal-only (NEVER in this repo)
 
 | Path | Class |
