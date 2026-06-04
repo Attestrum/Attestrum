@@ -8,18 +8,73 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::Once;
 
 use diagram_linter::{FreshnessOracle, DOCS_ONLY_EXCLUDES};
 use tempfile::tempdir;
 
-fn git(repo: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .arg("-C")
+/// Environment variables git injects into pre-commit-hook children. They leak
+/// through `cargo test --workspace` (gate 3 of the CLAUDE.md §7 hook) into this
+/// test binary, and `GIT_DIR` in particular *overrides* `git -C` discovery — so
+/// left in place they redirect both the setup helpers below *and* the
+/// production `FreshnessOracle::from_git` shell-out at the real repo: staging a
+/// phantom `src.rs`, racing the real `index.lock` ("Error building trees",
+/// `invalid object … for .cargo/config.toml`, a `:src.rs` the secret-scanner
+/// gate then trips on), and reading the real commit log instead of the temp
+/// repo's. Stripping them makes every repo created here self-contained.
+const INHERITED_GIT_ENV: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_CEILING_DIRECTORIES",
+];
+
+/// Remove the inherited git discovery environment from this process, once,
+/// before any test spawns git. A `Once` serializes the removal so parallel
+/// tests don't mutate the environment concurrently; nothing in this binary
+/// reads these vars except the git children spawned afterwards.
+fn isolate_git_env() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        for var in INHERITED_GIT_ENV {
+            std::env::remove_var(var);
+        }
+    });
+}
+
+/// A `git` command rooted at `repo` with config + identity pinned away from the
+/// developer's machine, so a global `~/.gitconfig` (e.g. `commit.gpgsign`, a
+/// custom `core.hooksPath`) can't perturb these throwaway repos. Discovery-env
+/// isolation is handled process-wide by [`isolate_git_env`].
+fn git_command(repo: &Path) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
         .arg(repo)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("HOME", repo)
+        .env("GIT_TERMINAL_PROMPT", "0");
+    cmd
+}
+
+fn git(repo: &Path, args: &[&str]) {
+    let status = git_command(repo)
         .args(args)
         .status()
         .unwrap_or_else(|e| panic!("git {args:?} in {repo:?}: {e}"));
     assert!(status.success(), "git {args:?} failed in {repo:?}");
+}
+
+fn rev_parse_head(repo: &Path) -> String {
+    let out = git_command(repo)
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "rev-parse failed");
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
 }
 
 fn git_init(repo: &Path) {
@@ -35,18 +90,12 @@ fn commit(repo: &Path, file: &str, content: &str, msg: &str) -> String {
     std::fs::write(repo.join(file), content).unwrap();
     git(repo, &["add", file]);
     git(repo, &["commit", "-m", msg, "--no-verify", "--quiet"]);
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "rev-parse failed");
-    String::from_utf8(out.stdout).unwrap().trim().to_string()
+    rev_parse_head(repo)
 }
 
 #[test]
 fn docs_only_commits_do_not_load_freshness_window() {
+    isolate_git_env();
     let dir = tempdir().unwrap();
     let repo = dir.path();
     git_init(repo);
@@ -87,6 +136,7 @@ fn docs_only_commits_do_not_load_freshness_window() {
 
 #[test]
 fn mixed_code_and_docs_commit_still_counts() {
+    isolate_git_env();
     let dir = tempdir().unwrap();
     let repo = dir.path();
     git_init(repo);
@@ -100,18 +150,7 @@ fn mixed_code_and_docs_commit_still_counts() {
     std::fs::write(repo.join("CHANGELOG.md"), "entry\n").unwrap();
     git(repo, &["add", "src.rs", "CHANGELOG.md"]);
     git(repo, &["commit", "-m", "mixed", "--no-verify", "--quiet"]);
-    let mixed_sha = String::from_utf8(
-        Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(["rev-parse", "--short", "HEAD"])
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap()
-    .trim()
-    .to_string();
+    let mixed_sha = rev_parse_head(repo);
 
     let oracle = FreshnessOracle::from_git(repo, 30, DOCS_ONLY_EXCLUDES).unwrap();
     assert!(
@@ -122,6 +161,7 @@ fn mixed_code_and_docs_commit_still_counts() {
 
 #[test]
 fn empty_excludes_matches_legacy_behavior() {
+    isolate_git_env();
     let dir = tempdir().unwrap();
     let repo = dir.path();
     git_init(repo);
