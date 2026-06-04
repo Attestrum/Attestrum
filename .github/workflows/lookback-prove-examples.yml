@@ -1,0 +1,207 @@
+name: lookback-prove-examples
+
+# Mint the signed-attestation SHOWCASE: for each curated byte-exact member passage
+# in tests/fixtures/showcase-passages/, run `attestrum prove` against the PUBLISHED
+# WikiText-103 manifest and keyless-sign an inclusion-proof attestation under
+# Attestrum's GitHub Actions identity. Each emitted bundle is then verified with
+# stock cosign (no Attestrum install) against the passage file — the thesis the
+# landing page demonstrates: "verify this signed inclusion proof yourself."
+#
+# ⛔ RUNNING THIS IS IRREVERSIBLE. Each signed proof writes a PERMANENT public Rekor
+# transparency-log entry binding the passage to the Attestrum workflow identity —
+# there is no "sign without Rekor". Trigger is workflow_dispatch ONLY; the file
+# existing on main mints nothing until a human dispatches it. The content is already
+# public (the passages are leaves of the published corpus; the v0.3 predicate URI and
+# leaf hashes are public), so the Rekor exposure adds no new secret — but it is still
+# permanent. Do not dispatch without an explicit decision to publish the showcase.
+#
+# The artifact (lookback-prove-examples-out) carries out/<slug>.inclusion-proof.sigstore.json
+# for each passage; the founder downloads it and copies the bundles + the matching
+# passage .txt into attestrum-landing/corpus-index/proofs/ (manual cross-repo handoff).
+#
+# See docs/diagrams/sprint-5/prove-sign-ci-interop.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: "Published dataset repo to prove against (org/name)"
+        type: string
+        default: "Attestrum/wikitext-103-sealed"
+
+concurrency:
+  # Never cancel an in-flight sign — a partial run could leave a Rekor entry. Serialize.
+  group: lookback-prove-examples-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # GHA OIDC token exchange → Fulcio keyless identity
+  contents: read
+
+env:
+  WS: lookback-prove-ws
+  HF_BASE: "https://huggingface.co/datasets/Attestrum/wikitext-103-sealed/resolve/main/attestrum"
+  # Published canonical manifest — source of truth: docs/lookback/corpus-source.md.
+  CANONICAL_MANIFEST_SHA256: "eafa3dd76ff9bcebfa6e115a1886fa761dd7c376256b053dd9e6ac9634e275a0"
+  INCLUSION_PROOF_PREDICATE_TYPE: "https://attestrum.com/attestation/inclusion-proof/v0.3"
+
+jobs:
+  prove:
+    name: "fetch published manifest → prove (keyless sign) → cosign verify each passage"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-lookback-prove-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-lookback-prove-
+
+      - name: Build attestrum CLI (release)
+        run: cargo build --release -p attestrum-cli
+
+      - name: Download published manifest + corpus bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "$WS"
+          curl --fail-with-body -sSL -o "$WS/manifest.parquet" "$HF_BASE/manifest.parquet"
+          curl --fail-with-body -sSL -o "$WS/bundle.sigstore.json" "$HF_BASE/bundle.sigstore.json"
+          ls -la "$WS"
+
+      - name: Verify manifest SHA-256 against the published canonical digest
+        run: |
+          set -euo pipefail
+          echo "$CANONICAL_MANIFEST_SHA256  $WS/manifest.parquet" > manifest.sha256
+          echo "--- expected ---"; cat manifest.sha256
+          sha256sum -c manifest.sha256
+
+      # Determinism (CLAUDE.md §7): the proof's `proof_generated_at` comes from the
+      # commit time, NOT wall-clock.
+      - name: Derive SOURCE_DATE_EPOCH from the commit
+        run: |
+          set -euo pipefail
+          sde="$(git show -s --format=%ct HEAD)"
+          echo "SOURCE_DATE_EPOCH=$sde" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$sde"
+
+      # Exchange the GHA ID-token request for a sigstore-audience token Fulcio accepts.
+      # Audience MUST be `sigstore`. Mask before exporting. (Proven lookback-publish.yml
+      # / cosign-interop.yml pattern.)
+      - name: Fetch SIGSTORE_ID_TOKEN via GHA OIDC exchange
+        run: |
+          set -euo pipefail
+          token="$(curl --fail-with-body -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" \
+            | jq -r '.value')"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to obtain sigstore-audience OIDC token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "SIGSTORE_ID_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # ⛔ The irreversible step. For each curated passage: prove inclusion against the
+      # published manifest and keyless-sign (Fulcio ephemeral cert + PERMANENT Rekor
+      # DSSE entry). The inclusion proof's subject digest is the matched LEAF's sha256 —
+      # i.e. the passage file's bytes — so the cosign blob below is the passage file,
+      # NOT the manifest (prove/src/lib.rs subject-digest logic). A passage that is not
+      # byte-exact would emit non-inclusion-proof.sigstore.json; we assert against that.
+      - name: Prove + sign each curated passage
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          shopt -s nullglob
+          passages=(tests/fixtures/showcase-passages/passage-*.txt)
+          if [ "${#passages[@]}" -eq 0 ]; then
+            echo "::error::no showcase passages found under tests/fixtures/showcase-passages/" >&2
+            exit 1
+          fi
+          for p in "${passages[@]}"; do
+            slug="$(basename "$p" .txt)"
+            echo "::group::prove $slug"
+            ./target/release/attestrum prove "$p" \
+              --against "$WS/manifest.parquet" \
+              --corpus-bundle "$WS/bundle.sigstore.json" \
+              --source-date-epoch "$SOURCE_DATE_EPOCH" \
+              --workspace "$WS/$slug"
+            incl="$WS/$slug/prove/inclusion-proof.sigstore.json"
+            nonincl="$WS/$slug/prove/non-inclusion-proof.sigstore.json"
+            if [ -f "$nonincl" ]; then
+              echo "::error::$slug emitted a NON-inclusion proof — passage is not a byte-exact leaf" >&2
+              exit 1
+            fi
+            test -f "$incl" || { echo "::error::$slug: expected $incl was not written" >&2; exit 1; }
+            cp "$incl" "out/$slug.inclusion-proof.sigstore.json"
+            echo "::endgroup::"
+          done
+          echo "--- minted bundles ---"
+          ls -la out
+
+      - name: Install cosign (sigstore/cosign-installer@v3)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
+        run: |
+          set -euo pipefail
+          version_json="$(cosign version --json)"
+          echo "$version_json"
+          git_version="$(echo "$version_json" | jq -r '.gitVersion')"
+          case "$git_version" in
+            v2.[5-9].*|v2.[1-9][0-9].*|v3.*)
+              echo "cosign $git_version: OK (>= v2.5 or any v3.x)"
+              ;;
+            *)
+              echo "::error::cosign binary is below v2.5 or unrecognised: $git_version" >&2
+              exit 1
+              ;;
+          esac
+
+      # THE acceptance gate: a third party with no Attestrum installed verifies each
+      # signed inclusion proof with cosign alone, against the PASSAGE FILE (subject
+      # digest = leaf sha256), AND we assert the signing identity is THIS Attestrum GHA
+      # workflow (not a personal identity — CLAUDE-LOCAL §A9). --type asserts the v0.3
+      # inclusion-proof predicate, matching the command the landing page documents.
+      - name: cosign verify-blob-attestation each passage (assert Attestrum GHA SAN)
+        run: |
+          set -euo pipefail
+          identity_re='^https://github\.com/Attestrum/Attestrum/\.github/workflows/lookback-prove-examples\.yml@refs/.+$'
+          issuer='https://token.actions.githubusercontent.com'
+          echo "asserting identity matches: $identity_re"
+          echo "asserting issuer:           $issuer"
+          echo "asserting predicate type:   $INCLUSION_PROOF_PREDICATE_TYPE"
+          for p in tests/fixtures/showcase-passages/passage-*.txt; do
+            slug="$(basename "$p" .txt)"
+            bundle="out/$slug.inclusion-proof.sigstore.json"
+            echo "::group::cosign verify $slug"
+            out="$(cosign verify-blob-attestation \
+              --new-bundle-format \
+              --type "$INCLUSION_PROOF_PREDICATE_TYPE" \
+              --bundle "$bundle" \
+              --certificate-identity-regexp "$identity_re" \
+              --certificate-oidc-issuer "$issuer" \
+              "$p" 2>&1)"
+            echo "$out"
+            echo "$out" | grep -q "Verified OK" \
+              || { echo "::error::$slug: cosign did not report 'Verified OK'"; exit 1; }
+            echo "::endgroup::"
+          done
+          echo "all curated inclusion proofs verify with stock cosign under the Attestrum GHA SAN"
+
+      - name: Upload minted inclusion-proof bundles (cross-repo handoff to landing)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lookback-prove-examples-out
+          path: out
+          if-no-files-found: error
+          retention-days: 14

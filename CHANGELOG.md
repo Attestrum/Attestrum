@@ -6,6 +6,11 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — signed inclusion-proof showcase fixtures + minting workflow
+
+- **`tests/fixtures/showcase-passages/passage-01..05.txt`** — five curated, **byte-exact** member passages of the published WikiText-103 corpus, spanning four topic clusters (science/nature, history/military, geography/weather, arts/pop-culture + music). Each was verified `attestrum prove --against <published manifest> --unsigned` → `inclusion`, confidence `1.00` before committing, so a sign run mints an *inclusion* proof, not a non-inclusion one (the showcase's #1 correctness risk). `ATTRIBUTION.md` carries the CC-BY-SA-3.0 credit and the passage→Wikipedia-article mapping.
+- **New `.github/workflows/lookback-prove-examples.yml`** (`workflow_dispatch` only) mints the showcase: it `curl`s the published `manifest.parquet` + `bundle.sigstore.json` (SHA-256-gated against the canonical `eafa3dd7…e275a0`), then for each passage runs `attestrum prove --against … --corpus-bundle …`, keyless-signs an `inclusion-proof/v0.3` attestation under the Attestrum GHA identity, asserts the emitted file is `inclusion-proof.sigstore.json` (never `non-inclusion-proof…`), and verifies each with stock `cosign verify-blob-attestation --type …/inclusion-proof/v0.3` against the **passage file** (subject digest = matched leaf SHA-256) under the Attestrum workflow SAN. Uploads `out/<slug>.inclusion-proof.sigstore.json` for the manual cross-repo handoff to the landing page. **Running it is irreversible** — each sign writes a permanent public Rekor entry; committing the file mints nothing. Diagrammed at `docs/diagrams/sprint-5/prove-sign-ci-interop.md`.
+
 ### Fixed — documentation accuracy (internal integrity audit, 2026-06-03)
 
 - Corrected two Sprint 1 / Sprint 3 entries that overstated signal-parser integration. The `attestrum-signals` parsers (`robots.txt` / `ai.txt` / `tdmrep`) are implemented and tested but **not yet wired into the `build` pipeline**, which records caller-supplied signals rather than parsing those documents. No change to the signed-artifact path (Merkle root, manifest digests, and signatures are unaffected).
