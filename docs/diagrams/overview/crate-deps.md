@@ -2,7 +2,7 @@
 title: "crate dependency graph"
 models: "Cargo.toml workspace + per-crate Cargo.toml manifests"
 source_of_truth: code
-last_verified: 6430a9a 2026-05-30
+last_verified: 378d955 2026-06-05
 diagram_type: flowchart
 ---
 

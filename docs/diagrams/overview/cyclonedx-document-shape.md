@@ -2,7 +2,7 @@
 title: "CycloneDX 1.6 cyclonedx.json emitted document shape"
 models: "crates/attestrum-emit/src/cyclonedx.rs, render_cyclonedx, CycloneDxPlan"
 source_of_truth: code
-last_verified: e7ea8c6 2026-05-31
+last_verified: 378d955 2026-06-05
 diagram_type: flowchart
 ---
 

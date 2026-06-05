@@ -1,8 +1,8 @@
 ---
 title: "Lookback Phase A — gated WikiText build→sign→publish pipeline"
 models: ".github/workflows/lookback-publish.yml, crates/attestrum-pipeline/examples/seal-wikitext.rs, crates/attestrum-cli/src/commands/sign.rs, crates/attestrum-cli/src/commands/publish.rs"
-source_of_truth: diagram
-last_verified: eb6039f 2026-05-31
+source_of_truth: code
+last_verified: 378d955 2026-06-05
 diagram_type: sequenceDiagram
 ---
 
@@ -12,8 +12,9 @@ The flagship publish flow, realised as `.github/workflows/lookback-publish.yml`
 (`workflow_dispatch` only). It seals the **real** WikiText-103 corpus in CI, gates on
 the canonical root before signing, signs keyless under Attestrum's GitHub Actions
 identity (CLAUDE-LOCAL §A9), and publishes — either `static` (sign + local artifacts
-for inspection) or `huggingface` (sign + Hub push). `source_of_truth: diagram` while
-the workflow is being authored; flips to `code` once `lookback-publish.yml` lands.
+for inspection) or `huggingface` (sign + Hub push). `source_of_truth: code` now that
+`lookback-publish.yml` has landed and run — the WikiText-103 corpus is sealed, signed,
+and published live; this diagram is the derived view, re-verify when the workflow changes.
 
 **The ⛔ steps are signing (a permanent public Rekor entry) and the HF push (needs the
 `HF_TOKEN` secret).** Both run only on an explicit manual dispatch. The pre-sign gate
@@ -64,8 +65,8 @@ aborts the run before Fulcio/Rekor are ever contacted.
 **Signing identity.** Keyless via the GHA-OIDC→`audience=sigstore` exchange → Fulcio
 ephemeral cert bound to the Attestrum workflow SAN, never a personal identity
 (CLAUDE-LOCAL §A9). The closing `cosign verify-blob-attestation` step asserts that SAN
-+ the GitHub OIDC issuer, so a wrong identity fails the run (the §21.1 guard, reused
-from `build-sign-publish.yml`).
++ the GitHub OIDC issuer + the predicate type (`--type`), so a wrong identity or
+predicate fails the run (the §21.1 guard, reused from `build-sign-publish.yml`).
 
 **Determinism note.** The seal runs at epoch 0 (the canonical `de95bddc…` input); sign
 and publish take a commit-derived `SOURCE_DATE_EPOCH` for reproducible predicate /
