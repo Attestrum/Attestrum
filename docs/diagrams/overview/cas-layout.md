@@ -2,7 +2,7 @@
 title: "CAS filesystem layout"
 models: "crates/attestrum-cas/src/store.rs"
 source_of_truth: code
-last_verified: 6430a9a 2026-06-01
+last_verified: 378d955 2026-06-05
 diagram_type: flowchart
 ---
 
@@ -23,7 +23,7 @@ All other subdirectories shown (`manifests/`, `attestations/`, `ledger/`, `bundl
 - `manifests/` — Sprint 3 (`attestrum-manifest` Parquet writer)
 - `attestations/` + `bundles/` — Sprint 4 (`attestrum-attest` + Sigstore)
 - `ledger/` — Sprint 6 (`attestrum-ledger` takedown log)
-- `index/` — Sprint 3+ (RocksDB hot-path index)
+- `index/` — v1.1 (`attestrum-index`): deterministic per-kind fuzzy-lookup LSH sidecars (`index/minhash/v1.idx`, `index/perceptual/v1.idx`, `index/iscc/v1.idx`). **Supersedes the earlier RocksDB hot-path sketch** (PATH-A-BRIEF §1.9): RocksDB is non-deterministic on disk and not a workspace dependency, so it cannot satisfy the §7 byte-identity invariant. The sidecars are raw little-endian, rebuildable byte-identically from `manifests/manifest.parquet` + `cas/`, and are discovery-grade acceleration only — never part of the signed trust chain.
 - `config.toml` — workspace local overrides; lands when the CLI config loader needs it
 
 ```mermaid
@@ -35,7 +35,7 @@ flowchart TD
   Root --> Led["ledger/"]
   Root --> Bun["bundles/"]
   Root --> Tmp["tmp/<br/>(atomic-rename staging)"]
-  Root --> Idx["index/<br/>(RocksDB)"]
+  Root --> Idx["index/<br/>(deterministic fuzzy sidecars)"]
 
   CAS --> CASb3["blake3/aa/bb/&lt;full-hash&gt;.bin"]
   CAS --> CASs["sha256/aa/bb/&lt;full-hash&gt;.bin"]
@@ -55,6 +55,7 @@ flowchart TD
   Led --> LedJ["takedowns.jsonl<br/>(append-only)"]
   Led --> LedR["ledger.merkle.root"]
 
-  Idx --> IdxF["fingerprints.db<br/>(RocksDB: hash → manifest row)"]
-  Idx --> IdxB["bloom.bin<br/>(membership filter)"]
+  Idx --> IdxMH["minhash/v1.idx<br/>(MinHash-LSH 32x4)"]
+  Idx --> IdxPC["perceptual/v1.idx<br/>(Hamming-LSH: pHash + blockhash)"]
+  Idx --> IdxIS["iscc/v1.idx<br/>(Hamming-LSH: ISCC composite)"]
 ```
