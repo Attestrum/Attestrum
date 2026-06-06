@@ -23,6 +23,11 @@ attestrum-cas          = { path = "../attestrum-cas",          version = "0.1.0"
 attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
 blake3                 = { workspace = true }
 thiserror              = { workspace = true }
+# ISCC sub-index decodes each composite to its body bytes (iscc_decode) to band
+# them by global Hamming. Already a workspace dep (fingerprint + prove use it);
+# no new external crate. The PROTECTED iscc-lib version pin lives in the
+# workspace manifest.
+iscc-lib               = { workspace = true }
 
 [dev-dependencies]
 # Perceptual sub-index tests encode tiny PNG fixtures to feed

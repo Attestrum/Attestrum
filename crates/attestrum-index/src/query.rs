@@ -109,6 +109,49 @@ pub fn band_perceptual(phash: u64, blockhash: u64) -> Vec<(u16, u64)> {
 /// Total band ids used by a perceptual sub-index (pHash + blockhash).
 pub const PERCEPTUAL_BANDS: u16 = 2 * HAMMING64_BANDS;
 
+/// Locked ISCC composite-distance threshold (`iscc_composite_distance ≤ 4`),
+/// mirroring `attestrum-prove`'s `FUZZY_THRESHOLD_ISCC_DISTANCE`. The distance
+/// is a single global Hamming over the decoded composite body bytes
+/// (`attestrum-prove::iscc_composite_distance`), so global pigeonhole banding
+/// applies — no per-component split is needed (verified against
+/// `iscc_composite_distance`'s `a_body`/`b_body` global XOR sum).
+pub const ISCC_THRESHOLD: u32 = 4;
+/// Exact-match bands over the ISCC composite body (`≥ ISCC_THRESHOLD + 1`).
+pub const ISCC_BANDS: u16 = 5;
+
+/// Band a decoded ISCC composite body into `ISCC_BANDS` exact-match bands over
+/// contiguous byte ranges. `band_hash` = first 8 LE bytes of BLAKE3 over the
+/// band's bytes. A differing bit lands in exactly one band, so ≤4 differing
+/// bits touch ≤4 of the 5 bands → ≥1 band is byte-identical → collision
+/// (pigeonhole, exact recall for distance ≤ 4).
+pub fn band_iscc(body: &[u8]) -> Vec<(u16, u64)> {
+    let n = body.len();
+    let mut keys = Vec::with_capacity(ISCC_BANDS as usize);
+    for b in 0..ISCC_BANDS {
+        let start = (b as usize * n) / ISCC_BANDS as usize;
+        let end = ((b as usize + 1) * n) / ISCC_BANDS as usize;
+        let h = blake3::hash(&body[start..end]);
+        let band_hash = u64::from_le_bytes(h.as_bytes()[..8].try_into().expect("8 bytes"));
+        keys.push((b, band_hash));
+    }
+    keys
+}
+
+/// Pack the ISCC composite body bytes into little-endian `u64`s (zero-padding a
+/// final partial chunk). The one blessed packing shared by the builder (stored
+/// signature) and the prove fast-path (query body) — Hamming over equal-length
+/// packed signatures equals Hamming over the original body bytes because the
+/// shared zero padding never contributes set bits.
+pub fn pack_iscc_body(body: &[u8]) -> Vec<u64> {
+    body.chunks(8)
+        .map(|c| {
+            let mut b = [0u8; 8];
+            b[..c.len()].copy_from_slice(c);
+            u64::from_le_bytes(b)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +231,44 @@ mod tests {
         let kb = band_hamming64(b, 0);
         let shared = ka.iter().filter(|k| kb.contains(k)).count();
         assert!(shared >= 1, "≤6-bit-different hashes must share ≥1 band");
+    }
+
+    #[test]
+    fn iscc_bands_count_and_determinism() {
+        let body: Vec<u8> = (0..24u8).collect();
+        let k = band_iscc(&body);
+        assert_eq!(k.len(), ISCC_BANDS as usize);
+        assert_eq!(band_iscc(&body), band_iscc(&body));
+    }
+
+    /// Pigeonhole: ≤4 differing bits across the body touch ≤4 of 5 bands, so the
+    /// two bodies must share ≥1 identical band.
+    #[test]
+    fn iscc_within_threshold_bodies_share_a_band() {
+        let a: Vec<u8> = (0..40u8).collect(); // 40 bytes → 8 per band
+        let mut b = a.clone();
+        // flip 4 bits, each in a different band (bytes 0, 8, 16, 24)
+        b[0] ^= 0x01;
+        b[8] ^= 0x01;
+        b[16] ^= 0x01;
+        b[24] ^= 0x01;
+        let total: u32 = a.iter().zip(&b).map(|(x, y)| (x ^ y).count_ones()).sum();
+        assert_eq!(total, ISCC_THRESHOLD);
+        let ka = band_iscc(&a);
+        let kb = band_iscc(&b);
+        assert!(ka.iter().filter(|k| kb.contains(k)).count() >= 1);
+    }
+
+    #[test]
+    fn pack_iscc_body_zero_pads_last_chunk() {
+        assert_eq!(pack_iscc_body(&[1, 0, 0, 0, 0, 0, 0, 0]), vec![1u64]);
+        // 9 bytes → 2 u64s, second zero-padded
+        let packed = pack_iscc_body(&[0, 0, 0, 0, 0, 0, 0, 0, 0xff]);
+        assert_eq!(packed, vec![0u64, 0xffu64]);
+        // Hamming over packed == Hamming over bytes (shared padding cancels)
+        let a = pack_iscc_body(&[0xff, 0, 0, 0, 0]);
+        let b = pack_iscc_body(&[0x0f, 0, 0, 0, 0]);
+        let dist: u32 = a.iter().zip(&b).map(|(x, y)| (x ^ y).count_ones()).sum();
+        assert_eq!(dist, 4); // 0xff ^ 0x0f = 0xf0 → 4 bits
     }
 }

@@ -5,8 +5,10 @@
 //! sidecar under `<cas_root>/index/<kind>/v1.idx`. The index is discovery-grade
 //! and unsigned — the signed inclusion proof stays in `attestrum-prove`.
 //!
-//! This commit lands the **text MinHash** sub-index; image perceptual and ISCC
-//! are added in following commits behind the same one-pass loop.
+//! Three sub-indexes are produced in one pass: text MinHash (band-of-perms LSH),
+//! image perceptual pHash+blockhash, and ISCC composite (both Hamming pigeonhole
+//! banding). A leaf's single fingerprint bundle is routed to every applicable
+//! sub-index (text → minhash + iscc, image → perceptual + iscc).
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -21,8 +23,8 @@ use attestrum_merkle::MerkleTree;
 use crate::error::IndexError;
 use crate::format::{FuzzyIndex, SigEntry, SubIndexKind};
 use crate::query::{
-    band_minhash, band_perceptual, perceptual_hex_to_u64, HAMMING64_BAND_BITS, MINHASH_BANDS,
-    MINHASH_PERMS, MINHASH_ROWS, PERCEPTUAL_BANDS,
+    band_iscc, band_minhash, band_perceptual, pack_iscc_body, perceptual_hex_to_u64,
+    HAMMING64_BAND_BITS, ISCC_BANDS, MINHASH_BANDS, MINHASH_PERMS, MINHASH_ROWS, PERCEPTUAL_BANDS,
 };
 
 /// Per-kind build summary (leaves indexed + distinct buckets emitted).
@@ -41,6 +43,8 @@ pub struct BuildReport {
     pub minhash: SubReport,
     /// The image perceptual (pHash + blockhash) sub-index.
     pub perceptual: SubReport,
+    /// The ISCC composite sub-index (text + image leaves).
+    pub iscc: SubReport,
 }
 
 /// The on-disk path for a sub-index: `<cas_root>/index/<kind>/v1.idx`.
@@ -78,53 +82,71 @@ pub fn build_all(
     let cas = CasStore::new(cas_root)?;
     let fopts = FingerprintOpts { source_date_epoch };
 
-    // Per-kind accumulators. One CAS read + one fingerprint per leaf, routed by
-    // modality.
+    // Per-kind accumulators. One CAS read + one fingerprint per leaf; the
+    // resulting bundle is routed to every applicable sub-index (text → minhash,
+    // image → perceptual, either → iscc).
     let mut mh_sigs: Vec<SigEntry> = Vec::new();
     let mut mh_buckets: BTreeMap<(u16, u64), Vec<u64>> = BTreeMap::new();
     let mut pc_sigs: Vec<SigEntry> = Vec::new();
     let mut pc_buckets: BTreeMap<(u16, u64), Vec<u64>> = BTreeMap::new();
+    let mut is_sigs: Vec<SigEntry> = Vec::new();
+    let mut is_buckets: BTreeMap<(u16, u64), Vec<u64>> = BTreeMap::new();
 
     for (row, entry) in entries.iter().enumerate() {
         let row = row as u64;
-        match entry.modality {
+        let bundle = match entry.modality {
             Modality::Text => {
                 let bytes = read_leaf(&cas, &entry.document_id)?;
-                let Ok(bundle) = fingerprint_text(&bytes, &fopts) else {
-                    continue;
-                };
-                if let Some(text) = bundle.text {
-                    for key in band_minhash(&text.minhash) {
-                        mh_buckets.entry(key).or_default().push(row);
-                    }
-                    mh_sigs.push(SigEntry {
-                        row,
-                        sig: text.minhash,
-                    });
-                }
+                fingerprint_text(&bytes, &fopts).ok()
             }
             Modality::Image => {
                 let bytes = read_leaf(&cas, &entry.document_id)?;
-                let Ok(bundle) = fingerprint_image(&bytes, &fopts) else {
-                    continue;
-                };
-                if let Some(img) = bundle.image {
-                    let (Some(ph), Some(bh)) = (
-                        perceptual_hex_to_u64(&img.phash),
-                        perceptual_hex_to_u64(&img.blockhash),
-                    ) else {
-                        continue;
-                    };
-                    for key in band_perceptual(ph, bh) {
-                        pc_buckets.entry(key).or_default().push(row);
-                    }
-                    pc_sigs.push(SigEntry {
-                        row,
-                        sig: vec![ph, bh],
-                    });
-                }
+                fingerprint_image(&bytes, &fopts).ok()
             }
-            _ => {}
+            _ => None,
+        };
+        let Some(bundle) = bundle else {
+            continue;
+        };
+
+        // Text MinHash.
+        if let Some(text) = &bundle.text {
+            for key in band_minhash(&text.minhash) {
+                mh_buckets.entry(key).or_default().push(row);
+            }
+            mh_sigs.push(SigEntry {
+                row,
+                sig: text.minhash.clone(),
+            });
+        }
+
+        // Image perceptual.
+        if let Some(img) = &bundle.image {
+            if let (Some(ph), Some(bh)) = (
+                perceptual_hex_to_u64(&img.phash),
+                perceptual_hex_to_u64(&img.blockhash),
+            ) {
+                for key in band_perceptual(ph, bh) {
+                    pc_buckets.entry(key).or_default().push(row);
+                }
+                pc_sigs.push(SigEntry {
+                    row,
+                    sig: vec![ph, bh],
+                });
+            }
+        }
+
+        // ISCC composite (present for both text + image bundles).
+        if let Some(iscc) = &bundle.iscc {
+            if let Ok((_, _, _, _, body)) = iscc_lib::iscc_decode(&iscc.composite) {
+                for key in band_iscc(&body) {
+                    is_buckets.entry(key).or_default().push(row);
+                }
+                is_sigs.push(SigEntry {
+                    row,
+                    sig: pack_iscc_body(&body),
+                });
+            }
         }
     }
 
@@ -160,9 +182,27 @@ pub fn build_all(
     };
     pc.write_to_path(&sidecar_path(cas_root, SubIndexKind::Perceptual))?;
 
+    let is_bucket_count = is_buckets.len();
+    let is_width = is_sigs.first().map(|s| s.sig.len()).unwrap_or(0) as u16;
+    let is = FuzzyIndex::from_parts(
+        SubIndexKind::Iscc,
+        root,
+        is_width,
+        ISCC_BANDS,
+        0, // rows_or_bits unused for ISCC (byte-range bands)
+        is_sigs,
+        is_buckets,
+    )?;
+    let is_report = SubReport {
+        leaves: is.leaf_count(),
+        buckets: is_bucket_count,
+    };
+    is.write_to_path(&sidecar_path(cas_root, SubIndexKind::Iscc))?;
+
     Ok(BuildReport {
         minhash: mh_report,
         perceptual: pc_report,
+        iscc: is_report,
     })
 }
 
@@ -412,6 +452,66 @@ mod tests {
         build_all(&manifest, &cas_root, SDE).expect("build 2");
         let b2 = std::fs::read(sidecar_path(&cas_root, SubIndexKind::Perceptual)).unwrap();
         assert_eq!(b1, b2, "same-target rebuild must be byte-identical");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn iscc_body_of_text(bytes: &[u8]) -> Vec<u8> {
+        let b = fingerprint_text(
+            bytes,
+            &FingerprintOpts {
+                source_date_epoch: SDE,
+            },
+        )
+        .expect("fingerprint");
+        let comp = b.iscc.expect("iscc present").composite;
+        let (_, _, _, _, body) = iscc_lib::iscc_decode(&comp).expect("decode");
+        body
+    }
+
+    #[test]
+    fn builds_iscc_sidecar_for_text_corpus() {
+        let root = fresh_root("ibuild");
+        let (manifest, cas_root) = seal(&root, &[(BASE, Modality::Text), (OTHER, Modality::Text)]);
+        let report = build_all(&manifest, &cas_root, SDE).expect("build");
+        assert_eq!(
+            report.iscc.leaves, 2,
+            "both text leaves carry an ISCC composite"
+        );
+        let idx = FuzzyIndex::from_bytes(
+            &std::fs::read(sidecar_path(&cas_root, SubIndexKind::Iscc)).unwrap(),
+        )
+        .expect("load iscc sidecar");
+        assert_eq!(idx.kind(), SubIndexKind::Iscc);
+        assert_eq!(idx.leaf_count(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn iscc_self_query_is_a_candidate() {
+        let root = fresh_root("iself");
+        let (manifest, cas_root) = seal(&root, &[(BASE, Modality::Text), (OTHER, Modality::Text)]);
+        build_all(&manifest, &cas_root, SDE).expect("build");
+        let idx = FuzzyIndex::from_bytes(
+            &std::fs::read(sidecar_path(&cas_root, SubIndexKind::Iscc)).unwrap(),
+        )
+        .unwrap();
+        let cands = idx.candidates(&band_iscc(&iscc_body_of_text(BASE)));
+        assert!(
+            cands.contains(&row_of(&manifest, BASE)),
+            "exact ISCC self-query must surface its own leaf"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn iscc_sidecar_rebuild_is_byte_identical() {
+        let root = fresh_root("ideterminism");
+        let (manifest, cas_root) = seal(&root, &[(BASE, Modality::Text), (OTHER, Modality::Text)]);
+        build_all(&manifest, &cas_root, SDE).expect("build 1");
+        let b1 = std::fs::read(sidecar_path(&cas_root, SubIndexKind::Iscc)).unwrap();
+        build_all(&manifest, &cas_root, SDE).expect("build 2");
+        let b2 = std::fs::read(sidecar_path(&cas_root, SubIndexKind::Iscc)).unwrap();
+        assert_eq!(b1, b2, "ISCC rebuild must be byte-identical (integer-only)");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -525,6 +525,7 @@ dependencies = [
  "attestrum-merkle",
  "blake3",
  "image",
+ "iscc-lib",
  "thiserror 1.0.69",
 ]
 
