@@ -12,5 +12,7 @@
 //! See `docs/diagrams/index/sidecar-format.md` (on-disk format) and
 //! `docs/diagrams/index/build-and-query.md` (build + query flows).
 
+pub mod build;
 pub mod error;
 pub mod format;
+pub mod query;

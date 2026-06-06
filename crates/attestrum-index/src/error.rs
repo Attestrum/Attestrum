@@ -44,7 +44,12 @@ pub enum IndexError {
     #[error("index trailer hash mismatch: file is corrupt")]
     TrailerMismatch,
 
-    /// Underlying filesystem error while reading or atomically writing.
+    /// The manifest could not be read (delegated from `attestrum-manifest`).
+    #[error("manifest read failed: {0}")]
+    Manifest(String),
+
+    /// Underlying filesystem error while reading the CAS or atomically writing
+    /// the sidecar.
     #[error("index io error: {0}")]
     Io(#[from] std::io::Error),
 }
