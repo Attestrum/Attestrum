@@ -23,3 +23,9 @@ attestrum-cas          = { path = "../attestrum-cas",          version = "0.1.0"
 attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
 blake3                 = { workspace = true }
 thiserror              = { workspace = true }
+
+[dev-dependencies]
+# Perceptual sub-index tests encode tiny PNG fixtures to feed
+# attestrum-fingerprint's image path. Already a workspace dep (no new external
+# crate). dev-only: the crate itself never decodes images.
+image                  = { workspace = true }

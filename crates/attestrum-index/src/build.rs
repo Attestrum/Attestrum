@@ -14,13 +14,16 @@ use std::path::{Path, PathBuf};
 
 use attestrum_cas::CasStore;
 use attestrum_core::Modality;
-use attestrum_fingerprint::{fingerprint_text, FingerprintOpts};
+use attestrum_fingerprint::{fingerprint_image, fingerprint_text, FingerprintOpts};
 use attestrum_manifest::{read_manifest, ManifestEntry};
 use attestrum_merkle::MerkleTree;
 
 use crate::error::IndexError;
 use crate::format::{FuzzyIndex, SigEntry, SubIndexKind};
-use crate::query::{band_minhash, MINHASH_BANDS, MINHASH_PERMS, MINHASH_ROWS};
+use crate::query::{
+    band_minhash, band_perceptual, perceptual_hex_to_u64, HAMMING64_BAND_BITS, MINHASH_BANDS,
+    MINHASH_PERMS, MINHASH_ROWS, PERCEPTUAL_BANDS,
+};
 
 /// Per-kind build summary (leaves indexed + distinct buckets emitted).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -36,6 +39,8 @@ pub struct SubReport {
 pub struct BuildReport {
     /// The text MinHash sub-index.
     pub minhash: SubReport,
+    /// The image perceptual (pHash + blockhash) sub-index.
+    pub perceptual: SubReport,
 }
 
 /// The on-disk path for a sub-index: `<cas_root>/index/<kind>/v1.idx`.
@@ -73,26 +78,53 @@ pub fn build_all(
     let cas = CasStore::new(cas_root)?;
     let fopts = FingerprintOpts { source_date_epoch };
 
-    // Text MinHash accumulators.
+    // Per-kind accumulators. One CAS read + one fingerprint per leaf, routed by
+    // modality.
     let mut mh_sigs: Vec<SigEntry> = Vec::new();
     let mut mh_buckets: BTreeMap<(u16, u64), Vec<u64>> = BTreeMap::new();
+    let mut pc_sigs: Vec<SigEntry> = Vec::new();
+    let mut pc_buckets: BTreeMap<(u16, u64), Vec<u64>> = BTreeMap::new();
 
     for (row, entry) in entries.iter().enumerate() {
         let row = row as u64;
-        if matches!(entry.modality, Modality::Text) {
-            let bytes = read_leaf(&cas, &entry.document_id)?;
-            let Ok(bundle) = fingerprint_text(&bytes, &fopts) else {
-                continue;
-            };
-            if let Some(text) = bundle.text {
-                for key in band_minhash(&text.minhash) {
-                    mh_buckets.entry(key).or_default().push(row);
+        match entry.modality {
+            Modality::Text => {
+                let bytes = read_leaf(&cas, &entry.document_id)?;
+                let Ok(bundle) = fingerprint_text(&bytes, &fopts) else {
+                    continue;
+                };
+                if let Some(text) = bundle.text {
+                    for key in band_minhash(&text.minhash) {
+                        mh_buckets.entry(key).or_default().push(row);
+                    }
+                    mh_sigs.push(SigEntry {
+                        row,
+                        sig: text.minhash,
+                    });
                 }
-                mh_sigs.push(SigEntry {
-                    row,
-                    sig: text.minhash,
-                });
             }
+            Modality::Image => {
+                let bytes = read_leaf(&cas, &entry.document_id)?;
+                let Ok(bundle) = fingerprint_image(&bytes, &fopts) else {
+                    continue;
+                };
+                if let Some(img) = bundle.image {
+                    let (Some(ph), Some(bh)) = (
+                        perceptual_hex_to_u64(&img.phash),
+                        perceptual_hex_to_u64(&img.blockhash),
+                    ) else {
+                        continue;
+                    };
+                    for key in band_perceptual(ph, bh) {
+                        pc_buckets.entry(key).or_default().push(row);
+                    }
+                    pc_sigs.push(SigEntry {
+                        row,
+                        sig: vec![ph, bh],
+                    });
+                }
+            }
+            _ => {}
         }
     }
 
@@ -106,14 +138,32 @@ pub fn build_all(
         mh_sigs,
         mh_buckets,
     )?;
-    let report = BuildReport {
-        minhash: SubReport {
-            leaves: mh.leaf_count(),
-            buckets: mh_bucket_count,
-        },
+    let mh_report = SubReport {
+        leaves: mh.leaf_count(),
+        buckets: mh_bucket_count,
     };
     mh.write_to_path(&sidecar_path(cas_root, SubIndexKind::Minhash))?;
-    Ok(report)
+
+    let pc_bucket_count = pc_buckets.len();
+    let pc = FuzzyIndex::from_parts(
+        SubIndexKind::Perceptual,
+        root,
+        2, // sig_width: pHash + blockhash
+        PERCEPTUAL_BANDS,
+        HAMMING64_BAND_BITS,
+        pc_sigs,
+        pc_buckets,
+    )?;
+    let pc_report = SubReport {
+        leaves: pc.leaf_count(),
+        buckets: pc_bucket_count,
+    };
+    pc.write_to_path(&sidecar_path(cas_root, SubIndexKind::Perceptual))?;
+
+    Ok(BuildReport {
+        minhash: mh_report,
+        perceptual: pc_report,
+    })
 }
 
 #[cfg(test)]
@@ -274,6 +324,94 @@ mod tests {
             cands.contains(&row_of(&manifest, BASE)),
             "near-duplicate query must surface the base leaf as a candidate"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn gradient_png(seed: u8) -> Vec<u8> {
+        use image::{ImageBuffer, Rgb};
+        let buf: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(16, 16, |x, y| {
+            Rgb([
+                (x as u8).wrapping_mul(16).wrapping_add(seed),
+                (y as u8).wrapping_mul(16),
+                ((x + y) as u8).wrapping_mul(8),
+            ])
+        });
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgb8(buf)
+            .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .expect("encode png");
+        out
+    }
+
+    fn perceptual_sig_of(png: &[u8]) -> (u64, u64) {
+        let b = fingerprint_image(
+            png,
+            &FingerprintOpts {
+                source_date_epoch: SDE,
+            },
+        )
+        .expect("fingerprint image");
+        let img = b.image.expect("image fp");
+        (
+            perceptual_hex_to_u64(&img.phash).unwrap(),
+            perceptual_hex_to_u64(&img.blockhash).unwrap(),
+        )
+    }
+
+    #[test]
+    fn builds_perceptual_sidecar_for_image_corpus() {
+        let root = fresh_root("pbuild");
+        let img_a = gradient_png(0);
+        let img_b = gradient_png(200);
+        let (manifest, cas_root) = seal(
+            &root,
+            &[(&img_a, Modality::Image), (&img_b, Modality::Image)],
+        );
+        let report = build_all(&manifest, &cas_root, SDE).expect("build");
+        assert_eq!(report.perceptual.leaves, 2);
+        assert_eq!(report.minhash.leaves, 0);
+        let idx = FuzzyIndex::from_bytes(
+            &std::fs::read(sidecar_path(&cas_root, SubIndexKind::Perceptual)).unwrap(),
+        )
+        .expect("load perceptual sidecar");
+        assert_eq!(idx.kind(), SubIndexKind::Perceptual);
+        assert_eq!(idx.leaf_count(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn self_image_query_is_a_candidate() {
+        let root = fresh_root("pself");
+        let img_a = gradient_png(0);
+        let img_b = gradient_png(200);
+        let (manifest, cas_root) = seal(
+            &root,
+            &[(&img_a, Modality::Image), (&img_b, Modality::Image)],
+        );
+        build_all(&manifest, &cas_root, SDE).expect("build");
+        let idx = FuzzyIndex::from_bytes(
+            &std::fs::read(sidecar_path(&cas_root, SubIndexKind::Perceptual)).unwrap(),
+        )
+        .unwrap();
+        let (ph, bh) = perceptual_sig_of(&img_a);
+        let cands = idx.candidates(&band_perceptual(ph, bh));
+        assert!(
+            cands.contains(&row_of(&manifest, &img_a)),
+            "exact image self-query must surface its own leaf"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn perceptual_sidecar_rebuild_is_byte_identical() {
+        let root = fresh_root("pdeterminism");
+        let img_a = gradient_png(0);
+        let (manifest, cas_root) = seal(&root, &[(&img_a, Modality::Image)]);
+        build_all(&manifest, &cas_root, SDE).expect("build 1");
+        let b1 = std::fs::read(sidecar_path(&cas_root, SubIndexKind::Perceptual)).unwrap();
+        build_all(&manifest, &cas_root, SDE).expect("build 2");
+        let b2 = std::fs::read(sidecar_path(&cas_root, SubIndexKind::Perceptual)).unwrap();
+        assert_eq!(b1, b2, "same-target rebuild must be byte-identical");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -49,6 +49,66 @@ pub fn band_minhash(sig: &[u64]) -> Vec<(u16, u64)> {
     keys
 }
 
+// ============================================================================
+// Hamming pigeonhole banding (image perceptual + ISCC).
+//
+// For a Hamming threshold `k`, splitting a hash into ≥ k+1 exact-match bands
+// guarantees that any two hashes within `k` bits agree exactly on at least one
+// band (pigeonhole) — so candidate gathering has EXACT recall (zero false
+// negatives) for distance ≤ k, unlike MinHash LSH's probabilistic recall.
+// ============================================================================
+
+/// Locked perceptual Hamming threshold (`min(phash, blockhash) ≤ 6`), mirroring
+/// `attestrum-prove`'s `FUZZY_THRESHOLD_PERCEPTUAL_HAMMING`.
+pub const PERCEPTUAL_THRESHOLD: u32 = 6;
+/// Exact-match bands per 64-bit hash. 8 ≥ `PERCEPTUAL_THRESHOLD + 1`, so the
+/// pigeonhole recall guarantee holds for distance ≤ 7 (covers the ≤6 gate).
+pub const HAMMING64_BANDS: u16 = 8;
+/// Bits per band (`64 / HAMMING64_BANDS`).
+pub const HAMMING64_BAND_BITS: u16 = 8;
+
+/// Decode a 16-char lowercase-hex perceptual hash (pHash / blockhash) into a
+/// `u64` (big-endian). The one blessed conversion shared by the builder and the
+/// prove fast-path: Hamming distance is representation-invariant as long as both
+/// sides pack bits identically.
+pub fn perceptual_hex_to_u64(s: &str) -> Option<u64> {
+    if s.len() != 16 {
+        return None;
+    }
+    let mut bytes = [0u8; 8];
+    for (i, b) in bytes.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(u64::from_be_bytes(bytes))
+}
+
+/// Band one 64-bit hash into `HAMMING64_BANDS` exact-match bands, offsetting the
+/// band ids by `band_id_offset` so two hashes (pHash + blockhash) can share one
+/// bucket map without colliding band ids.
+fn band_hamming64(hash: u64, band_id_offset: u16) -> Vec<(u16, u64)> {
+    let mut keys = Vec::with_capacity(HAMMING64_BANDS as usize);
+    for b in 0..HAMMING64_BANDS {
+        let shift = (b * HAMMING64_BAND_BITS) as u32;
+        let band_bits = (hash >> shift) & 0xFF;
+        keys.push((band_id_offset + b, band_bits));
+    }
+    keys
+}
+
+/// Band a perceptual signature `(phash, blockhash)`. pHash occupies band ids
+/// `0..HAMMING64_BANDS`, blockhash `HAMMING64_BANDS..2*HAMMING64_BANDS`. A query
+/// is a candidate if EITHER hash collides in a band — the union mirrors prove's
+/// `min(phash_dist, blockhash_dist) ≤ 6` so the indexed candidate set is a
+/// superset of the exhaustive match set.
+pub fn band_perceptual(phash: u64, blockhash: u64) -> Vec<(u16, u64)> {
+    let mut keys = band_hamming64(phash, 0);
+    keys.extend(band_hamming64(blockhash, HAMMING64_BANDS));
+    keys
+}
+
+/// Total band ids used by a perceptual sub-index (pHash + blockhash).
+pub const PERCEPTUAL_BANDS: u16 = 2 * HAMMING64_BANDS;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +152,41 @@ mod tests {
         for i in 1..MINHASH_BANDS as usize {
             assert_eq!(kb[i], km[i], "bands 1.. must be unchanged");
         }
+    }
+
+    #[test]
+    fn perceptual_hex_decodes_to_u64() {
+        assert_eq!(perceptual_hex_to_u64("0000000000000000"), Some(0));
+        assert_eq!(perceptual_hex_to_u64("00000000000000ff"), Some(0xff));
+        assert_eq!(
+            perceptual_hex_to_u64("ff00000000000000"),
+            Some(0xff00_0000_0000_0000)
+        );
+        assert_eq!(perceptual_hex_to_u64("zz00000000000000"), None);
+        assert_eq!(perceptual_hex_to_u64("00"), None);
+    }
+
+    #[test]
+    fn perceptual_bands_phash_and_blockhash_disjointly() {
+        let keys = band_perceptual(0xdead_beef_0000_1111, 0x0123_4567_89ab_cdef);
+        assert_eq!(keys.len(), PERCEPTUAL_BANDS as usize);
+        // phash bands 0..8, blockhash bands 8..16
+        for (i, (band_id, _)) in keys.iter().enumerate() {
+            assert_eq!(*band_id, i as u16);
+        }
+    }
+
+    /// Pigeonhole guarantee: two hashes within PERCEPTUAL_THRESHOLD bits must
+    /// share at least one identical band.
+    #[test]
+    fn within_threshold_hashes_share_a_band() {
+        let a: u64 = 0xa5a5_a5a5_a5a5_a5a5;
+        // flip exactly 6 bits spread across distinct bytes (one per band, worst case)
+        let b = a ^ 0x0101_0101_0101_0000; // 6 set bits across 6 of the 8 bands
+        assert_eq!((a ^ b).count_ones(), PERCEPTUAL_THRESHOLD);
+        let ka = band_hamming64(a, 0);
+        let kb = band_hamming64(b, 0);
+        let shared = ka.iter().filter(|k| kb.contains(k)).count();
+        assert!(shared >= 1, "≤6-bit-different hashes must share ≥1 band");
     }
 }
