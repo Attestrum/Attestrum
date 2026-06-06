@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — real paste-your-own near-match is LIVE on attestrum.com
+
+- The attestrum.com corpus-check paste box now does real client-side near-match: on an exact miss it lazy-loads the C2 wasm kernel (`attestrum-fingerprint-wasm`) + the C3 bounded corpus (`fuzzy-index.json`), computes the pasted text's 128-permutation MinHash **in the browser with the identical Rust the CLI uses**, and brute-forces exact Jaccard against the curated demo passages — rendering a discovery-grade "similarity lead" (clearly labeled NOT cryptographic proof) at ≥ 0.85. An in-page conformance check (the wasm must recompute a known corpus signature byte-for-byte) gates the path; if it fails, near-match is suppressed. Verified end-to-end on the live site: a one-word-edited member passage returns an 86% near-match. This completes Build E (C1 kernel extraction → C2 wasm + CI gates → C3 corpus artifact → C4 live integration). The CLI/repo is unchanged by this entry — it records the milestone the C1–C4 work enabled. (Landing-site code lives outside this repo.)
+
 ### Added — `fuzzy-web-gen`: tracked generator for the bounded near-match demo corpus
 
 - **New tool `tools/fuzzy-web-gen`** produces `tests/fixtures/fuzzy-web/fuzzy-index.json` — the bounded corpus the attestrum.com client-side near-match demo matches a pasted query against. It computes each of the 5 curated showcase passages' 128-permutation MinHash with the **same PROTECTED kernel** (`attestrum-text-minhash`) the browser's wasm compiles from, so the shipped corpus signatures are byte-identical to what the browser recomputes (verified end-to-end against the C2 wasm artifact) and to what `attestrum index build` / `attestrum prove` produce. The artifact also carries each passage's display metadata (title, Wikipedia URL, snippet) and mirrors the kernel/threshold params (`sigWidth 128`, `bands 32`, `rows 4`, `jaccardThresholdPpm 850000`, `ngram 5`).

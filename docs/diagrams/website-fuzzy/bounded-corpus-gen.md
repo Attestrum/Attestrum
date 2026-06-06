@@ -2,7 +2,7 @@
 title: "C3 bounded fuzzy-corpus generator — showcase passages → kernel → fuzzy-index.json"
 models: "tools/fuzzy-web-gen/src/lib.rs, tools/fuzzy-web-gen/src/main.rs, tests/fixtures/showcase-passages/display.json, tests/fixtures/fuzzy-web/fuzzy-index.json, normalize_text"
 source_of_truth: code
-last_verified: bc5f9ae 2026-06-06
+last_verified: 39d7ac4 2026-06-06
 diagram_type: flowchart
 ---
 
@@ -42,6 +42,8 @@ flowchart TB
   classDef data fill:#1a3a6f,stroke:#3a8ed7,color:#fff
   classDef gate fill:#8a5a00,stroke:#e0a52e,color:#fff
   classDef future fill:#3a3a3a,stroke:#666,color:#aaa
+  %% shipped + revised-this-revision highlight (green fill, amber thick border)
+  classDef shipped fill:#1f6f3f,stroke:#e0a52e,stroke-width:4px,color:#fff
 
   subgraph inputs["curated inputs (tests/fixtures/showcase-passages/)"]
     P["passage-01..05.txt<br/>(byte-exact sealed leaves)"]
@@ -63,8 +65,8 @@ flowchart TB
   REPRO["tests/reproducibility.rs<br/>regen == golden · sig == kernel · snippet == sig source"]
   class REPRO gate
 
-  BROWSER["attestrum.com near-match demo<br/>(C4 — wasm query sig + brute-force Jaccard ≥ 0.85)"]
-  class BROWSER future
+  BROWSER["attestrum.com near-match demo — LIVE<br/>(C4 — wasm query sig + brute-force Jaccard ≥ 0.85)"]
+  class BROWSER shipped
 
   P --> GEN
   D --> GEN
@@ -73,5 +75,7 @@ flowchart TB
   GEN --> OUT
   OUT --> REPRO
   K --> REPRO
-  OUT -.-> BROWSER
+  OUT --> BROWSER
 ```
+
+🟧 revised this revision: the browser near-match demo is now **LIVE** on attestrum.com — C4 shipped 2026-06-06. The browser lazy-loads `corpus-index/attestrum_fingerprint_wasm.wasm` (the C2 kernel) + `corpus-index/fuzzy-index.json` (this artifact), runs an in-page conformance check (wasm sig of a known passage == its shipped sig), then on an exact miss computes the pasted text's MinHash and brute-forces Jaccard ≥ 0.85 against the 5 leaves.
