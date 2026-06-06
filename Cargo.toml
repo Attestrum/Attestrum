@@ -15,6 +15,7 @@ members = [
     "crates/attestrum-prove",
     "crates/attestrum-publish",
     "crates/attestrum-fingerprint-registry",
+    "crates/attestrum-index",
     "crates/attestrum-cli",
     "tools/diagram-linter",
     "tools/secret-scanner",

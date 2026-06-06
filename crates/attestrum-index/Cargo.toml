@@ -1,0 +1,25 @@
+[package]
+name = "attestrum-index"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# v1.1 indexed fuzzy lookup. The full project dep set for this single cohesive
+# feature crate is declared upfront (not per-commit per the prove §14 pattern)
+# because every member is already a workspace crate — no new external crate
+# enters the graph — and declaring them once keeps `docs/diagrams/overview/
+# crate-deps.md` from churning across the commit series. Usage lands per commit:
+#   format.rs (this commit): blake3 (TRAILER_HASH), thiserror (IndexError).
+#   build.rs/query.rs (later commits): attestrum-merkle (BINDING_ROOT recompute),
+#     attestrum-manifest (read_manifest), attestrum-cas (leaf bytes),
+#     attestrum-fingerprint (per-leaf signatures), attestrum-core (shared types).
+attestrum-core         = { path = "../attestrum-core",         version = "0.0.1" }
+attestrum-merkle       = { path = "../attestrum-merkle",       version = "0.1.0" }
+attestrum-manifest     = { path = "../attestrum-manifest",     version = "0.1.0" }
+attestrum-cas          = { path = "../attestrum-cas",          version = "0.1.0" }
+attestrum-fingerprint  = { path = "../attestrum-fingerprint",  version = "0.1.0" }
+blake3                 = { workspace = true }
+thiserror              = { workspace = true }

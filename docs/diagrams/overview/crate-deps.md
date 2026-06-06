@@ -12,7 +12,7 @@ Source of truth: `code`. The edges are the **transitive reduction** of the **nor
 
 **Arrow convention:** `A --> B` means "A depends on B" — the arrow points from the dependent crate to its dependency, matching `cargo-tree` convention.
 
-`attestrum-core` has zero outbound project dependencies (externally it pulls only `serde`, `thiserror`, `schemars`) and is the foundation every wired crate reaches. Three crates are **not yet wired into the runtime graph**: `attestrum-ledger` and `attestrum-fingerprint-registry` have no project edges at all, and `attestrum-signals` depends on `attestrum-core` but nothing depends on it yet — all three are scaffolded ahead of the CLI paths that will consume them. `attestrum-merkle` has no *normal* project dependency (it reaches `attestrum-core` only in tests). No cycles exist.
+`attestrum-core` has zero outbound project dependencies (externally it pulls only `serde`, `thiserror`, `schemars`) and is the foundation every wired crate reaches. Three crates are **not yet wired into the runtime graph**: `attestrum-ledger` and `attestrum-fingerprint-registry` have no project edges at all, and `attestrum-signals` depends on `attestrum-core` but nothing depends on it yet — all three are scaffolded ahead of the CLI paths that will consume them. `attestrum-merkle` has no *normal* project dependency (it reaches `attestrum-core` only in tests). `attestrum-index` (v1.1 fuzzy-lookup sidecars) depends on `attestrum-fingerprint` / `attestrum-cas` / `attestrum-manifest` / `attestrum-merkle` (its `attestrum-core` edge is skip-level, omitted) but **nothing depends on it yet** — the CLI `index` subcommand and `attestrum-prove`'s fast-path wire it in over the v1.1 commit series, at which point `CLI → attestrum-index` and `attestrum-prove → attestrum-index` edges land. No cycles exist.
 
 ```mermaid
 flowchart TD
@@ -35,6 +35,11 @@ flowchart TD
   P --> CAS
   P --> M
   P --> MK
+
+  IX[attestrum-index] --> FP
+  IX --> CAS
+  IX --> M
+  IX --> MK
 
   S[attestrum-signals] --> C[attestrum-core]
   CAS --> C

@@ -515,6 +515,19 @@ name = "attestrum-fingerprint-registry"
 version = "0.1.0"
 
 [[package]]
+name = "attestrum-index"
+version = "0.1.0"
+dependencies = [
+ "attestrum-cas",
+ "attestrum-core",
+ "attestrum-fingerprint",
+ "attestrum-manifest",
+ "attestrum-merkle",
+ "blake3",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "attestrum-ledger"
 version = "0.1.0"
 

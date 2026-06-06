@@ -19,7 +19,7 @@ No external API or storage stability promises until `v0.1.0`. The PROTECTED subs
 ## Repository layout
 
 ```
-crates/                 Rust workspace — 14 crates implementing the build pipeline,
+crates/                 Rust workspace — 16 crates implementing the build pipeline,
                         Merkle tree, manifest writer, signing/verify, and the CLI.
 tools/                  Workspace-internal tooling:
                           diagram-linter/   enforces docs/diagrams/ frontmatter + freshness
@@ -70,7 +70,7 @@ Plus `attestrum bind` / `attestrum walk-chain` for model-to-corpus binding and c
 
 Every module, CLI subcommand, public data structure, and multi-party flow has a Mermaid diagram under `docs/diagrams/`. GitHub renders them natively. Start with [`DIAGRAMS-OVERVIEW.md`](./DIAGRAMS-OVERVIEW.md) for the recommended reading order across the 27 diagrams.
 
-The workspace is 15 Rust crates under `crates/`:
+The workspace is 16 Rust crates under `crates/`:
 
 - `attestrum-core` — shared primitives.
 - `attestrum-signals` — robots.txt / ai.txt / TDMRep parsers.
@@ -84,6 +84,7 @@ The workspace is 15 Rust crates under `crates/`:
 - `attestrum-prove` — inclusion / non-inclusion proof builder.
 - `attestrum-emit` — Croissant JSON-LD + CycloneDX ML-BOM + dataset-card + verify.html emitters.
 - `attestrum-publish` — Hugging Face Hub + static-bundle publish targets.
+- `attestrum-index` — derived fuzzy-lookup LSH sidecar indexes (discovery-grade acceleration for `prove`).
 - `attestrum-cli` — user-facing CLI binary.
 - Remaining crates (`attestrum-ledger`, `attestrum-fingerprint-registry`) ship in a later sprint.
 

@@ -1,15 +1,15 @@
 ---
 title: "attestrum-index fuzzy-lookup sidecar on-disk format (v1 — minhash / perceptual / iscc)"
 models: "crates/attestrum-index/src/format.rs"
-source_of_truth: diagram
+source_of_truth: code
 last_verified: 378d955 2026-06-05
 diagram_type: erDiagram
 ---
 
 # Fuzzy-lookup sidecar on-disk format
 
-Source of truth: `diagram` while `crates/attestrum-index/src/format.rs` is being authored;
-flips to `code` once `format.rs` lands (the §B build pattern). The sidecar is a **derived,
+Source of truth: `code` — `crates/attestrum-index/src/format.rs` is authoritative; this diagram
+is the derived view, re-verify when the format changes. The sidecar is a **derived,
 discovery-grade** acceleration artifact — NOT part of the signed trust chain (CLAUDE.md §11
 "is not a registry"). It is rebuildable byte-identically from `manifest.parquet` + `cas/`, so
 it carries no signature and no clock field; its only corpus binding is `BINDING_ROOT`.
