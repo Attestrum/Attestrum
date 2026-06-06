@@ -1,8 +1,8 @@
 ---
 title: "Sprint 5 attestrum-fingerprint pipeline — text (E1) + image (E2) + bytes (E2) + MinHash/SimHash (E3) + ISCC composition (E4) + API freeze + determinism gate (E5)"
-models: "crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-fingerprint/src/text/mod.rs, crates/attestrum-fingerprint/src/text/minhash.rs, crates/attestrum-fingerprint/src/text/simhash.rs, crates/attestrum-fingerprint/tests/api_surface.rs, crates/attestrum-fingerprint/tests/schema_derive.rs, crates/attestrum-fingerprint/tests/determinism.rs, fingerprint_text, fingerprint_image, FingerprintBundle, TextFingerprint, ImageFingerprint, IsccComposition, FingerprintOpts, AttestrumFingerprintError, FINGERPRINT_SCHEMA, Modality"
+models: "crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-fingerprint/src/text/mod.rs, crates/attestrum-text-minhash/src/lib.rs, crates/attestrum-text-minhash/src/minhash.rs, crates/attestrum-fingerprint/src/text/simhash.rs, crates/attestrum-fingerprint/tests/api_surface.rs, crates/attestrum-fingerprint/tests/schema_derive.rs, crates/attestrum-fingerprint/tests/determinism.rs, fingerprint_text, fingerprint_image, normalize_text, FingerprintBundle, TextFingerprint, ImageFingerprint, IsccComposition, FingerprintOpts, AttestrumFingerprintError, FINGERPRINT_SCHEMA, Modality"
 source_of_truth: code
-last_verified: c20b0d9 2026-06-03
+last_verified: 8c65a8f 2026-06-06
 diagram_type: flowchart
 ---
 
@@ -11,6 +11,8 @@ diagram_type: flowchart
 Source of truth: **`code`** as of S5-D1 E5. The Rust types in `crates/attestrum-fingerprint/src/lib.rs` are authoritative; this diagram is now the derived view. Drift between the two is enforced by the diagram-linter's forward / reverse / drift checks (CLAUDE.md §5) and by three test-side gates that land at E5: `tests/api_surface.rs` (golden snapshot of every `pub` item), `tests/schema_derive.rs` (committed JSON Schema at `docs/schemas/fingerprint-v0.1.schema.json`), and `tests/determinism.rs` (committed PNG fixtures + golden bundle JSON, exercised by `cargo test --workspace` on all four targets of `.github/workflows/determinism.yml`).
 
 The file was authored at `source_of_truth: diagram` through E1-E4 as the contract this crate implements; the flip to `code` landed at the E5 commit. Per-E-commit history is preserved in the "What lands at Sprint 5 E…" sections below.
+
+**Post-E5 — text-MinHash kernel extracted (2026-06-06, §4-approved).** `normalize_text` + `minhash::compute` moved **byte-identically** to the new `attestrum-text-minhash` crate so the identical Rust compiles to `wasm32` for the attestrum.com near-match demo (one source of truth, no JS re-implementation to drift). `fingerprint_text` now calls them from that crate; the `minHash` node's algorithm and all PROTECTED parameters are unchanged. SimHash stays in `src/text/`. The "What lands at E1/E3" sections below describe the original in-`attestrum-fingerprint` landing (historical); the current home of the MinHash kernel is `crates/attestrum-text-minhash/`.
 
 **This is the ONLY diagram for S5-D1** per PATH-A-BRIEF Part 6 Sprint 5 line 1171. Per-E-commit diagram updates have meant updating this file's `last_verified` SHA + flipping branch nodes from grey (deferred) to green (shipped) as each E-commit lands, NOT creating a new diagram per commit.
 

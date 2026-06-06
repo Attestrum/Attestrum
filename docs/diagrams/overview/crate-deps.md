@@ -2,7 +2,7 @@
 title: "crate dependency graph"
 models: "Cargo.toml workspace + per-crate Cargo.toml manifests"
 source_of_truth: code
-last_verified: c3398bc 2026-06-06
+last_verified: 8c65a8f 2026-06-06
 diagram_type: flowchart
 ---
 
@@ -47,10 +47,15 @@ flowchart TD
   CAS --> C
   M --> C
   FP --> C
+  FP --> TM[attestrum-text-minhash]
   AT --> C
 
   L[attestrum-ledger]:::unwired
   FR[attestrum-fingerprint-registry]:::unwired
 
   classDef unwired stroke-dasharray: 4 3,opacity:0.7
+  classDef added stroke:#3ec072,stroke-width:4px
+  class TM added
 ```
+
+🟩 new this revision: `attestrum-text-minhash` — the PROTECTED text-MinHash kernel extracted from `attestrum-fingerprint` (§4, 2026-06-06) for byte-identical `wasm32` reuse. No outbound project edges (deps are `blake3` + `unicode-normalization` only).

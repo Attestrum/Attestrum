@@ -7,6 +7,7 @@ members = [
     "crates/attestrum-merkle",
     "crates/attestrum-manifest",
     "crates/attestrum-fingerprint",
+    "crates/attestrum-text-minhash",
     "crates/attestrum-ledger",
     "crates/attestrum-pipeline",
     "crates/attestrum-attest",

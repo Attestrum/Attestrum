@@ -20,7 +20,7 @@ const PERMUTATIONS: usize = 128;
 const SHINGLE_SIZE: usize = 5;
 const KEY_PREFIX: &[u8] = b"attestrum-minhash-v1-perm-";
 
-pub(crate) fn compute(normalized: &str) -> Vec<u64> {
+pub fn compute(normalized: &str) -> Vec<u64> {
     // Tokenize on the single-ASCII-space delimiter guaranteed by
     // `normalize_text`. The non-empty filter collapses the degenerate
     // `"".split(' ') == [""]` case.

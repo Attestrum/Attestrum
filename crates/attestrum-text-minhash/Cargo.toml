@@ -1,0 +1,18 @@
+[package]
+name = "attestrum-text-minhash"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# PROTECTED text-MinHash kernel (CLAUDE.md §4) — extracted from
+# attestrum-fingerprint so the IDENTICAL Rust compiles to wasm32 for the
+# website near-match demo (byte-identical by construction). Deps are the text
+# path only: no image / iscc / jiff. The wasm consumer enables blake3's `pure`
+# feature; the native path uses the default build (the two produce identical
+# digests — proven by the P1 spike).
+
+[dependencies]
+blake3                = { workspace = true }
+unicode-normalization = { workspace = true }

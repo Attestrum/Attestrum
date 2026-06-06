@@ -8,6 +8,11 @@ repository.workspace = true
 
 [dependencies]
 attestrum-core = { path = "../attestrum-core", version = "0.0.1" }
+# PROTECTED text-MinHash kernel (normalize_text + minhash::compute), extracted
+# for byte-identical wasm reuse (§4 — approved 2026-06-06). Consumed by the
+# fingerprint_text path; this crate keeps blake3 + unicode-normalization for its
+# own BLAKE3 document hashing + nfc_char_count.
+attestrum-text-minhash = { path = "../attestrum-text-minhash", version = "0.1.0" }
 blake3                = { workspace = true }
 sha2                  = { workspace = true }
 serde                 = { workspace = true }

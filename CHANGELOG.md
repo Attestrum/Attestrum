@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Changed — extracted the PROTECTED text-MinHash kernel into `attestrum-text-minhash` (byte-identical)
+
+- `normalize_text` + the 128-permutation `minhash::compute` moved out of `attestrum-fingerprint` into a new `attestrum-text-minhash` crate (workspace now 17 crates). The move is **byte-identical** — output is unchanged for every input (the `attestrum-fingerprint` determinism + api-surface golden tests pass untouched, and the P1 spike proved the extracted kernel equals the prior build bit-for-bit, including with blake3's `pure` feature). `attestrum-fingerprint`'s public API (`fingerprint_text`, `TextFingerprint`, …) is unchanged. The extraction lets the **identical** Rust compile to `wasm32` for the upcoming attestrum.com client-side near-match demo — one source of truth, no JavaScript re-implementation that could silently drift from the signed proofs. SimHash stays in `attestrum-fingerprint`. PROTECTED-system change, founder-approved 2026-06-06; byte output preserved, no schema/predicate bump.
+
 ### Added — `attestrum prove` now reports fuzzy match strength
 
 - The `prove` summary prints a new `match:` line carrying the actual fuzzy metric — `MinHash Jaccard 96.1% (5-gram)`, `ISCC composite distance 3`, or `perceptual Hamming 4 (≤ 6)` — alongside the existing per-kind `confidence`. Previously a 0.85-threshold squeaker and a near-identical 0.99 match both printed only `confidence: 0.80`, hiding how close a near-match actually was; the similarity now shown is the same value the signed proof records. Exact-hash matches are unchanged (the `confidence: 1.00` line already conveys "exact"). `ProofArtifact` gains a `match_evidence: Option<MatchEvidence>` field exposing the same data to programmatic callers. CLI/output surfacing only — not a §4 change.

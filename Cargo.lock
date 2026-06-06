@@ -497,6 +497,7 @@ name = "attestrum-fingerprint"
 version = "0.1.0"
 dependencies = [
  "attestrum-core",
+ "attestrum-text-minhash",
  "blake3",
  "blockhash",
  "image",
@@ -622,6 +623,14 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "attestrum-text-minhash"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "unicode-normalization",
 ]
 
 [[package]]

@@ -28,9 +28,12 @@
 //! run over the already-PROTECTED-normalized text produced by
 //! [`normalize_text`] and are populated unconditionally by
 //! [`fingerprint_text`]; downstream `attestrum-prove` (Sprint 5 E9)
-//! consumes them via `MatchEvidence::MinHash`. Implementation lives under
-//! `src/text/{mod,minhash,simhash}.rs` (`pub(crate)`; no external dep —
-//! hand-rolled per PATH-A-BRIEF Part 2.1 line 522).
+//! consumes them via `MatchEvidence::MinHash`. SimHash lives under
+//! `src/text/` (`pub(crate)`); the MinHash + `normalize_text` kernel was
+//! extracted to the `attestrum-text-minhash` crate (§4, 2026-06-06) so the
+//! identical Rust compiles to `wasm32` for the attestrum.com near-match demo
+//! (byte-identical by construction). Both remain hand-rolled per
+//! PATH-A-BRIEF Part 2.1 line 522.
 //!
 //! Sprint 5 E4 adds ISO 24138:2024 ISCC composition via the
 //! official `iscc-lib 0.4` Rust-core crate (PATH-A-BRIEF Part 2.1 line
@@ -71,8 +74,9 @@
 //! `attestrum.com/fingerprint/v0.1` schema URI, all of the following are
 //! immutable:
 //!
-//! - The text-normalization pipeline ([`normalize_text`]).
-//! - The MinHash / SimHash algorithm parameters (`src/text/`).
+//! - The text-normalization pipeline (`normalize_text`) + MinHash parameters,
+//!   now in the `attestrum-text-minhash` crate.
+//! - The SimHash algorithm parameters (`src/text/`).
 //! - The ISCC composition recipe (this commit): `iscc-lib 0.4` version
 //!   pin, raw-text input for `gen_text_code_v0`, 32×32 grayscale
 //!   Lanczos3 resize for `gen_image_code_v0`, 64-bit per unit,
@@ -97,6 +101,7 @@
 //! surface as [`AttestrumFingerprintError::ModalityNotImplemented`] from a
 //! future dispatch entry).
 
+use attestrum_text_minhash::{minhash, normalize_text};
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
@@ -408,7 +413,7 @@ pub fn fingerprint_text(
     // already-PROTECTED-normalized text. Populated unconditionally — no
     // opts flag for skipping. See `text::minhash` / `text::simhash` for
     // the locked algorithm parameters.
-    let minhash = text::minhash::compute(&normalized);
+    let minhash = minhash::compute(&normalized);
     let simhash = text::simhash::compute(&normalized);
 
     // Sprint 5 E4: PROTECTED ISCC composition over the RAW input text
@@ -535,17 +540,6 @@ pub fn fingerprint_image(
 // Private helpers
 // ============================================================================
 
-/// PROTECTED text normalization pipeline (CLAUDE.md §4).
-///
-/// `NFC → str::to_lowercase → split_whitespace + " " join`. Implicit
-/// leading / trailing whitespace strip via `split_whitespace`'s skip-empty
-/// semantics.
-fn normalize_text(input: &str) -> String {
-    let nfc: String = input.nfc().collect();
-    let lower = nfc.to_lowercase();
-    lower.split_whitespace().collect::<Vec<&str>>().join(" ")
-}
-
 /// PROTECTED ISCC image pre-processing pipeline (CLAUDE.md §4, Sprint 5
 /// E4 lock).
 ///
@@ -622,44 +616,6 @@ mod tests {
         FingerprintOpts {
             source_date_epoch: TEST_EPOCH,
         }
-    }
-
-    // ----- normalize_text unit tests -----
-
-    #[test]
-    fn normalize_strips_leading_and_trailing_whitespace() {
-        assert_eq!(normalize_text("  hello  "), "hello");
-        assert_eq!(normalize_text("\t\nhello\t\n"), "hello");
-    }
-
-    #[test]
-    fn normalize_collapses_runs_of_whitespace_to_single_ascii_space() {
-        assert_eq!(normalize_text("hello\t\n  world"), "hello world");
-        assert_eq!(normalize_text("a\u{00A0}b"), "a b"); // NBSP -> space
-    }
-
-    #[test]
-    fn normalize_lowercases_ascii_and_unicode_scalars() {
-        assert_eq!(normalize_text("HELLO"), "hello");
-        assert_eq!(normalize_text("HÉLLO"), "héllo");
-        // German sharp-S: Unicode-aware lowercase keeps ß (lower-case form).
-        assert_eq!(normalize_text("STRASSE"), "strasse");
-    }
-
-    #[test]
-    fn normalize_nfc_canonicalizes_combining_sequences() {
-        // "café" precomposed (U+00E9 for the é).
-        let precomposed = "café";
-        // "café" decomposed: e + U+0301 (combining acute accent).
-        let decomposed = "cafe\u{0301}";
-        assert_ne!(precomposed.len(), decomposed.len()); // pre-norm: differ
-        assert_eq!(normalize_text(precomposed), normalize_text(decomposed));
-    }
-
-    #[test]
-    fn normalize_handles_empty_string() {
-        assert_eq!(normalize_text(""), "");
-        assert_eq!(normalize_text("   \t\n  "), "");
     }
 
     // ----- fingerprint_text integration tests -----
