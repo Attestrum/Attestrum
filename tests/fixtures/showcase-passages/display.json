@@ -1,0 +1,32 @@
+[
+  {
+    "file": "passage-01.txt",
+    "title": "Dwarf planet",
+    "url": "https://en.wikipedia.org/wiki/Dwarf_planet",
+    "passageId": "wikipedia://Dwarf_planet#p1"
+  },
+  {
+    "file": "passage-02.txt",
+    "title": "USS Illinois (BB-7)",
+    "url": "https://en.wikipedia.org/wiki/USS_Illinois_(BB-7)",
+    "passageId": "wikipedia://USS_Illinois_(BB-7)#p1"
+  },
+  {
+    "file": "passage-03.txt",
+    "title": "Hurricane Omar (2008)",
+    "url": "https://en.wikipedia.org/wiki/Hurricane_Omar_(2008)",
+    "passageId": "wikipedia://Hurricane_Omar_(2008)#p1"
+  },
+  {
+    "file": "passage-04.txt",
+    "title": "Valkyria Chronicles III",
+    "url": "https://en.wikipedia.org/wiki/Valkyria_Chronicles_III",
+    "passageId": "wikipedia://Valkyria_Chronicles_III#p2"
+  },
+  {
+    "file": "passage-05.txt",
+    "title": "Loose (Nelly Furtado album)",
+    "url": "https://en.wikipedia.org/wiki/Loose_(Nelly_Furtado_album)",
+    "passageId": "wikipedia://Loose_(Nelly_Furtado_album)#p1"
+  }
+]

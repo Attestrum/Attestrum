@@ -24,6 +24,7 @@ crates/                 Rust workspace — 18 crates implementing the build pipe
 tools/                  Workspace-internal tooling:
                           diagram-linter/   enforces docs/diagrams/ frontmatter + freshness
                           secret-scanner/   pre-commit credential pattern gate
+                          fuzzy-web-gen/    generates the bounded near-match demo corpus artifact
 tests/                  Cross-crate integration tests + golden fixtures.
 docs/                   Public-facing docs:
                           diagrams/         28 Mermaid architecture diagrams

@@ -1992,6 +1992,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzzy-web-gen"
+version = "0.1.0"
+dependencies = [
+ "attestrum-text-minhash",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "gearhash"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

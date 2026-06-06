@@ -21,6 +21,7 @@ members = [
     "crates/attestrum-cli",
     "tools/diagram-linter",
     "tools/secret-scanner",
+    "tools/fuzzy-web-gen",
 ]
 
 [workspace.package]

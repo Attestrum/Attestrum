@@ -1,0 +1,30 @@
+[package]
+name = "fuzzy-web-gen"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Tracked generator for the bounded fuzzy-match corpus the attestrum.com near-match
+# demo ships to the browser (Build E C3). Reads the curated showcase passages, computes
+# each one's MinHash with the SAME PROTECTED kernel (attestrum-text-minhash) the browser's
+# wasm compiles from, and emits tests/fixtures/fuzzy-web/fuzzy-index.json. The committed
+# JSON is the source of truth (C4 copies it to the landing site); the reproducibility test
+# regenerates it and byte-compares. Fills the gap that the demo's browser artifacts had no
+# tracked generator.
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fuzzy-web-gen"
+path = "src/main.rs"
+
+[dependencies]
+attestrum-text-minhash = { path = "../../crates/attestrum-text-minhash", version = "0.1.0" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+attestrum-text-minhash = { path = "../../crates/attestrum-text-minhash", version = "0.1.0" }
