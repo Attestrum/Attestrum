@@ -263,6 +263,12 @@ pub struct ProofArtifact {
     /// for inclusion; `None` for non-inclusion (the target was absent,
     /// so there is no matched subject).
     pub matched_subject: Option<Subject>,
+    /// The match evidence for an inclusion proof — exact hash, ISCC
+    /// composite distance, perceptual Hamming distance, or MinHash Jaccard.
+    /// `Some(_)` for inclusion; `None` for non-inclusion. Surfaced so callers
+    /// (e.g. the CLI summary) can report *how close* a fuzzy match was, which
+    /// the flat per-kind [`confidence`](ProofArtifact::confidence) tier hides.
+    pub match_evidence: Option<MatchEvidence>,
 }
 
 /// Discriminator for the two kinds of proof [`prove`] can emit.
@@ -550,6 +556,7 @@ pub fn prove(
         bundle_path,
         confidence,
         matched_subject: Some(matched_subject),
+        match_evidence: Some(predicate.match_evidence.clone()),
     })
 }
 
@@ -1419,6 +1426,7 @@ fn dispatch_non_inclusion(
         bundle_path,
         confidence: 1.0,
         matched_subject: None,
+        match_evidence: None,
     })
 }
 

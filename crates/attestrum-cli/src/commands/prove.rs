@@ -36,6 +36,7 @@
 
 use std::path::PathBuf;
 
+use attestrum_attest::MatchEvidence;
 use attestrum_prove::{
     prove as prove_lib, AttestrumProveError, ManifestSource, ProofArtifact, ProofKind, ProofTarget,
     ProveOpts,
@@ -244,8 +245,31 @@ fn print_summary(a: &ProofArtifact) {
     if let Some(subject) = &a.matched_subject {
         println!("matched:         {}", subject.name);
     }
+    if let Some(line) = a.match_evidence.as_ref().and_then(match_strength_line) {
+        println!("match:           {line}");
+    }
     if let Some(bundle) = &a.bundle_path {
         println!("bundle:          {}", bundle.display());
+    }
+}
+
+/// Human-readable match-strength line for the CLI summary. Returns `None` for
+/// exact-hash matches (the `confidence: 1.00` line already conveys "exact").
+/// Surfaces the fuzzy metric that the flat per-kind confidence tier hides — a
+/// 0.86 squeaker and a 0.99 near-duplicate both report `confidence: 0.80`.
+fn match_strength_line(ev: &MatchEvidence) -> Option<String> {
+    match ev {
+        MatchEvidence::ExactBlake3 | MatchEvidence::ExactSha256 => None,
+        MatchEvidence::MinHash(e) => Some(format!(
+            "MinHash Jaccard {:.1}% ({}-gram)",
+            e.jaccard as f64 / 10_000.0,
+            e.ngram_size
+        )),
+        MatchEvidence::Iscc(e) => Some(format!("ISCC composite distance {}", e.composite_distance)),
+        MatchEvidence::Perceptual(e) => Some(format!(
+            "perceptual Hamming {} (\u{2264} {})",
+            e.hamming_distance, e.threshold
+        )),
     }
 }
 
@@ -256,6 +280,38 @@ fn print_summary(a: &ProofArtifact) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn match_strength_line_formats_each_kind() {
+        use attestrum_attest::{IsccEvidence, MinHashEvidence, PerceptualEvidence};
+        // exact matches add no line — confidence 1.00 already says "exact"
+        assert_eq!(match_strength_line(&MatchEvidence::ExactBlake3), None);
+        assert_eq!(match_strength_line(&MatchEvidence::ExactSha256), None);
+        // ppm → percent: 960_937 ppm == 96.0937% → "96.1%"
+        assert_eq!(
+            match_strength_line(&MatchEvidence::MinHash(MinHashEvidence {
+                jaccard: 960_937,
+                ngram_size: 5
+            }))
+            .unwrap(),
+            "MinHash Jaccard 96.1% (5-gram)"
+        );
+        assert_eq!(
+            match_strength_line(&MatchEvidence::Iscc(IsccEvidence {
+                composite_distance: 3
+            }))
+            .unwrap(),
+            "ISCC composite distance 3"
+        );
+        assert_eq!(
+            match_strength_line(&MatchEvidence::Perceptual(PerceptualEvidence {
+                hamming_distance: 4,
+                threshold: 6
+            }))
+            .unwrap(),
+            "perceptual Hamming 4 (\u{2264} 6)"
+        );
+    }
 
     #[test]
     fn parse_proof_target_hex_blake3_lowercase() {

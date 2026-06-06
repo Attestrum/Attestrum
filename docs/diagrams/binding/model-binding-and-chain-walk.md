@@ -2,7 +2,7 @@
 title: "Corpus-to-model binding (model-binding/v0.1): attestation_digest_of_bundle, bind, and the signed chain walk"
 models: "crates/attestrum-attest/src/model_binding.rs, crates/attestrum-attest/src/corpus_digest.rs, crates/attestrum-attest/src/lib.rs, crates/attestrum-attest/src/verify.rs, crates/attestrum-bind/src/lib.rs, crates/attestrum-prove/src/lib.rs, MODEL_BINDING_PREDICATE_TYPE, bind, walk_chain, BindOpts, BoundCorpus, BindArtifact, BindError, ChainWalkOutcome, ChainWalkError, IdentityPolicy, BindingInput, CorpusInput"
 source_of_truth: code
-last_verified: c3398bc 2026-06-06
+last_verified: 44b0319 2026-06-06
 diagram_type: flowchart
 ---
 

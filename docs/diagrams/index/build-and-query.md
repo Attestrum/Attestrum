@@ -2,7 +2,7 @@
 title: "attestrum-index build + query flows (standalone index build; prove fast-path with exhaustive fallback)"
 models: "crates/attestrum-index/src/build.rs, crates/attestrum-index/src/query.rs, crates/attestrum-prove/src/lib.rs"
 source_of_truth: code
-last_verified: c3398bc 2026-06-06
+last_verified: 44b0319 2026-06-06
 diagram_type: flowchart
 ---
 

@@ -2,7 +2,7 @@
 title: "Sprint 5 attestrum-prove pipeline — exact + fuzzy match (E1-E5) + non-inclusion (E6) + alternate manifest sources (E7) + CLI + API freeze (E8)"
 models: "crates/attestrum-prove/src/lib.rs, crates/attestrum-prove/Cargo.toml, crates/attestrum-prove/tests/api_surface.rs, crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-merkle/src/lib.rs, crates/attestrum-manifest/src/lib.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/sign.rs, crates/attestrum-cli/src/commands/prove.rs, prove, ProofTarget, ManifestSource, ProveOpts, ProofArtifact, ProofKind, AttestrumProveError, MerkleTree, audit_path, FingerprintBundle, fingerprint_text, fingerprint_image"
 source_of_truth: code
-last_verified: c3398bc 2026-06-06
+last_verified: 44b0319 2026-06-06
 diagram_type: flowchart
 ---
 
@@ -14,7 +14,9 @@ Source of truth: **`code`** as of S5-D2 E8 (this commit). The `crates/attestrum-
 
 **Post-E8 correction (2026-05-30, real-corpus shakedown) — `ProofTarget::Document` exact-first + non-inclusion routing.** A real-corpus run surfaced that `dispatch_document` hashed the document via `fingerprint_text`/`_image` and tried exact-match on *that* digest — but `fingerprint_text` hashes the **normalized** bytes while the manifest stores the **raw-bytes** BLAKE3 (`attestrum_cas::stream_hash`). So an exact text file present in the corpus was silently downgraded to a fuzzy 0.95 (grade-wall violation, roadmap §5), and pdf/other modalities errored as "unsupported" before they could match. Fix: `dispatch_document` now hashes the document's **raw bytes** via `stream_hash_path` and tries `find_exact_match` **first**, for every modality → exact present documents prove as `ExactBlake3` / 1.00 by path. When there's no exact match: with no `--cas-root` (the default CLI shape) the exact document is provably absent → a proof-grade **non-inclusion** (reusing the E6 `dispatch_non_inclusion` helper), replacing the old confusing `InvalidManifest("fuzzy non-inclusion is v0.2 work")` error. With `--cas-root`, fuzzy is attempted; a genuine fuzzy miss keeps the honest v0.2 fuzzy-non-inclusion deferral. **No PROTECTED change** (fingerprint normalization untouched), **no new error variant** (the 6-variant `AttestrumProveError` lock holds), public API surface unchanged. The Mermaid nodes new at this correction: `docExact`, `docCas`, `docAbsent` (replacing the old `docPath`/`fpErr` nodes).
 
-**Post-E8 addition — E8.1 (2026-06-03), CLI OIDC token wiring.** The `attestrum prove` CLI now resolves an OIDC id_token when signing (the default), mirroring `attestrum sign`/`bind`: `--oidc-token-file <PATH>` takes precedence over the `SIGSTORE_ID_TOKEN` env var, via the shared `crate::commands::oidc::resolve_oidc_token` helper. Before E8.1 the CLI hard-coded `ProveOpts.oidc_id_token = None`, so signed `prove` could not run from the command line — only the library/test path supplied a token. A missing token on a signed run now exits `IdentityError` (4) with a hint listing `--oidc-token-file` / `SIGSTORE_ID_TOKEN` / `--unsigned`; `--unsigned` skips resolution entirely. New Mermaid node `cliOidc` (🟩 thick green border = added this revision). No library, predicate, or PROTECTED change — CLI-only wiring into the unchanged `ProveOpts.oidc_id_token` field.
+**Post-E8 addition — E8.1 (2026-06-03), CLI OIDC token wiring.** The `attestrum prove` CLI now resolves an OIDC id_token when signing (the default), mirroring `attestrum sign`/`bind`: `--oidc-token-file <PATH>` takes precedence over the `SIGSTORE_ID_TOKEN` env var, via the shared `crate::commands::oidc::resolve_oidc_token` helper. Before E8.1 the CLI hard-coded `ProveOpts.oidc_id_token = None`, so signed `prove` could not run from the command line — only the library/test path supplied a token. A missing token on a signed run now exits `IdentityError` (4) with a hint listing `--oidc-token-file` / `SIGSTORE_ID_TOKEN` / `--unsigned`; `--unsigned` skips resolution entirely. New Mermaid node `cliOidc` (added in the E8.1 revision). No library, predicate, or PROTECTED change — CLI-only wiring into the unchanged `ProveOpts.oidc_id_token` field.
+
+**Post-E8 addition — match-strength surfacing (2026-06-06).** `ProofArtifact` gains `match_evidence: Option<MatchEvidence>` (`Some` for inclusion, `None` for non-inclusion) and the CLI summary prints a `match:` line — `MinHash Jaccard NN.N% (k-gram)`, `ISCC composite distance N`, or `perceptual Hamming N (≤ T)` — so the fuzzy metric the flat per-kind `confidence` hides is visible (a 0.85 squeaker and a 0.99 near-duplicate both showed only `confidence: 0.80`). 🟧 amber dashed border = revised this revision (`result`, `cliPrint`). CLI/output surfacing only — no library-flow, predicate, or PROTECTED change.
 
 **Test-infra note (2026-06-03, Commit 3).** `crates/attestrum-prove/Cargo.toml` gained a `[dev-dependencies]` section (`attestrum-pipeline`, `base64`, `regex`) for the new `crates/attestrum-prove/tests/prove_sign_interop.rs` — the §2.5 third-party-validator gate that signs an inclusion proof over a real one-passage corpus and verifies it with stock `cosign` against the **passage file** (the proof's subject digest is the matched leaf's SHA-256, not the manifest's). All three dev-deps are already in the workspace lockfile. This is test-only and does **not** change the runtime dependency graph described below; `last_verified` is bumped per the drift gate because `Cargo.toml` is in this diagram's `models:`. The dedicated CI-interop sequence diagram lands in Commit 4 alongside the minting workflow.
 
@@ -43,6 +45,7 @@ flowchart TB
   classDef output fill:#1a3a6f,stroke:#3a8ed7,color:#fff
   classDef external fill:#5a4a1f,stroke:#a8902f,color:#fff
   classDef added stroke:#3ec072,stroke-width:4px
+  classDef revised stroke:#e0a52e,stroke-width:4px,stroke-dasharray:6 3
 
   subgraph inputs["Caller inputs (E1)"]
     target["target: ProofTarget"]
@@ -124,13 +127,13 @@ flowchart TB
   signCheck -->|"no, --unsigned"| unsignedOut["ProofArtifact bundle=None (E1+)"]
   dsseSign --> signedOut["ProofArtifact bundle=Some(Bundle) (E4)"]
 
-  unsignedOut --> result["ProofArtifact { kind, statement,<br/>bundle, confidence, matched_subject }"]
+  unsignedOut --> result["ProofArtifact { kind, statement, bundle,<br/>confidence, matched_subject, match_evidence }"]
   signedOut --> result
 
   cliEntry["attestrum prove DOC --against MANIFEST<br/>(CLI subcommand, E8)"] --> target
   cliEntry --> cliOidc["CLI resolves OIDC id_token when signing<br/>--oidc-token-file &gt; SIGSTORE_ID_TOKEN<br/>(E8.1; IdentityError exit 4 on miss)"]
   cliOidc -. "oidc_id_token (signed runs)" .-> opts
-  result --> cliPrint["print confidence + bundle_path + Exit 0 (E8)"]
+  result --> cliPrint["print confidence + match + bundle_path + Exit 0 (E8)"]
 
   errFp["AttestrumProveError::Fingerprint<br/>#[from] AttestrumFingerprintError"]
   errSrc["AttestrumProveError::SourceUnreachable"]
@@ -157,7 +160,7 @@ flowchart TB
   fpImage -.-> protectedFp
 
   class target,manifest,opts,dispatch,resolve,exactB3,exactS256,bundleExact,isccPath,perceptPath,docExact,docCas,docAbsent,fpDispatch,fpText,fpImage,docMulti,docMulti2,localPq,loadIdx,matchQuery,fuzzyScan,matchDec,fuzzyDec,auditPath,predIncl,evidenceVariant,evExact,evIscc,evPercept,evMinhash,stmt,signCheck,unsignedOut,dsseSign,signedOut,errMan,errAmb,errSign,errFp,nonInc,predNonIncl,stmtNI,hfFetch,urlFetch,errSrc,cliEntry,cliPrint,cliOidc shipped
-  class cliOidc added
+  class result,cliPrint revised
   class errMerk deferred
   class protectedAttest,protectedMerkle,protectedFp protected
   class result output
@@ -169,7 +172,7 @@ flowchart TB
 - **Green nodes** (`shipped`): land in or before the current commit.
 - **Red nodes** (`protected`): PROTECTED dependencies per CLAUDE.md §4. Consumed but never modified by `attestrum-prove`.
 - **Blue nodes** (`output`): user-facing returned values.
-- **Thick green border** (`added`): 🟩 new this revision (2026-06-03 — E8.1 CLI OIDC token wiring).
+- **Thick amber dashed border** (`revised`): 🟧 changed this revision (2026-06-06 — `ProofArtifact.match_evidence` field + CLI `match:` line).
 
 ## What lands at Sprint 5 D2 E1 — scaffold + types (proposed)
 
@@ -185,7 +188,7 @@ flowchart TB
   - `pub struct PerceptualHashes { pub phash: [u8;8], pub blockhash: [u8;8] }` — caller-supplied 64-bit perceptual hashes for the non-fingerprint-inline path.
   - `pub enum ManifestSource { Local(PathBuf), HuggingFace { repo: String, revision: Option<String> }, Url(url::Url) }` — three variants per the brief. `url::Url` deferred behind a feature gate or replaced with `String` at E1 since `url` isn't yet a dep — TBD by founder review.
   - `pub struct ProveOpts { pub sign: bool, pub source_date_epoch: i64, pub oidc_id_token: Option<String>, pub workspace: Option<PathBuf> }` — `sign=true` is default; `--unsigned` flag at E8 flips it.
-  - `pub struct ProofArtifact { pub kind: ProofKind, pub statement: InTotoStatement, pub bundle: Option<Bundle>, pub confidence: f32, pub matched_subject: Option<Subject> }` — `Bundle` re-exported from `attestrum-attest`.
+  - `pub struct ProofArtifact { pub kind: ProofKind, pub statement: InTotoStatement, pub bundle: Option<Bundle>, pub confidence: f32, pub matched_subject: Option<Subject>, pub match_evidence: Option<MatchEvidence> }` — `Bundle` + `MatchEvidence` re-exported from `attestrum-attest`. `match_evidence` is `Some(_)` for inclusion, `None` for non-inclusion; it lets the CLI report the fuzzy metric the flat `confidence` tier hides.
   - `pub enum ProofKind { Inclusion, NonInclusion }`.
   - `pub enum AttestrumProveError` — six variants from the brief: `SourceUnreachable`, `InvalidManifest`, `MerkleMismatch`, `Fingerprint(#[from] AttestrumFingerprintError)`, `Sign(#[from] AttestrumAttestError)`, `Ambiguous(usize)`.
   - `pub fn prove(target: ProofTarget, manifest: ManifestSource, opts: &ProveOpts) -> Result<ProofArtifact, AttestrumProveError>` — body is `unimplemented!("S5-D2 E2+ fills this in")`. Pre-locks the contract.

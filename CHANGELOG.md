@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Added — `attestrum prove` now reports fuzzy match strength
+
+- The `prove` summary prints a new `match:` line carrying the actual fuzzy metric — `MinHash Jaccard 96.1% (5-gram)`, `ISCC composite distance 3`, or `perceptual Hamming 4 (≤ 6)` — alongside the existing per-kind `confidence`. Previously a 0.85-threshold squeaker and a near-identical 0.99 match both printed only `confidence: 0.80`, hiding how close a near-match actually was; the similarity now shown is the same value the signed proof records. Exact-hash matches are unchanged (the `confidence: 1.00` line already conveys "exact"). `ProofArtifact` gains a `match_evidence: Option<MatchEvidence>` field exposing the same data to programmatic callers. CLI/output surfacing only — not a §4 change.
+
 ### Added — indexed fuzzy lookup (v1.1): `attestrum index build` + a sub-second `prove` fast-path
 
 - **New crate `attestrum-index` + `attestrum index build` subcommand.** `attestrum prove`'s three fuzzy paths (text MinHash, image perceptual, ISCC) previously re-read and re-fingerprinted *every* manifest leaf on each query — the ~42 s/query scan that gated any interactive use. `attestrum index build --workspace <dir>` now derives a **discovery-grade sidecar index** (`<workspace>/.attestrum/index/{minhash,perceptual,iscc}/v1.idx`) that persists each leaf's fuzzy signature once. `prove` auto-detects it and, when present, gathers LSH candidates and scores only those against their stored signatures — **no CAS read, no re-fingerprinting**. Measured **~125× faster** on a 400-leaf corpus (3.3 s → 26 ms), and the speedup grows with corpus size.
