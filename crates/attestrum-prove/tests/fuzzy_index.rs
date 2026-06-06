@@ -178,3 +178,82 @@ fn stale_binding_falls_back_to_exhaustive() {
         "stale-binding index must fall back and still prove correctly"
     );
 }
+
+/// Honest wall-clock benchmark: indexed vs `--no-index` over a several-hundred
+/// leaf corpus. `#[ignore]` keeps it out of the default suite (timing is
+/// environment-dependent); run on demand with
+/// `cargo test -p attestrum-prove --test fuzzy_index -- --ignored --nocapture`.
+/// It asserts (a) the two paths return the identical proof and (b) the indexed
+/// query is faster — the exhaustive path re-fingerprints every leaf for both the
+/// ISCC and MinHash scans, the indexed path scores only LSH candidates.
+#[test]
+#[ignore = "timing benchmark; run with --ignored --nocapture"]
+fn bench_indexed_vs_exhaustive() {
+    const N: usize = 400;
+    let root = fresh_root("bench");
+
+    // N distinct, realistic-length text leaves.
+    let docs: Vec<Vec<u8>> = (0..N)
+        .map(|i| {
+            format!(
+                "document number {i} discusses the migratory patterns of arctic terns \
+                 across hemispheres, the metallurgy of early bronze age toolmaking, and \
+                 the orbital mechanics of trans neptunian objects in slot number {i}"
+            )
+            .into_bytes()
+        })
+        .collect();
+    let items: Vec<(&[u8], Modality)> = docs
+        .iter()
+        .map(|d| (d.as_slice(), Modality::Text))
+        .collect();
+    let manifest = seal(&root, &items);
+    build_all(&manifest, &root.join("cas-root"), SDE).expect("build index");
+
+    // A near-duplicate of leaf 0 (one word changed) → fuzzy hit.
+    let probe = b"document number 0 discusses the migratory patterns of arctic terns \
+                  across hemispheres, the metallurgy of early bronze age toolmaking, and \
+                  the orbital mechanics of trans neptunian objects in SLOT number 0"
+        .to_vec();
+    let doc = root.join("probe.txt");
+    std::fs::write(&doc, &probe).expect("write probe");
+
+    let run = |no_index: bool| {
+        let t = std::time::Instant::now();
+        let artifact = prove(
+            ProofTarget::Document(doc.clone()),
+            ManifestSource::Local(manifest.clone()),
+            &opts(&root, no_index),
+        )
+        .expect("probe proves");
+        let elapsed = t.elapsed();
+        let pred: InclusionProofPredicate =
+            serde_json::from_value(artifact.statement.predicate.clone()).expect("parse");
+        (
+            elapsed,
+            artifact.confidence,
+            serde_json::to_string(&pred.match_evidence).unwrap(),
+        )
+    };
+
+    let (ex_t, ex_conf, ex_ev) = run(true);
+    let (ix_t, ix_conf, ix_ev) = run(false);
+
+    eprintln!("bench over N={N} text leaves:");
+    eprintln!("  exhaustive (--no-index): {ex_t:?}");
+    eprintln!("  indexed:                 {ix_t:?}");
+    eprintln!(
+        "  speedup:                 {:.1}x",
+        ex_t.as_secs_f64() / ix_t.as_secs_f64().max(1e-9)
+    );
+
+    assert_eq!(
+        (ex_conf, &ex_ev),
+        (ix_conf, &ix_ev),
+        "proofs must be identical"
+    );
+    assert!(
+        ix_t < ex_t,
+        "indexed query must beat the exhaustive scan ({ix_t:?} vs {ex_t:?})"
+    );
+}
