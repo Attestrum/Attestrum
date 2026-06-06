@@ -2,7 +2,7 @@
 title: "C2 wasm text-MinHash kernel — one source, native + wasm consumers, byte-identity gates"
 models: "crates/attestrum-fingerprint-wasm/src/lib.rs, crates/attestrum-text-minhash/src/lib.rs, crates/attestrum-text-minhash/src/minhash.rs, crates/attestrum-fingerprint-wasm/tests/crosscheck.rs, MINHASH_PERMS, normalize_text, fingerprint_text"
 source_of_truth: code
-last_verified: 554b915 2026-06-06
+last_verified: 9681203 2026-06-06
 diagram_type: flowchart
 ---
 
@@ -23,12 +23,16 @@ the browser runs the *identical Rust*, there is no second implementation that co
 footer already named "byte-identical WASM reuse" as its approved purpose, and C2 changes no protected
 parameter). What actually prevents drift is byte-identity enforced in CI (`.github/workflows/wasm.yml`):
 
-- **wasm-determinism** — each host (x86 + arm) builds the `wasm-release` artifact twice and `cmp`s
-  same-host, then a compare job `cmp`s cross-host. Proves the shipped `.wasm` is byte-reproducible.
-- **wasm-crosscheck** (load-bearing) — a no-dependency Node loader (`tools/wasm-crosscheck/run.mjs`)
+- **reproducible build** — each host (x86 + arm) builds the `wasm-release` artifact twice and `cmp`s
+  same-host, proving the committed/served `.wasm` re-verifies on its build toolchain. (We deliberately
+  do *not* `cmp` the binary across host arches: rustc→wasm32 codegen is reproducible per host but not
+  bit-identical between x86 and arm hosts, and the artifact is built once — so cross-arch *binary*
+  identity is neither required nor achievable. The host-independent property that matters is the
+  *output*, proven next, on both arches.)
+- **output cross-check** (load-bearing) — a no-dependency Node loader (`tools/wasm-crosscheck/run.mjs`)
   runs every passage through the **actual** `.wasm` and diffs against the committed golden
-  (`crates/attestrum-fingerprint-wasm/tests/golden/minhash-vectors.txt`). A native-only golden can't
-  catch wasm-codegen / pure-blake3 drift; running the real artifact can.
+  (`crates/attestrum-fingerprint-wasm/tests/golden/minhash-vectors.txt`), on **both** x86 and arm. A
+  native-only golden can't catch wasm-codegen / pure-blake3 drift; running the real artifact can.
 
 The golden is produced from the **native** kernel (`examples/gen_golden.rs`); `tests/crosscheck.rs`
 ties the native kernel, the `extern "C"` export, and `fingerprint_text`'s public output all to that same
@@ -72,8 +76,8 @@ flowchart TB
   GOLD["tests/golden/minhash-vectors.txt<br/>(from examples/gen_golden.rs, native)"]
   class GOLD native
 
-  G1["CI: wasm-determinism<br/>cmp same-host + cross-host"]
-  G2["CI: wasm-crosscheck<br/>run.mjs: real wasm == golden"]
+  G1["CI: reproducible build<br/>cmp same-host (x86 + arm)"]
+  G2["CI: output cross-check<br/>run.mjs: real wasm == golden (x86 + arm)"]
   XT["tests/crosscheck.rs<br/>kernel ≡ extern ≡ fingerprint_text"]
   class G1,G2,XT gate
 
