@@ -461,6 +461,28 @@ enum Command {
         #[arg(long)]
         offline: bool,
     },
+
+    /// Build fuzzy-lookup sidecar indexes for a sealed corpus (discovery-grade
+    /// acceleration for `attestrum prove`'s fuzzy paths).
+    Index {
+        #[command(subcommand)]
+        action: IndexAction,
+    },
+}
+
+/// `attestrum index <action>` subcommands.
+#[derive(Subcommand, Debug)]
+enum IndexAction {
+    /// Build the MinHash / perceptual / ISCC sidecars from a sealed workspace.
+    Build {
+        /// Workspace whose `.attestrum/` holds the sealed manifest + CAS.
+        #[arg(long, value_name = "PATH")]
+        workspace: PathBuf,
+
+        /// Reproducible Builds timestamp (epoch seconds) for fingerprinting.
+        #[arg(long, value_name = "TS")]
+        source_date_epoch: Option<i64>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -692,5 +714,26 @@ fn main() -> ExitCode {
             });
             ExitCode::from(code)
         }
+
+        Command::Index { action } => match action {
+            IndexAction::Build {
+                workspace,
+                source_date_epoch,
+            } => match commands::index::run(commands::index::Args {
+                workspace,
+                source_date_epoch,
+            }) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("attestrum index build: {err}");
+                    let mut source = std::error::Error::source(&err);
+                    while let Some(s) = source {
+                        eprintln!("  caused by: {s}");
+                        source = std::error::Error::source(s);
+                    }
+                    ExitCode::from(1)
+                }
+            },
+        },
     }
 }

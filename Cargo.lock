@@ -451,6 +451,7 @@ dependencies = [
  "attestrum-bind",
  "attestrum-cas",
  "attestrum-core",
+ "attestrum-index",
  "attestrum-manifest",
  "attestrum-merkle",
  "attestrum-pipeline",
