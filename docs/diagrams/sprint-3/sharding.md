@@ -2,7 +2,7 @@
 title: "attestrum plan and attestrum merge deterministic sharding for sub-corpus builds"
 models: "crates/attestrum-cli/src/commands/plan.rs, crates/attestrum-cli/src/commands/merge.rs"
 source_of_truth: code
-last_verified: 6430a9a 2026-06-01
+last_verified: 8d49acc 2026-06-06
 diagram_type: flowchart
 ---
 

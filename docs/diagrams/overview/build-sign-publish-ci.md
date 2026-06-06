@@ -2,7 +2,7 @@
 title: "build → sign → publish CI dry-run flow"
 models: ".github/workflows/build-sign-publish.yml, .github/workflows/cosign-interop.yml, tests/fixtures/ci-publish-corpus/corpus.toml"
 source_of_truth: code
-last_verified: 21aef8e 2026-06-01
+last_verified: 8d49acc 2026-06-06
 diagram_type: flowchart
 ---
 
@@ -55,7 +55,7 @@ flowchart TD
   PUB --> ARTIFACTS["static-out/<br/>README.md, croissant.json, cyclonedx.json,<br/>attestrum/{manifest.parquet, merkle.root,<br/>bundle.sigstore.json, verify.html}"]
 
   BUNDLE --> CI_INSTALL["sigstore/cosign-installer@v3<br/>+ cosign version >= v2.5 guard"]
-  CI_INSTALL --> VERIFY{"cosign verify-blob-attestation<br/>--new-bundle-format<br/>--certificate-identity-regexp = Attestrum GHA SAN<br/>--certificate-oidc-issuer = token.actions.githubusercontent.com"}
+  CI_INSTALL --> VERIFY{"cosign verify-blob-attestation<br/>--new-bundle-format<br/>--type …/training-corpus/v0.3<br/>--certificate-identity-regexp = Attestrum GHA SAN<br/>--certificate-oidc-issuer = token.actions.githubusercontent.com"}
   VERIFY -->|"Verified OK<br/>+ SAN is the workflow, NOT a person"| PASS["job green"]
   VERIFY -->|"mismatch / personal SAN"| FAIL["job red"]
 ```

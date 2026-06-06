@@ -2,7 +2,7 @@
 title: "Lookback Phase A — seal-local, sign-in-cloud, publish-to-HF topology"
 models: "crates/attestrum-pipeline/src/lib.rs, crates/attestrum-attest/src/sign.rs, crates/attestrum-publish/src/lib.rs, .github/workflows/build-sign-publish.yml"
 source_of_truth: diagram
-last_verified: 6430a9a 2026-06-01
+last_verified: 8d49acc 2026-06-06
 diagram_type: flowchart
 ---
 

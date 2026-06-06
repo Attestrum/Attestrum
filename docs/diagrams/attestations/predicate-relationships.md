@@ -2,7 +2,7 @@
 title: "attestation predicate relationships"
 models: "attestrum.com/attestation/training-corpus/v0.3, attestrum.com/attestation/inclusion-proof/v0.3, attestrum.com/attestation/non-inclusion-proof/v0.3, attestrum.com/attestation/model-binding/v0.1; crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/model_binding.rs"
 source_of_truth: code
-last_verified: 6430a9a 2026-05-30
+last_verified: 8d49acc 2026-06-06
 diagram_type: flowchart
 ---
 

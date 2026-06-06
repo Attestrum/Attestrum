@@ -2,7 +2,7 @@
 title: "attestrum verify flow — Sigstore Bundle v0.3 verify half with TrustRoot cache"
 models: "crates/attestrum-attest/src/verify.rs, crates/attestrum-attest/src/identity.rs, crates/attestrum-attest/src/canonicalize.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-cli/src/commands/verify.rs, crates/attestrum-cli/src/lifecycle.rs, crates/attestrum-cli/tests/verify_flow_contract.rs, verify, identity, canonicalize, statement, predicate, lifecycle, TRAINING_CORPUS_PREDICATE_TYPE, docs/schemas/training-corpus-v0.3.schema.json, docs/schemas/inclusion-proof-v0.3.schema.json, docs/schemas/non-inclusion-proof-v0.3.schema.json"
 source_of_truth: code
-last_verified: 6430a9a 2026-06-01
+last_verified: 8d49acc 2026-06-06
 diagram_type: sequenceDiagram
 ---
 

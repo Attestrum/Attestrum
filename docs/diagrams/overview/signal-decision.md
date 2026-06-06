@@ -2,7 +2,7 @@
 title: "signal decision state machine — per document"
 models: "crates/attestrum-signals/src/decision.rs, crates/attestrum-signals/tests/decision_proptest.rs"
 source_of_truth: code
-last_verified: 6430a9a 2026-06-01
+last_verified: 8d49acc 2026-06-06
 diagram_type: stateDiagram-v2
 ---
 
