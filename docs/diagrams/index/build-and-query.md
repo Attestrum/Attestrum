@@ -1,15 +1,16 @@
 ---
 title: "attestrum-index build + query flows (standalone index build; prove fast-path with exhaustive fallback)"
-models: "crates/attestrum-index/src/build.rs, crates/attestrum-index/src/query.rs, crates/attestrum-prove/src/lib.rs, build_all, FuzzyIndex, SubIndexKind, IndexError, BuildReport"
-source_of_truth: diagram
-last_verified: 378d955 2026-06-05
+models: "crates/attestrum-index/src/build.rs, crates/attestrum-index/src/query.rs, crates/attestrum-prove/src/lib.rs"
+source_of_truth: code
+last_verified: c3398bc 2026-06-06
 diagram_type: flowchart
 ---
 
 # Index build + query flows
 
-Source of truth: `diagram` until the build/query modules + the prove fast-path land; flips to
-`code` at the prove-integration commit. The index is **discovery-grade acceleration**: it only
+Source of truth: `code` — the build/query modules + the prove dispatch fast-path have landed;
+this diagram is the derived view, re-verify when they change. The index is **discovery-grade
+acceleration**: it only
 changes *which candidates get scored*. The exact recheck (`minhash_jaccard_ppm` ≥ 850000,
 `min(phash, blockhash) ≤ 6`, `iscc_composite_distance ≤ 4`) and the signed-proof tail
 (`crates/attestrum-prove/src/lib.rs` `prove()` 436-490) are the **existing, unchanged** code, so

@@ -108,6 +108,7 @@ fn default_opts() -> ProveOpts {
         workspace: None,
         corpus_bundle_path: None,
         cas_root: None,
+        no_index: false,
     }
 }
 

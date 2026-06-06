@@ -84,6 +84,10 @@ pub struct Args {
     /// `--unsigned`. When set, skip Sigstore signing entirely. Default
     /// (false) signs via Fulcio + Rekor per the E4 MVP-gate decision.
     pub unsigned: bool,
+
+    /// `--no-index`. Force the exhaustive fuzzy scan even when a sidecar index
+    /// is present beside `--cas-root`. Default (false) auto-detects + uses it.
+    pub no_index: bool,
 }
 
 pub fn run(args: Args) -> u8 {
@@ -128,6 +132,7 @@ pub fn run(args: Args) -> u8 {
         workspace: args.workspace.clone(),
         corpus_bundle_path: args.corpus_bundle.clone(),
         cas_root: args.cas_root.clone(),
+        no_index: args.no_index,
     };
 
     let artifact = match prove_lib(target, manifest, &opts) {
@@ -380,6 +385,7 @@ mod tests {
             source_date_epoch: Some(1_700_000_000),
             corpus_bundle: None,
             cas_root: None,
+            no_index: false,
             oidc_token_file: None,
             unsigned: true,
         };

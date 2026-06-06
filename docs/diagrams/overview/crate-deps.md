@@ -2,7 +2,7 @@
 title: "crate dependency graph"
 models: "Cargo.toml workspace + per-crate Cargo.toml manifests"
 source_of_truth: code
-last_verified: 378d955 2026-06-05
+last_verified: c3398bc 2026-06-06
 diagram_type: flowchart
 ---
 
@@ -12,7 +12,7 @@ Source of truth: `code`. The edges are the **transitive reduction** of the **nor
 
 **Arrow convention:** `A --> B` means "A depends on B" — the arrow points from the dependent crate to its dependency, matching `cargo-tree` convention.
 
-`attestrum-core` has zero outbound project dependencies (externally it pulls only `serde`, `thiserror`, `schemars`) and is the foundation every wired crate reaches. Three crates are **not yet wired into the runtime graph**: `attestrum-ledger` and `attestrum-fingerprint-registry` have no project edges at all, and `attestrum-signals` depends on `attestrum-core` but nothing depends on it yet — all three are scaffolded ahead of the CLI paths that will consume them. `attestrum-merkle` has no *normal* project dependency (it reaches `attestrum-core` only in tests). `attestrum-index` (v1.1 fuzzy-lookup sidecars) depends on `attestrum-fingerprint` / `attestrum-cas` / `attestrum-manifest` / `attestrum-merkle` (its `attestrum-core` edge is skip-level, omitted). The **CLI `index build` subcommand depends on it** (`CLI → attestrum-index`); the remaining `attestrum-prove → attestrum-index` edge lands with the prove fast-path in the final v1.1 integration commit. No cycles exist.
+`attestrum-core` has zero outbound project dependencies (externally it pulls only `serde`, `thiserror`, `schemars`) and is the foundation every wired crate reaches. Three crates are **not yet wired into the runtime graph**: `attestrum-ledger` and `attestrum-fingerprint-registry` have no project edges at all, and `attestrum-signals` depends on `attestrum-core` but nothing depends on it yet — all three are scaffolded ahead of the CLI paths that will consume them. `attestrum-merkle` has no *normal* project dependency (it reaches `attestrum-core` only in tests). `attestrum-index` (v1.1 fuzzy-lookup sidecars) depends on `attestrum-fingerprint` / `attestrum-cas` / `attestrum-manifest` / `attestrum-merkle` (its `attestrum-core` edge is skip-level, omitted). Both the **CLI `index build` subcommand** (`CLI → attestrum-index`) and **`attestrum-prove`'s fuzzy fast-path** (`attestrum-prove → attestrum-index`) depend on it. No cycles exist (`attestrum-index` reaches only leaf crates; nothing it depends on reaches back to it or to `attestrum-prove`).
 
 ```mermaid
 flowchart TD
@@ -37,6 +37,7 @@ flowchart TD
   P --> MK
 
   CLI --> IX[attestrum-index]
+  PV --> IX
   IX --> FP
   IX --> CAS
   IX --> M

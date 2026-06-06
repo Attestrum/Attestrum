@@ -206,6 +206,12 @@ enum Command {
         /// signing-identity attestation.
         #[arg(long)]
         unsigned: bool,
+
+        /// Force the exhaustive fuzzy scan even when a sidecar index built by
+        /// `attestrum index build` is present. Slower, but the full-recall
+        /// reference path; the emitted proof is identical either way.
+        #[arg(long)]
+        no_index: bool,
     },
 
     /// Publish a signed bundle + sealed manifest + dataset card to
@@ -576,6 +582,7 @@ fn main() -> ExitCode {
             cas_root,
             oidc_token_file,
             unsigned,
+            no_index,
         } => {
             let code = commands::prove::run(commands::prove::Args {
                 doc,
@@ -586,6 +593,7 @@ fn main() -> ExitCode {
                 cas_root,
                 oidc_token_file,
                 unsigned,
+                no_index,
             });
             ExitCode::from(code)
         }

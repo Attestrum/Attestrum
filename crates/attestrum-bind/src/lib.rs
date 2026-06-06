@@ -375,6 +375,7 @@ fn walk_membership(
         workspace: None,
         corpus_bundle_path: Some(corpus_bundle_path.to_path_buf()),
         cas_root: None,
+        no_index: false,
     };
     let proof = prove(query, manifest_source, &opts).map_err(ChainWalkError::Prove)?;
 

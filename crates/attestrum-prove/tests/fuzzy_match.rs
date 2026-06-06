@@ -62,6 +62,7 @@ fn opts_with_cas(root: &Path) -> ProveOpts {
         workspace: None,
         corpus_bundle_path: None,
         cas_root: Some(root.join("cas-root")),
+        no_index: false,
     }
 }
 
@@ -235,6 +236,7 @@ fn opts_no_cas() -> ProveOpts {
         workspace: None,
         corpus_bundle_path: None,
         cas_root: None,
+        no_index: false,
     }
 }
 

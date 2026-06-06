@@ -93,6 +93,7 @@ fn default_opts() -> ProveOpts {
         workspace: None,
         corpus_bundle_path: None,
         cas_root: None,
+        no_index: false,
     }
 }
 
@@ -462,6 +463,7 @@ fn signed_non_inclusion_emits_bundle() {
         workspace: Some(workspace.clone()),
         corpus_bundle_path: None,
         cas_root: None,
+        no_index: false,
     };
 
     let artifact = prove(

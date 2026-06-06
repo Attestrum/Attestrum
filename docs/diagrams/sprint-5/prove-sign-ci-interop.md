@@ -2,7 +2,7 @@
 title: "Signed inclusion-proof showcase — mint + third-party cosign interop"
 models: ".github/workflows/lookback-prove-examples.yml, .github/workflows/prove-sign-interop.yml, crates/attestrum-prove/tests/prove_sign_interop.rs, INCLUSION_PROOF_PREDICATE_TYPE"
 source_of_truth: code
-last_verified: 0ca6e8d 2026-06-03
+last_verified: c3398bc 2026-06-06
 diagram_type: sequenceDiagram
 ---
 

@@ -220,7 +220,18 @@ pub struct ProveOpts {
     /// `None` is fine for the exact-hash arms ([`ProofTarget::Blake3`],
     /// [`ProofTarget::Sha256`], [`ProofTarget::Bundle`]) — those
     /// don't read leaf bytes. Added at S5-D2 E5.
+    ///
+    /// **v1.1**: when a fuzzy sidecar index exists at
+    /// `<cas_root>/index/<kind>/v1.idx` and binds to this manifest, the
+    /// fuzzy dispatchers use it to gather candidates instead of re-fingerprinting
+    /// every leaf (the ~42 s scan). The exact recheck + emitted proof are
+    /// unchanged. Falls back to the exhaustive scan when the sidecar is absent,
+    /// stale, or invalid.
     pub cas_root: Option<PathBuf>,
+    /// **v1.1**: force the exhaustive fuzzy scan even when a sidecar index is
+    /// present (the `--no-index` escape hatch / full-recall oracle). `false`
+    /// auto-detects the sidecar beside `cas_root`. Added at v1.1.
+    pub no_index: bool,
 }
 
 /// The result of a successful [`prove`] call. Either an inclusion or a
@@ -815,28 +826,85 @@ fn fingerprint_leaf(
     }
 }
 
+/// v1.1: load the fuzzy sidecar index for `kind` if it exists beside the corpus
+/// CAS and binds to this exact manifest. Returns `None` (→ exhaustive fallback)
+/// when `no_index` is set, the sidecar is absent / unreadable / invalid, or its
+/// `BINDING_ROOT` does not match the manifest's Merkle root. The binding root is
+/// recomputed exactly as [`prove`] does (`MerkleTree` over `document_id` in row
+/// order), so a stale index (rebuilt against a different corpus) is rejected and
+/// the exhaustive scan runs instead.
+fn fuzzy_index_for(
+    opts: &ProveOpts,
+    kind: attestrum_index::format::SubIndexKind,
+    entries: &[attestrum_manifest::ManifestEntry],
+) -> Option<attestrum_index::format::FuzzyIndex> {
+    if opts.no_index {
+        return None;
+    }
+    let cas_root = opts.cas_root.as_ref()?;
+    let path = cas_root.join("index").join(kind.subdir()).join("v1.idx");
+    let bytes = std::fs::read(&path).ok()?;
+    let idx = attestrum_index::format::FuzzyIndex::from_bytes(&bytes).ok()?;
+    let want =
+        attestrum_merkle::MerkleTree::new(entries.iter().map(|e| e.document_id).collect()).root();
+    (idx.binding_root() == want).then_some(idx)
+}
+
 fn dispatch_iscc(
     target_iscc: &str,
     entries: &[attestrum_manifest::ManifestEntry],
     opts: &ProveOpts,
 ) -> Result<(usize, MatchEvidence, f32), AttestrumProveError> {
-    let cas = open_cas(opts)?;
-    let mut best: Option<(usize, u32)> = None;
-    for (idx, entry) in entries.iter().enumerate() {
-        let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
-        let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
-            Some(b) => b,
-            None => continue,
-        };
-        let leaf_iscc = match bundle.iscc.as_ref() {
-            Some(iscc) => &iscc.composite,
-            None => continue,
-        };
-        let dist = iscc_composite_distance(target_iscc, leaf_iscc)?;
-        if dist <= FUZZY_THRESHOLD_ISCC_DISTANCE && best.map(|(_, d)| dist < d).unwrap_or(true) {
-            best = Some((idx, dist));
+    let best = if let Some(idx) =
+        fuzzy_index_for(opts, attestrum_index::format::SubIndexKind::Iscc, entries)
+    {
+        // v1.1 fast-path: decode the query body once, gather LSH candidates, and
+        // Hamming the query against each candidate's persisted packed body. The
+        // distance equals iscc_composite_distance over the same bodies.
+        let (_, _, _, _, target_body) = iscc_lib::iscc_decode(target_iscc).map_err(|e| {
+            AttestrumProveError::InvalidManifest(format!("iscc decode target: {e}"))
+        })?;
+        let target_packed = attestrum_index::query::pack_iscc_body(&target_body);
+        let mut best: Option<(usize, u32)> = None;
+        for row in idx.candidates(&attestrum_index::query::band_iscc(&target_body)) {
+            let Some(leaf_sig) = idx.signature(row) else {
+                continue;
+            };
+            if leaf_sig.len() != target_packed.len() {
+                continue; // different ISCC body length → not distance-comparable
+            }
+            let dist: u32 = target_packed
+                .iter()
+                .zip(leaf_sig)
+                .map(|(x, y)| (x ^ y).count_ones())
+                .sum();
+            if dist <= FUZZY_THRESHOLD_ISCC_DISTANCE && best.map(|(_, d)| dist < d).unwrap_or(true)
+            {
+                best = Some((row as usize, dist));
+            }
         }
-    }
+        best
+    } else {
+        let cas = open_cas(opts)?;
+        let mut best: Option<(usize, u32)> = None;
+        for (idx, entry) in entries.iter().enumerate() {
+            let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
+            let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
+                Some(b) => b,
+                None => continue,
+            };
+            let leaf_iscc = match bundle.iscc.as_ref() {
+                Some(iscc) => &iscc.composite,
+                None => continue,
+            };
+            let dist = iscc_composite_distance(target_iscc, leaf_iscc)?;
+            if dist <= FUZZY_THRESHOLD_ISCC_DISTANCE && best.map(|(_, d)| dist < d).unwrap_or(true)
+            {
+                best = Some((idx, dist));
+            }
+        }
+        best
+    };
     match best {
         Some((idx, dist)) => Ok((
             idx,
@@ -858,31 +926,66 @@ fn dispatch_perceptual(
     entries: &[attestrum_manifest::ManifestEntry],
     opts: &ProveOpts,
 ) -> Result<(usize, MatchEvidence, f32), AttestrumProveError> {
-    let cas = open_cas(opts)?;
-    let mut best: Option<(usize, u32)> = None;
-    for (idx, entry) in entries.iter().enumerate() {
-        if !matches!(entry.modality, attestrum_fingerprint::Modality::Image) {
-            continue;
+    let best = if let Some(idx) = fuzzy_index_for(
+        opts,
+        attestrum_index::format::SubIndexKind::Perceptual,
+        entries,
+    ) {
+        // v1.1 fast-path: band the query pHash + blockhash, Hamming against each
+        // candidate's persisted (phash, blockhash) pair. min(...) ≤ threshold is
+        // the unchanged recheck. The big-endian packing matches the builder's
+        // `perceptual_hex_to_u64`, so the bit count equals the exhaustive
+        // `hamming_distance_hex64`.
+        let target_ph = u64::from_be_bytes(target.phash);
+        let target_bh = u64::from_be_bytes(target.blockhash);
+        let mut best: Option<(usize, u32)> = None;
+        for row in idx.candidates(&attestrum_index::query::band_perceptual(
+            target_ph, target_bh,
+        )) {
+            let Some(sig) = idx.signature(row) else {
+                continue;
+            };
+            if sig.len() != 2 {
+                continue;
+            }
+            let leaf_min = (target_ph ^ sig[0])
+                .count_ones()
+                .min((target_bh ^ sig[1]).count_ones());
+            if leaf_min <= FUZZY_THRESHOLD_PERCEPTUAL_HAMMING
+                && best.map(|(_, d)| leaf_min < d).unwrap_or(true)
+            {
+                best = Some((row as usize, leaf_min));
+            }
         }
-        let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
-        let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
-            Some(b) => b,
-            None => continue,
-        };
-        let image = match bundle.image.as_ref() {
-            Some(i) => i,
-            None => continue,
-        };
-        let dist_phash = hamming_distance_hex64(&encode_hex_8(&target.phash), &image.phash)?;
-        let dist_blockhash =
-            hamming_distance_hex64(&encode_hex_8(&target.blockhash), &image.blockhash)?;
-        let leaf_min = dist_phash.min(dist_blockhash);
-        if leaf_min <= FUZZY_THRESHOLD_PERCEPTUAL_HAMMING
-            && best.map(|(_, d)| leaf_min < d).unwrap_or(true)
-        {
-            best = Some((idx, leaf_min));
+        best
+    } else {
+        let cas = open_cas(opts)?;
+        let mut best: Option<(usize, u32)> = None;
+        for (idx, entry) in entries.iter().enumerate() {
+            if !matches!(entry.modality, attestrum_fingerprint::Modality::Image) {
+                continue;
+            }
+            let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
+            let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
+                Some(b) => b,
+                None => continue,
+            };
+            let image = match bundle.image.as_ref() {
+                Some(i) => i,
+                None => continue,
+            };
+            let dist_phash = hamming_distance_hex64(&encode_hex_8(&target.phash), &image.phash)?;
+            let dist_blockhash =
+                hamming_distance_hex64(&encode_hex_8(&target.blockhash), &image.blockhash)?;
+            let leaf_min = dist_phash.min(dist_blockhash);
+            if leaf_min <= FUZZY_THRESHOLD_PERCEPTUAL_HAMMING
+                && best.map(|(_, d)| leaf_min < d).unwrap_or(true)
+            {
+                best = Some((idx, leaf_min));
+            }
         }
-    }
+        best
+    };
     match best {
         Some((idx, dist)) => Ok((
             idx,
@@ -1052,28 +1155,52 @@ fn dispatch_minhash(
     entries: &[attestrum_manifest::ManifestEntry],
     opts: &ProveOpts,
 ) -> Result<(usize, MatchEvidence, f32), AttestrumProveError> {
-    let cas = open_cas(opts)?;
-    let mut best: Option<(usize, u32)> = None;
-    for (idx, entry) in entries.iter().enumerate() {
-        if !matches!(entry.modality, attestrum_fingerprint::Modality::Text) {
-            continue;
+    let best = if let Some(idx) = fuzzy_index_for(
+        opts,
+        attestrum_index::format::SubIndexKind::Minhash,
+        entries,
+    ) {
+        // v1.1 fast-path: band the query, score only the LSH candidates against
+        // their persisted 128-perm signatures (no CAS read, no re-fingerprint).
+        // The exact `minhash_jaccard_ppm ≥ threshold` recheck is unchanged.
+        let mut best: Option<(usize, u32)> = None;
+        for row in idx.candidates(&attestrum_index::query::band_minhash(target_minhash)) {
+            let Some(leaf_sig) = idx.signature(row) else {
+                continue;
+            };
+            let jaccard = minhash_jaccard_ppm(target_minhash, leaf_sig);
+            if jaccard >= FUZZY_THRESHOLD_MINHASH_JACCARD_PPM
+                && best.map(|(_, j)| jaccard > j).unwrap_or(true)
+            {
+                best = Some((row as usize, jaccard));
+            }
         }
-        let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
-        let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
-            Some(b) => b,
-            None => continue,
-        };
-        let text = match bundle.text.as_ref() {
-            Some(t) => t,
-            None => continue,
-        };
-        let jaccard = minhash_jaccard_ppm(target_minhash, &text.minhash);
-        if jaccard >= FUZZY_THRESHOLD_MINHASH_JACCARD_PPM
-            && best.map(|(_, j)| jaccard > j).unwrap_or(true)
-        {
-            best = Some((idx, jaccard));
+        best
+    } else {
+        let cas = open_cas(opts)?;
+        let mut best: Option<(usize, u32)> = None;
+        for (idx, entry) in entries.iter().enumerate() {
+            if !matches!(entry.modality, attestrum_fingerprint::Modality::Text) {
+                continue;
+            }
+            let bytes = read_leaf_bytes(&cas, &entry.document_id)?;
+            let bundle = match fingerprint_leaf(&bytes, entry.modality, opts.source_date_epoch)? {
+                Some(b) => b,
+                None => continue,
+            };
+            let text = match bundle.text.as_ref() {
+                Some(t) => t,
+                None => continue,
+            };
+            let jaccard = minhash_jaccard_ppm(target_minhash, &text.minhash);
+            if jaccard >= FUZZY_THRESHOLD_MINHASH_JACCARD_PPM
+                && best.map(|(_, j)| jaccard > j).unwrap_or(true)
+            {
+                best = Some((idx, jaccard));
+            }
         }
-    }
+        best
+    };
     match best {
         Some((idx, jaccard)) => Ok((
             idx,
@@ -1536,6 +1663,7 @@ mod tests {
             workspace: None,
             corpus_bundle_path: None,
             cas_root: None,
+            no_index: false,
         };
         assert!(!opts.sign);
         assert_eq!(opts.source_date_epoch, 0);

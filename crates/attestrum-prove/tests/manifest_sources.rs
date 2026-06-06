@@ -87,6 +87,7 @@ fn opts_with_workspace(workspace: &Path) -> ProveOpts {
         workspace: Some(workspace.to_path_buf()),
         corpus_bundle_path: None,
         cas_root: None,
+        no_index: false,
     }
 }
 

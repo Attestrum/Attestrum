@@ -137,6 +137,7 @@ fn prove_sign_interop() {
         workspace: Some(prove_ws.clone()),
         corpus_bundle_path: Some(corpus_bundle),
         cas_root: None, // exact Document match needs no CAS re-fingerprint
+        no_index: false,
     };
     let artifact = prove(
         ProofTarget::Document(passage_path.clone()),
