@@ -27,7 +27,7 @@ tools/                  Workspace-internal tooling:
                           fuzzy-web-gen/    generates the bounded near-match demo corpus artifact
 tests/                  Cross-crate integration tests + golden fixtures.
 docs/                   Public-facing docs:
-                          diagrams/         28 Mermaid architecture diagrams
+                          diagrams/         47 Mermaid architecture diagrams
                           migration/        version migration notes
                           schemas/          JSON Schema files for predicate types
                           license-inventory.md
@@ -69,7 +69,7 @@ Plus `attestrum bind` / `attestrum walk-chain` for model-to-corpus binding and c
 
 ## Architecture
 
-Every module, CLI subcommand, public data structure, and multi-party flow has a Mermaid diagram under `docs/diagrams/`. GitHub renders them natively. Start with [`DIAGRAMS-OVERVIEW.md`](./DIAGRAMS-OVERVIEW.md) for the recommended reading order across the 27 diagrams.
+Every module, CLI subcommand, public data structure, and multi-party flow has a Mermaid diagram under `docs/diagrams/`. GitHub renders them natively. Start with [`DIAGRAMS-OVERVIEW.md`](./DIAGRAMS-OVERVIEW.md) for the recommended reading order across the diagram set.
 
 The workspace is 18 Rust crates under `crates/`:
 
