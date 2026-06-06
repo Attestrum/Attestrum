@@ -24,7 +24,7 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-attestrum-text-minhash = { path = "../attestrum-text-minhash" }
+attestrum-text-minhash = { path = "../attestrum-text-minhash", version = "0.1.0" }
 
 # blake3 is declared ONLY to flip on its pure-Rust backend for wasm32 builds:
 # the wasm32-unknown-unknown target can't use blake3's SIMD/C backend, and the
@@ -40,4 +40,4 @@ blake3 = { workspace = true, features = ["pure"] }
 # extern export and the kernel agree with attestrum-fingerprint's PUBLIC
 # `fingerprint_text` path. Pulling the full fingerprint crate (image / iscc /
 # jiff) is fine here — dev-deps never enter the wasm artifact.
-attestrum-fingerprint = { path = "../attestrum-fingerprint" }
+attestrum-fingerprint = { path = "../attestrum-fingerprint", version = "0.1.0" }
