@@ -1,0 +1,159 @@
+name: wasm
+
+# C2 (2026-06-06) — the two gates that keep attestrum-fingerprint-wasm honest.
+# The crate compiles the PROTECTED text-MinHash kernel (CLAUDE.md §4) to
+# wasm32-unknown-unknown so the attestrum.com near-match demo runs the IDENTICAL
+# Rust in the browser. Two properties must hold for that promise:
+#
+#   1. DETERMINISM — the shipped `.wasm` rebuilds byte-identically. Each host
+#      builds it twice (separate CARGO_TARGET_DIRs) and `cmp`s same-host; a
+#      compare job then `cmp`s cross-host (x86 vs arm). Mirrors the 4-target
+#      determinism matrix's `cmp -s` byte-identity discipline.
+#   2. CROSS-CHECK — the ACTUAL artifact's output equals the native kernel's
+#      committed golden. A Node loader runs every golden passage through the
+#      real `.wasm` (alloc/call/read, no deps) and diffs against
+#      tests/golden/minhash-vectors.txt. A native-only golden can't catch wasm
+#      codegen / pure-blake3 drift; running the real artifact can. This is the
+#      load-bearing gate (§4 safeguard for the browser surface).
+#
+# Both build under the dedicated `wasm-release` profile so they gate the exact
+# shippable artifact. Toolchain pinned to 1.89.0 so the determinism gate also
+# pins what "byte-identical" means.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WASM_REL_PATH: wasm32-unknown-unknown/wasm-release/attestrum_fingerprint_wasm.wasm
+
+jobs:
+  determinism:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: "linux-x86_64"
+            runs-on: ubuntu-24.04
+          - label: "linux-aarch64"
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.89.0 + wasm32 target
+        uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ matrix.label }}-cargo-wasm-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.label }}-cargo-wasm-
+
+      - name: Build the wasm artifact twice (same-host determinism)
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR="$RUNNER_TEMP/wasm-a" \
+            cargo build -p attestrum-fingerprint-wasm \
+              --target wasm32-unknown-unknown --profile wasm-release
+          CARGO_TARGET_DIR="$RUNNER_TEMP/wasm-b" \
+            cargo build -p attestrum-fingerprint-wasm \
+              --target wasm32-unknown-unknown --profile wasm-release
+          a="$RUNNER_TEMP/wasm-a/$WASM_REL_PATH"
+          b="$RUNNER_TEMP/wasm-b/$WASM_REL_PATH"
+          if ! cmp -s "$a" "$b"; then
+            echo "::error::WASM DETERMINISM FAILURE: two same-host builds differ on ${{ matrix.label }}"
+            ls -la "$a" "$b"
+            exit 1
+          fi
+          echo "OK — same-host byte-identical on ${{ matrix.label }} ($(wc -c < "$a") bytes)"
+          cp "$a" "wasm-${{ matrix.label }}.wasm"
+
+      - name: Upload per-host wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-${{ matrix.label }}
+          path: wasm-${{ matrix.label }}.wasm
+          if-no-files-found: error
+          retention-days: 14
+
+  compare:
+    name: cross-host byte-identity
+    runs-on: ubuntu-24.04
+    needs: determinism
+    steps:
+      - name: Download per-host wasm artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: wasm
+          pattern: wasm-*
+          merge-multiple: true
+
+      - name: Pairwise cmp wasm artifacts; fail on any divergence
+        run: |
+          set -euo pipefail
+          files=(wasm/wasm-*.wasm)
+          if [ ${#files[@]} -lt 2 ]; then
+            echo "::error::expected >= 2 per-host wasm artifacts, got ${#files[@]}"
+            exit 1
+          fi
+          baseline="${files[0]}"
+          echo "Baseline: $baseline ($(wc -c < "$baseline") bytes)"
+          for f in "${files[@]}"; do
+            if ! cmp -s "$baseline" "$f"; then
+              echo "::error::WASM DETERMINISM FAILURE: $(basename "$f") differs from $(basename "$baseline")"
+              ls -la "$baseline" "$f"
+              exit 1
+            fi
+          done
+          echo "OK — all ${#files[@]} hosts produced a byte-identical wasm artifact ($(wc -c < "$baseline") bytes each)"
+
+  crosscheck:
+    name: wasm == native kernel (golden)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.89.0 + wasm32 target
+        uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: crosscheck-cargo-wasm-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            crosscheck-cargo-wasm-
+
+      - name: Build the wasm artifact
+        run: |
+          cargo build -p attestrum-fingerprint-wasm \
+            --target wasm32-unknown-unknown --profile wasm-release
+
+      - name: Cross-check the real wasm output against the native golden
+        run: |
+          node tools/wasm-crosscheck/run.mjs \
+            "target/$WASM_REL_PATH"

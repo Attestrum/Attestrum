@@ -517,6 +517,15 @@ name = "attestrum-fingerprint-registry"
 version = "0.1.0"
 
 [[package]]
+name = "attestrum-fingerprint-wasm"
+version = "0.1.0"
+dependencies = [
+ "attestrum-fingerprint",
+ "attestrum-text-minhash",
+ "blake3",
+]
+
+[[package]]
 name = "attestrum-index"
 version = "0.1.0"
 dependencies = [

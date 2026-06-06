@@ -2,7 +2,7 @@
 title: "crate dependency graph"
 models: "Cargo.toml workspace + per-crate Cargo.toml manifests"
 source_of_truth: code
-last_verified: 8c65a8f 2026-06-06
+last_verified: 554b915 2026-06-06
 diagram_type: flowchart
 ---
 
@@ -48,6 +48,7 @@ flowchart TD
   M --> C
   FP --> C
   FP --> TM[attestrum-text-minhash]
+  FW[attestrum-fingerprint-wasm] --> TM
   AT --> C
 
   L[attestrum-ledger]:::unwired
@@ -55,7 +56,7 @@ flowchart TD
 
   classDef unwired stroke-dasharray: 4 3,opacity:0.7
   classDef added stroke:#3ec072,stroke-width:4px
-  class TM added
+  class FW added
 ```
 
-🟩 new this revision: `attestrum-text-minhash` — the PROTECTED text-MinHash kernel extracted from `attestrum-fingerprint` (§4, 2026-06-06) for byte-identical `wasm32` reuse. No outbound project edges (deps are `blake3` + `unicode-normalization` only).
+🟩 new this revision: `attestrum-fingerprint-wasm` — the C2 `cdylib` that compiles the PROTECTED text-MinHash kernel to `wasm32` for the attestrum.com near-match demo (`extern "C"` ABI, no algorithm of its own). Its only **normal** project edge is `→ attestrum-text-minhash`; its `attestrum-fingerprint` edge is test-only (`[dev-dependencies]`, native cross-check) so it is not drawn. `attestrum-text-minhash` (C1, prior revision) remains the shared kernel both `attestrum-fingerprint` and this crate consume.

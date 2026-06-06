@@ -1,0 +1,43 @@
+[package]
+name = "attestrum-fingerprint-wasm"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# WASM wrapper around the PROTECTED text-MinHash kernel (CLAUDE.md §4). Exposes
+# `attestrum-text-minhash`'s `normalize_text` + `minhash::compute` through a raw
+# `extern "C"` ABI so the attestrum.com near-match demo runs the IDENTICAL Rust
+# in the browser — no JS re-implementation that could drift. This crate adds NO
+# algorithm logic: it only marshals bytes across the FFI boundary.
+#
+# §4 status: routine (founder-confirmed 2026-06-06) — the C1 extraction's §4
+# footer already named "byte-identical WASM reuse" as its approved purpose, and
+# this crate changes no protected parameter. The load-bearing safeguard is the
+# `wasm-crosscheck` CI gate (the real .wasm's output == the native kernel's
+# golden), not a commit footer.
+
+[lib]
+# cdylib → the `.wasm` artifact the browser loads. rlib → the native
+# cross-check test can call the same `extern "C"` exports in-process.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+attestrum-text-minhash = { path = "../attestrum-text-minhash" }
+
+# blake3 is declared ONLY to flip on its pure-Rust backend for wasm32 builds:
+# the wasm32-unknown-unknown target can't use blake3's SIMD/C backend, and the
+# `pure` feature unifies onto attestrum-text-minhash's transitive blake3 within
+# the wasm build graph. The P1 spike (2026-06-06) proved pure == default
+# byte-for-byte, so this changes the backend, never the digest. Scoped to
+# wasm32 so native `cargo test --workspace` keeps the default (faster) backend.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+blake3 = { workspace = true, features = ["pure"] }
+
+[dev-dependencies]
+# Native cross-check only (excluded from the cdylib/wasm build): assert the
+# extern export and the kernel agree with attestrum-fingerprint's PUBLIC
+# `fingerprint_text` path. Pulling the full fingerprint crate (image / iscc /
+# jiff) is fine here — dev-deps never enter the wasm artifact.
+attestrum-fingerprint = { path = "../attestrum-fingerprint" }

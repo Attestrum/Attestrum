@@ -19,7 +19,7 @@ No external API or storage stability promises until `v0.1.0`. The PROTECTED subs
 ## Repository layout
 
 ```
-crates/                 Rust workspace — 16 crates implementing the build pipeline,
+crates/                 Rust workspace — 18 crates implementing the build pipeline,
                         Merkle tree, manifest writer, signing/verify, and the CLI.
 tools/                  Workspace-internal tooling:
                           diagram-linter/   enforces docs/diagrams/ frontmatter + freshness
@@ -70,7 +70,7 @@ Plus `attestrum bind` / `attestrum walk-chain` for model-to-corpus binding and c
 
 Every module, CLI subcommand, public data structure, and multi-party flow has a Mermaid diagram under `docs/diagrams/`. GitHub renders them natively. Start with [`DIAGRAMS-OVERVIEW.md`](./DIAGRAMS-OVERVIEW.md) for the recommended reading order across the 27 diagrams.
 
-The workspace is 17 Rust crates under `crates/`:
+The workspace is 18 Rust crates under `crates/`:
 
 - `attestrum-core` — shared primitives.
 - `attestrum-signals` — robots.txt / ai.txt / TDMRep parsers.
@@ -82,6 +82,7 @@ The workspace is 17 Rust crates under `crates/`:
 - `attestrum-bind` — corpus-to-model binding (`model-binding/v0.1` in-toto Statement).
 - `attestrum-fingerprint` — perceptual fingerprinting (PROTECTED text normalization).
 - `attestrum-text-minhash` — PROTECTED text-MinHash kernel (`normalize_text` + 128-perm MinHash), extracted from `attestrum-fingerprint` for byte-identical `wasm32` reuse.
+- `attestrum-fingerprint-wasm` — `cdylib` compiling the text-MinHash kernel to `wasm32` via a raw `extern "C"` ABI, so the attestrum.com near-match demo runs the identical Rust in the browser (byte-identity gated in CI).
 - `attestrum-prove` — inclusion / non-inclusion proof builder.
 - `attestrum-emit` — Croissant JSON-LD + CycloneDX ML-BOM + dataset-card + verify.html emitters.
 - `attestrum-publish` — Hugging Face Hub + static-bundle publish targets.

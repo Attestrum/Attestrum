@@ -8,6 +8,7 @@ members = [
     "crates/attestrum-manifest",
     "crates/attestrum-fingerprint",
     "crates/attestrum-text-minhash",
+    "crates/attestrum-fingerprint-wasm",
     "crates/attestrum-ledger",
     "crates/attestrum-pipeline",
     "crates/attestrum-attest",
@@ -208,6 +209,23 @@ hf-hub       = { version = "1", git = "https://github.com/huggingface/hf-hub", r
 # 2026-05-28 as the SECOND pin per PATH-A-BRIEF Part 2.3). Both follow the
 # same exception pattern under CLAUDE.md §8 — git-pin requires founder
 # approval.
+# C2 (2026-06-06): size-optimized profile for the attestrum-fingerprint-wasm
+# artifact ONLY. Custom profiles are inert unless selected with
+# `--profile wasm-release`, so the default `release` profile and the existing
+# 4-target determinism matrix (which build under `--release`) are untouched.
+# The wasm determinism + cross-check CI gates build under THIS profile so they
+# gate the actual shippable artifact. opt-level "z" + lto + strip target blob
+# size; panic = "abort" drops the unwinding machinery (no panics cross the FFI
+# boundary); codegen-units = 1 maximizes both size reduction and rebuild
+# determinism.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1
+
 [patch.crates-io]
 sigstore = { git = "https://github.com/Attestrum/sigstore-rs.git", rev = "1c5df849e67c4ce72e6c8949576c3d53757f0840" }
 # hf-hub is NOT patched here — see the workspace.dependencies entry above for
