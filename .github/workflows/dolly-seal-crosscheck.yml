@@ -1,0 +1,159 @@
+name: dolly-seal-crosscheck
+
+# Lookback Tier-1 (databricks-dolly-15k) — the seal-path divergence gate, modeled
+# on lookback-seal-crosscheck.yml.
+#
+# The canonical dolly-15k Merkle root (`58edb2fa…`) was produced LOCALLY on a
+# macOS/arm64 machine by the `seal-dolly` example. The eventual signing happens in
+# CI on `ubuntu-24.04` (x86_64/glibc) — a platform we have never confirmed
+# reproduces the same bytes. determinism.yml only gates the protected backend over
+# a tiny in-memory fixture; it does NOT exercise the `seal-dolly` front-end
+# (Parquet read of instruction/context/response + row rendering) over the real
+# 15,011-row corpus.
+#
+# This workflow closes that gap: on the real signing platform it downloads the
+# pinned dolly shard (SHA-256-verified against docs/lookback/dolly-corpus-source.md),
+# runs `seal-dolly`, and asserts the resulting Merkle root, manifest.parquet
+# SHA-256, and leaf count all equal the canonical values. Green here = the seal
+# path is byte-reproducible on Linux, which is the precondition for signing.
+#
+# It SIGNS NOTHING and PUBLISHES NOTHING — no id-token permission, no Fulcio, no
+# Rekor entry, no Hugging Face push. Fully reversible: a public-dataset download
+# and a hash comparison.
+#
+# Trigger = workflow_dispatch ONLY. A PROCEDURAL gate — run-and-green before the
+# signing phase, not a per-commit check. (Mirrors lookback-seal-crosscheck.yml.)
+#
+# Scope: ONE target (ubuntu-24.04 / x86_64-glibc), the signing platform. Cross-
+# arch/libc byte-identity of the protected backend is already proven by
+# determinism.yml; the only new surface here is the platform-independent Parquet +
+# rendering front-end, so a single decision-relevant target suffices.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: dolly-seal-crosscheck-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DATA: dolly-data
+  WS: dolly-seal-ws
+  # The auto-converted Parquet mirror branch + train split (dolly-corpus-source.md §Source).
+  HF_BASE: "https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/refs%2Fconvert%2Fparquet/default/train"
+  # Canonical seal — source of truth: docs/lookback/dolly-corpus-source.md §"Canonical seal".
+  CANONICAL_ROOT: "58edb2fa39c9362306b2b10744f3f74115bc35a92456c126b38154cb0b35c6c7"
+  CANONICAL_MANIFEST_SHA256: "d965ea0829d87ec71127760360fbd127b3275fdc6b406aa450f6d7ce09c0395c"
+  CANONICAL_LEAVES: "15011"
+  # Pinned shard digest (= HF Git-LFS oid), dolly-corpus-source.md §Shards.
+  SHARD_0000_SHA256: "51c85bb925785765bad9dd961e9db144b555cc79d58803242c9bf883375b938b"
+
+jobs:
+  seal-crosscheck:
+    name: seal-dolly on Linux x86_64/glibc reproduces 58edb2fa…
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-dolly-seal-crosscheck-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-dolly-seal-crosscheck-
+
+      - name: Build seal-dolly (release)
+        run: cargo build --release -p attestrum-pipeline --example seal-dolly
+
+      # Download the pinned shard. Public dataset — no auth. --fail-with-body makes
+      # an HTTP error a non-zero exit (curl is otherwise happy to write an error
+      # page to the output file).
+      - name: Download pinned dolly-15k shard
+        run: |
+          set -euo pipefail
+          mkdir -p "$DATA/train"
+          echo "downloading 0000.parquet"
+          curl --fail-with-body -sSL -o "$DATA/train/0000.parquet" \
+            "$HF_BASE/0000.parquet"
+          ls -la "$DATA/train"
+
+      # Integrity gate: the seal is only meaningful over the EXACT bytes the
+      # canonical root was sealed from. If HF regenerates the convert/parquet
+      # mirror with different bytes, this fails loudly instead of silently sealing
+      # a different corpus.
+      - name: Verify shard SHA-256 against pinned digest
+        run: |
+          set -euo pipefail
+          cat > shards.sha256 <<EOF
+          $SHARD_0000_SHA256  $DATA/train/0000.parquet
+          EOF
+          echo "--- expected ---"; cat shards.sha256
+          sha256sum -c shards.sha256
+
+      # Run the seal. stdout is exactly the 65-byte root line (64 hex + \n);
+      # stderr carries `leaves=… bytes=… manifest=…`. Capture each separately.
+      - name: Run seal-dolly over the pinned corpus (with time + peak RSS)
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v -o time.txt \
+            ./target/release/examples/seal-dolly "$DATA/train" "$WS" \
+            > root.txt 2> seal.stderr
+          echo "--- stdout (root) ---"; cat root.txt
+          echo "--- stderr ---"; cat seal.stderr
+          echo "--- resource usage (Linux x86_64/glibc) ---"
+          grep -E 'Elapsed \(wall clock\) time|Maximum resident set size' time.txt
+
+      # Triple assertion. The trio (root + manifest hash + leaf count) guards
+      # against a root collision masking a different corpus: a wrong corpus that
+      # happened to collide on the root would still miss on the manifest bytes
+      # and/or the leaf count.
+      - name: Assert canonical root, manifest SHA-256, and leaf count
+        run: |
+          set -euo pipefail
+          fail=0
+
+          got_root="$(tr -d '\n' < root.txt)"
+          if [ "$got_root" = "$CANONICAL_ROOT" ]; then
+            echo "OK   root:        $got_root"
+          else
+            echo "::error::root mismatch — expected $CANONICAL_ROOT, got $got_root"
+            fail=1
+          fi
+
+          manifest="$WS/.attestrum/manifests/manifest.parquet"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::manifest not found at $manifest"
+            exit 1
+          fi
+          got_manifest_sha="$(sha256sum "$manifest" | awk '{print $1}')"
+          if [ "$got_manifest_sha" = "$CANONICAL_MANIFEST_SHA256" ]; then
+            echo "OK   manifest:    $got_manifest_sha"
+          else
+            echo "::error::manifest.parquet SHA-256 mismatch — expected $CANONICAL_MANIFEST_SHA256, got $got_manifest_sha"
+            fail=1
+          fi
+
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          if [ "$got_leaves" = "$CANONICAL_LEAVES" ]; then
+            echo "OK   leaves:      $got_leaves"
+          else
+            echo "::error::leaf count mismatch — expected $CANONICAL_LEAVES, got '$got_leaves'"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::dolly seal-path cross-check FAILED — Linux did not reproduce the canonical seal"
+            exit 1
+          fi
+          echo "Linux x86_64/glibc reproduced the canonical dolly-15k seal byte-for-byte."
