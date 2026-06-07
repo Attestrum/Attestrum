@@ -1,18 +1,18 @@
 ---
 title: "Lookback Tier-1 — databricks-dolly-15k seal generator pipeline"
 models: "crates/attestrum-pipeline/examples/seal-dolly.rs, crates/attestrum-pipeline/src/lib.rs"
-source_of_truth: diagram
-last_verified: 5137a49 2026-06-07
+source_of_truth: code
+last_verified: 4a7a00e 2026-06-07
 diagram_type: flowchart
 ---
 
 # Lookback Tier-1 — databricks-dolly-15k seal generator
 
-**Source of truth: `diagram`** — this is the contract the seal generator
+**Source of truth: `code`** — the seal generator
 `crates/attestrum-pipeline/examples/seal-dolly.rs` (with its Parquet-reading core
-`examples/dolly/seal.rs`) must implement; it flips to `code` in the commit that lands
-the generator. It is the second Tier-1 reference bundle after WikiText-103
-(`wikitext-seal-pipeline.md`) and follows the same deterministic
+`examples/dolly/seal.rs` and row renderer `examples/dolly/render.rs`) has landed;
+this diagram is now a derived view of it. It is the second Tier-1 reference bundle
+after WikiText-103 (`wikitext-seal-pipeline.md`) and follows the same deterministic
 `build_corpus` pattern — reading the real corpus from the Hugging Face
 auto-converted Parquet mirror instead of synthesising bytes in memory.
 
