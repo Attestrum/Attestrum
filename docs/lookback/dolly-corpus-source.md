@@ -98,4 +98,36 @@ The root is printed to stdout by the seal command; the manifest lands at
 macOS/arm64; the `dolly-seal-crosscheck` workflow re-runs it on Linux x86_64/glibc (the
 signing platform) and asserts the identical root, `manifest.parquet` SHA-256, and leaf
 count before any signing phase — the precondition the `lookback-seal-crosscheck` workflow
-established for WikiText-103.
+established for WikiText-103. That cross-check ran green
+([run 27102047090](https://github.com/Attestrum/Attestrum/actions/runs/27102047090)):
+Linux reproduced the canonical seal byte-for-byte.
+
+## Published (signed + live)
+
+Sealed, signed keyless under the **Attestrum GitHub Actions identity** (§A9 — never a
+personal one), and published by the `dolly-publish` workflow
+([run 27109177096](https://github.com/Attestrum/Attestrum/actions/runs/27109177096)) on
+2026-06-08.
+
+| Field | Value |
+|---|---|
+| Hugging Face dataset | [`Attestrum/databricks-dolly-15k-sealed`](https://huggingface.co/datasets/Attestrum/databricks-dolly-15k-sealed) |
+| Predicate type | `https://attestrum.com/attestation/training-corpus/v0.3` |
+| Sigstore bundle | `attestrum/bundle.sigstore.json` (v0.3) |
+| Rekor logIndex (global) | `1753369048` |
+| Rekor `integratedTime` | `1780878293` (2026-06-08) |
+| Signing identity | `…/.github/workflows/dolly-publish.yml@refs/heads/main` (issuer `token.actions.githubusercontent.com`) |
+
+A third party with no Attestrum installed verifies the signed manifest with stock cosign
+(the closing gate of the publish run reported `Verified OK` against the Attestrum workflow
+SAN):
+
+```bash
+cosign verify-blob-attestation \
+  --new-bundle-format \
+  --type 'https://attestrum.com/attestation/training-corpus/v0.3' \
+  --bundle bundle.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/Attestrum/Attestrum/\.github/workflows/dolly-publish\.yml@refs/.+$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  manifest.parquet
+```
