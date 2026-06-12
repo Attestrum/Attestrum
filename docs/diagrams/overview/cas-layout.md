@@ -2,7 +2,7 @@
 title: "CAS filesystem layout"
 models: "crates/attestrum-cas/src/store.rs"
 source_of_truth: code
-last_verified: 378d955 2026-06-05
+last_verified: b547f16 2026-06-12
 diagram_type: flowchart
 ---
 

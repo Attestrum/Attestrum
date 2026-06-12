@@ -1,0 +1,355 @@
+name: pg19-publish
+
+# Lookback Tier-1 (deepmind-pg19) — the gated seal → sign → publish pipeline,
+# modeled verbatim on dolly-publish.yml with the pg19-seal-crosscheck download +
+# disk-cleanup front-end (this is the first rung whose corpus is too big for a
+# stock runner without cleanup; ~11.5 GB, 28,752 book files).
+#
+# ⛔ RUNNING THIS IS IRREVERSIBLE. On ANY dispatch (including target=static), the
+# sign step writes a PERMANENT public Rekor transparency-log entry binding the
+# corpus to the Attestrum workflow identity — there is no "sign without Rekor".
+# target=huggingface additionally pushes to the Hub and requires the HF_TOKEN repo
+# secret. Trigger is workflow_dispatch ONLY; the file existing on main runs nothing
+# until a human dispatches it. Do not dispatch without an explicit decision to
+# publish (CLAUDE.md §A9 — each publish is gated behind an explicit founder "go").
+#
+# Safety: the pre-sign gate (the pg19-seal-crosscheck triple assertion: root +
+# manifest SHA-256 + leaf count) runs BEFORE Fulcio/Rekor are ever contacted, so a
+# divergent seal aborts the run before anything is signed. The closing cosign step
+# asserts the Attestrum GHA workflow SAN (the §A9 / §21.1 guard).
+#
+# See docs/diagrams/lookback/pg19-seal-pipeline.md and
+# docs/lookback/pg19-corpus-source.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target (both SIGN; static = local artifacts, huggingface = Hub push + needs HF_TOKEN)"
+        type: choice
+        options:
+          - static
+          - huggingface
+        default: static
+      dataset:
+        description: "Hugging Face dataset repo (org/name)"
+        type: string
+        default: "Attestrum/deepmind-pg19-sealed"
+
+concurrency:
+  # Never cancel an in-flight sign/push — a partial run could leave a Rekor entry
+  # or a half-committed Hub repo. Serialize instead.
+  group: pg19-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # GHA OIDC token exchange → Fulcio keyless identity
+  contents: read
+
+env:
+  WS: pg19-publish-ws
+  DATA: pg19-data
+  HF_LISTS_BASE: "https://huggingface.co/datasets/deepmind/pg19/resolve/4d28bd77e66947ad3835cf78ed7aaeb4dd87ad8b/data"
+  GCS_BASE: "https://storage.googleapis.com/deepmind-gutenberg"
+  # Pinned file-list digests — source of truth: docs/lookback/pg19-corpus-source.md.
+  TRAIN_LIST_SHA256: "145b5f0896cc2fff3231222874a0f324ee04559144ecf25a873d294eb161719c"
+  VALIDATION_LIST_SHA256: "e66d9f76a39a7a73a62270e98395c9532d306ecd2b7a10ae4098dcdd133d179b"
+  TEST_LIST_SHA256: "c84c08139695f3312df83239a1a41e7b9cde1baf7c08bfcf230ae09eaaf18d8c"
+  EXPECTED_FILES: "28752"
+  # Canonical seal — source of truth: docs/lookback/pg19-corpus-source.md
+  # §"Canonical seal". Pinned from capture run 27414439290 + reproduced by the
+  # mode=assert crosscheck; this workflow refuses to sign anything else.
+  CANONICAL_ROOT: "64767babc25bcc20bf01538c36389cee6b35f65b26c1dbbb0acb0e7f11c1b8ca"
+  CANONICAL_MANIFEST_SHA256: "9a38c5017ae914c9bc03049dadf8da962ff939b08e90250efed46e4baa55471a"
+  CANONICAL_LEAVES: "28752"
+
+jobs:
+  publish:
+    name: "seal → gate → sign (keyless) → publish ${{ inputs.target }} → cosign verify"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — huggingface target needs HF_TOKEN
+        if: inputs.target == 'huggingface'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::error::target=huggingface requires the HF_TOKEN repo secret (not set). Add it or run target=static." >&2
+            exit 1
+          fi
+          echo "HF_TOKEN present (masked)."
+
+      # Same inline cleanup as pg19-seal-crosscheck.yml — corpus + CAS needs
+      # ~25-30 GB; stock runners guarantee only ~14 GB.
+      - name: Free disk space (inline — no third-party action)
+        run: |
+          set -uo pipefail
+          echo "--- df before ---"; df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/share/boost \
+            /usr/local/lib/node_modules \
+            /usr/share/swift \
+            /opt/microsoft \
+            /opt/google/chrome \
+            /usr/local/share/powershell 2>/dev/null || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "--- df after ---"; df -h /
+          avail_gb="$(df -BG --output=avail / | tail -1 | tr -dc '0-9')"
+          echo "available: ${avail_gb} GB"
+          if [ "$avail_gb" -lt 35 ]; then
+            echo "::error::less than 35 GB free after cleanup (${avail_gb} GB) — not enough for corpus + CAS" >&2
+            exit 1
+          fi
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-pg19-publish-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-pg19-publish-
+
+      - name: Build attestrum CLI + seal-pg19 (release)
+        run: |
+          set -euo pipefail
+          cargo build --release -p attestrum-cli
+          cargo build --release -p attestrum-pipeline --example seal-pg19
+
+      - name: Fetch + verify the pinned file lists
+        run: |
+          set -euo pipefail
+          mkdir -p "$DATA"
+          for f in train_files.txt validation_files.txt test_files.txt; do
+            curl --fail-with-body -sSL -o "$DATA/$f" "$HF_LISTS_BASE/$f"
+          done
+          cat > lists.sha256 <<EOF
+          $TRAIN_LIST_SHA256  $DATA/train_files.txt
+          $VALIDATION_LIST_SHA256  $DATA/validation_files.txt
+          $TEST_LIST_SHA256  $DATA/test_files.txt
+          EOF
+          echo "--- expected ---"; cat lists.sha256
+          sha256sum -c lists.sha256
+          wc -l "$DATA"/*_files.txt
+
+      - name: Download the corpus from GCS (aria2c)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -q aria2 >/dev/null
+          # aria2 input-file format: URI line + indented per-URI out= so the
+          # split path structure is preserved (see pg19-seal-crosscheck.yml).
+          cat "$DATA"/train_files.txt "$DATA"/validation_files.txt "$DATA"/test_files.txt \
+            | awk -v base="$GCS_BASE" '{ print base "/" $0; print "  out=" $0 }' > urls.txt
+          url_count="$(grep -c '^http' urls.txt)"
+          echo "downloading $url_count files"
+          aria2c -j16 -x4 --max-tries=5 --retry-wait=5 \
+            --auto-file-renaming=false --console-log-level=warn --summary-interval=60 \
+            --dir "$DATA" --input-file urls.txt
+          df -h /
+
+      - name: Assert download completeness (count per split, no zero-byte files)
+        run: |
+          set -euo pipefail
+          fail=0
+          for split_expected in train:28602 validation:50 test:100; do
+            split="${split_expected%%:*}"; expected="${split_expected##*:}"
+            got="$(find "$DATA/$split" -name '*.txt' -type f | wc -l | tr -d ' ')"
+            if [ "$got" = "$expected" ]; then
+              echo "OK   $split: $got files"
+            else
+              echo "::error::$split file count mismatch — expected $expected, got $got"
+              fail=1
+            fi
+          done
+          total="$(find "$DATA/train" "$DATA/validation" "$DATA/test" -name '*.txt' -type f | wc -l | tr -d ' ')"
+          [ "$total" = "$EXPECTED_FILES" ] || { echo "::error::total $total != $EXPECTED_FILES"; fail=1; }
+          empty="$(find "$DATA/train" "$DATA/validation" "$DATA/test" -name '*.txt' -type f -empty | head -5)"
+          if [ -n "$empty" ]; then
+            echo "::error::zero-byte files found:"; echo "$empty"
+            fail=1
+          fi
+          [ "$fail" -eq 0 ]
+
+      - name: Seal pg19 (seal-pg19 → manifest.parquet + merkle.root)
+        run: |
+          set -euo pipefail
+          ./target/release/examples/seal-pg19 "$DATA" "$WS" \
+            > root.txt 2> seal.stderr
+          echo "--- stdout (root) ---"; cat root.txt
+          echo "--- stderr ---"; cat seal.stderr
+          test -f "$WS/.attestrum/manifests/manifest.parquet"
+          test -f "$WS/.attestrum/manifests/merkle.root"
+
+      - name: Pre-sign gate — assert canonical root, manifest SHA-256, leaf count
+        run: |
+          set -euo pipefail
+          fail=0
+          got_root="$(tr -d '\n' < root.txt)"
+          [ "$got_root" = "$CANONICAL_ROOT" ] \
+            && echo "OK   root:     $got_root" \
+            || { echo "::error::root mismatch — expected $CANONICAL_ROOT, got $got_root"; fail=1; }
+
+          got_manifest_sha="$(sha256sum "$WS/.attestrum/manifests/manifest.parquet" | awk '{print $1}')"
+          [ "$got_manifest_sha" = "$CANONICAL_MANIFEST_SHA256" ] \
+            && echo "OK   manifest: $got_manifest_sha" \
+            || { echo "::error::manifest.parquet SHA-256 mismatch — expected $CANONICAL_MANIFEST_SHA256, got $got_manifest_sha"; fail=1; }
+
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          [ "$got_leaves" = "$CANONICAL_LEAVES" ] \
+            && echo "OK   leaves:   $got_leaves" \
+            || { echo "::error::leaf count mismatch — expected $CANONICAL_LEAVES, got '$got_leaves'"; fail=1; }
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::pre-sign gate FAILED — seal diverged from canonical; NOT signing." >&2
+            exit 1
+          fi
+          echo "pre-sign gate passed — canonical artifact confirmed; safe to sign."
+
+      # Determinism (CLAUDE.md §7): derive sign/publish epoch from the commit time,
+      # NOT wall-clock. The seal itself is epoch-0; this SDE only drives the
+      # predicate / dataset-card timestamps.
+      - name: Derive SOURCE_DATE_EPOCH from the commit
+        run: |
+          set -euo pipefail
+          sde="$(git show -s --format=%ct HEAD)"
+          echo "SOURCE_DATE_EPOCH=$sde" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$sde"
+
+      # Exchange the GHA ID-token request for a sigstore-audience token Fulcio
+      # accepts. Audience MUST be `sigstore`. Mask before exporting. (Proven
+      # cosign-interop.yml / dolly-publish.yml pattern.)
+      - name: Fetch SIGSTORE_ID_TOKEN via GHA OIDC exchange
+        run: |
+          set -euo pipefail
+          token="$(curl --fail-with-body -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" \
+            | jq -r '.value')"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to obtain sigstore-audience OIDC token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "SIGSTORE_ID_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # ⛔ The irreversible step: Fulcio (ephemeral cert, Attestrum workflow SAN) +
+      # Rekor (PERMANENT public DSSE entry). Bundle → <workspace>/bundles/<stem>.sigstore.json.
+      - name: attestrum sign (ambient GHA keyless OIDC) — PERMANENT Rekor entry
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum sign \
+            "$WS/.attestrum/manifests/manifest.parquet" \
+            --workspace "$WS" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --publication-intent hf
+          test -f "$WS/bundles/manifest.sigstore.json"
+
+      - name: attestrum publish --target static (local artifact set)
+        if: inputs.target == 'static'
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target static \
+            --dataset "${{ inputs.dataset }}" \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license Apache-2.0 \
+            --attribution-file docs/lookback/pg19-attribution.md \
+            --pretty-name "deepmind-pg19 (Attestrum-sealed)" \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public \
+            --out-dir "$WS/static-out"
+          echo "--- static-out tree ---"
+          find "$WS/static-out" -type f | sort
+
+      - name: Upload static artifact set (inspect before any HF push)
+        if: inputs.target == 'static'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg19-static-out
+          path: ${{ env.WS }}/static-out
+          if-no-files-found: error
+          retention-days: 14
+
+      # ⛔ HF push — needs HF_TOKEN (hf-hub reads it from the env). Idempotent
+      # (exist_ok + re-commit).
+      - name: attestrum publish --target huggingface (Hub push)
+        if: inputs.target == 'huggingface'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target huggingface \
+            --dataset "${{ inputs.dataset }}" \
+            --revision main \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license Apache-2.0 \
+            --attribution-file docs/lookback/pg19-attribution.md \
+            --pretty-name "deepmind-pg19 (Attestrum-sealed)" \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public
+
+      - name: Install cosign (sigstore/cosign-installer@v3)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
+        run: |
+          set -euo pipefail
+          version_json="$(cosign version --json)"
+          echo "$version_json"
+          git_version="$(echo "$version_json" | jq -r '.gitVersion')"
+          case "$git_version" in
+            v2.[5-9].*|v2.[1-9][0-9].*|v3.*)
+              echo "cosign $git_version: OK (>= v2.5 or any v3.x)"
+              ;;
+            *)
+              echo "::error::cosign binary is below v2.5 or unrecognised: $git_version" >&2
+              exit 1
+              ;;
+          esac
+
+      # THE acceptance gate: a third party with no Attestrum installed verifies the
+      # signed bundle with cosign alone, AND we assert the signing identity is the
+      # Attestrum GHA workflow — not a personal identity (CLAUDE-LOCAL §A9 / roadmap
+      # §21.1). Verbatim structure from dolly-publish.yml.
+      - name: cosign verify-blob-attestation (assert Attestrum GHA SAN)
+        run: |
+          set -euo pipefail
+          bundle="$WS/bundles/manifest.sigstore.json"
+          manifest="$WS/.attestrum/manifests/manifest.parquet"
+          identity_re='^https://github\.com/Attestrum/Attestrum/\.github/workflows/pg19-publish\.yml@refs/.+$'
+          issuer='https://token.actions.githubusercontent.com'
+          predicate_type='https://attestrum.com/attestation/training-corpus/v0.3'
+          echo "asserting identity matches: $identity_re"
+          echo "asserting issuer:           $issuer"
+          echo "asserting predicate type:   $predicate_type"
+          out="$(cosign verify-blob-attestation \
+            --new-bundle-format \
+            --type "$predicate_type" \
+            --bundle "$bundle" \
+            --certificate-identity-regexp "$identity_re" \
+            --certificate-oidc-issuer "$issuer" \
+            "$manifest" 2>&1)"
+          echo "$out"
+          echo "$out" | grep -q "Verified OK" \
+            || { echo "::error::cosign did not report 'Verified OK' — signing identity is NOT the Attestrum pg19-publish workflow"; exit 1; }
+          echo "cosign verify-blob-attestation: Verified OK with the Attestrum GHA workflow SAN"

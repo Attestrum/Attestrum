@@ -2,7 +2,7 @@
 title: "Lookback Phase A — gated WikiText build→sign→publish pipeline"
 models: ".github/workflows/lookback-publish.yml, crates/attestrum-pipeline/examples/seal-wikitext.rs, crates/attestrum-cli/src/commands/sign.rs, crates/attestrum-cli/src/commands/publish.rs"
 source_of_truth: code
-last_verified: 378d955 2026-06-05
+last_verified: b547f16 2026-06-12
 diagram_type: sequenceDiagram
 ---
 
