@@ -4,7 +4,12 @@
 //! lexicographic input-path order (deterministic), re-runs
 //! `assign_occurrence_indices` GLOBALLY so cross-shard identical
 //! digests get a unified occurrence count, then re-runs `sort_entries`
-//! and writes the merged manifest.
+//! and writes the merged manifest. The merged Merkle root (RFC 6962 over
+//! the canonically sorted `document_id` leaves — the same computation as
+//! `attestrum_pipeline::build_corpus`) is printed as a `merkle_root:` line
+//! and written to a `merkle.root` file beside `--out` (64 lowercase hex
+//! chars + newline, the `attestrum build` sibling-file format), so sharded
+//! CI pipelines consume the canonical root without parsing `inspect`.
 //!
 //! See `docs/diagrams/sprint-3/sharding.md` for the determinism
 //! contract: the merged Merkle root ALWAYS equals the root of an
@@ -54,6 +59,13 @@ pub enum MergeError {
 
     #[error("merged manifest write failed: {0}")]
     Write(#[from] attestrum_core::AttestrumError),
+
+    #[error("merkle.root write failed at {path}: {source}")]
+    RootFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// `attestrum merge` entry point. Returns 0 on success, 1 on any error.
@@ -135,15 +147,41 @@ fn run_inner(args: Args) -> Result<(), MergeError> {
     }
     write_manifest(&args.out, &merged)?;
 
+    // `merged` is in canonical (document_id, occurrence_index) order, so the
+    // leaf sequence is exactly what `build_corpus` feeds `merkle_root` — the
+    // merged root equals the unsharded root by multiset invariance.
+    let leaves: Vec<[u8; 32]> = merged.iter().map(|r| r.document_id).collect();
+    let root = attestrum_merkle::merkle_root(&leaves);
+    let root_hex = hex_64(&root);
+
+    // Sibling artifact beside the merged manifest, same format as
+    // `attestrum build`'s `merkle.root`: 64 lowercase hex chars + newline.
+    let root_path = args.out.with_file_name("merkle.root");
+    fs::write(&root_path, format!("{root_hex}\n")).map_err(|source| MergeError::RootFile {
+        path: root_path.clone(),
+        source,
+    })?;
+
     tracing::info!(
         inputs = sorted_inputs.len(),
         out = %args.out.display(),
         rows = merged.len(),
+        merkle_root = %root_hex,
         "merge complete"
     );
     println!("attestrum merge: ok");
-    println!("  inputs: {}", sorted_inputs.len());
-    println!("  rows:   {}", merged.len());
-    println!("  out:    {}", args.out.display());
+    println!("  inputs:       {}", sorted_inputs.len());
+    println!("  rows:         {}", merged.len());
+    println!("  merkle_root:  {root_hex}");
+    println!("  merkle_file:  {}", root_path.display());
+    println!("  out:          {}", args.out.display());
     Ok(())
+}
+
+fn hex_64(bytes: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for b in bytes {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
 }

@@ -328,7 +328,26 @@ fn merge_round_trip_matches_unsharded_build() {
     merge_args.push("--out".into());
     merge_args.push(merged_out.to_string_lossy().into_owned());
     let merge_result = run_attestrum(merge_args.iter().map(String::as_str));
-    let _ = merge_result;
+
+    // merge must report the canonical root itself: a `merkle_root:` stdout
+    // line and a `merkle.root` sibling file, both byte-identical to the
+    // unsharded build's (CI consumes these instead of parsing `inspect`).
+    let stdout_merge = String::from_utf8_lossy(&merge_result.stdout);
+    let root_b = extract_root_from_stdout(&stdout_merge);
+    assert_eq!(
+        root_a, root_b,
+        "merge stdout merkle_root must equal the unsharded build's"
+    );
+    let root_file_un = ws_un
+        .join(".attestrum")
+        .join("manifests")
+        .join("merkle.root");
+    let root_file_merged = root.join("merkle.root");
+    assert_eq!(
+        fs::read(&root_file_un).expect("read unsharded merkle.root"),
+        fs::read(&root_file_merged).expect("read merged merkle.root"),
+        "merkle.root sibling file must be byte-identical to the unsharded build's"
+    );
 
     // Inspect both to get the roots. Easier to assert via re-reading
     // and computing merkle_root than parsing stdout.
@@ -442,6 +461,55 @@ fn merge_with_overlapping_digests_across_shards_globally_reassigns_occurrence_in
     assert_eq!(
         rows[1].occurrence_index, 1,
         "cross-shard duplicate digests must get global occurrence_index 0 and 1, not 0 and 0"
+    );
+}
+
+// ============================================================================
+// Test 7: merkle.root sibling write failure surfaces as exit 1 with the
+// RootFile error context (a directory squatting on the sibling path).
+// ============================================================================
+
+#[test]
+fn merge_merkle_root_sibling_write_failure_exits_nonzero() {
+    let root = fresh_root("root_file_err");
+    let corpus = write_unique_corpus(&root, 2);
+    let ws = root.join("ws");
+    run_attestrum([
+        "build",
+        "--corpus",
+        corpus.to_str().unwrap(),
+        "--workspace",
+        ws.to_str().unwrap(),
+    ]);
+    let manifest = ws
+        .join(".attestrum")
+        .join("manifests")
+        .join("manifest.parquet");
+
+    // A directory at the sibling path makes the root-file write fail
+    // after the merged manifest itself was written successfully.
+    let out_dir = root.join("merged");
+    fs::create_dir_all(out_dir.join("merkle.root")).expect("mkdir squatter");
+    let merged_out = out_dir.join("merged.parquet");
+
+    let out = Command::new(attestrum_bin())
+        .args([
+            "merge",
+            "--inputs",
+            manifest.to_str().unwrap(),
+            "--out",
+            merged_out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn attestrum");
+    assert!(
+        !out.status.success(),
+        "merge must exit non-zero when merkle.root cannot be written"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("merkle.root write failed"),
+        "stderr must carry the RootFile context, got:\n{stderr}"
     );
 }
 

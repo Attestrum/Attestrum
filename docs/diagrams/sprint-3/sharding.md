@@ -2,7 +2,7 @@
 title: "attestrum plan and attestrum merge deterministic sharding for sub-corpus builds"
 models: "crates/attestrum-cli/src/commands/plan.rs, crates/attestrum-cli/src/commands/merge.rs"
 source_of_truth: code
-last_verified: 8d49acc 2026-06-06
+last_verified: 6d43fa2 2026-06-12
 diagram_type: flowchart
 ---
 
@@ -12,7 +12,7 @@ Source of truth: `code` (Sprint 3 E7 implementation). Minimal sharding for v1 (f
 
 **Deterministic shard assignment**: `shard_id = (first 8 bytes of BLAKE3(source_url.as_bytes()), interpreted as little-endian u64) mod N`. The hash-mod-N scheme is uniform across `N` shards under normal URL distributions, depends only on the `source_url` string (not file content, not entry order), and re-running `attestrum plan` with the same `--corpus` and `--shards` produces byte-identical shard files. Duplicates of the same `source_url` always co-locate to the same shard so the multiset count is preserved within a shard. Empty shards are skipped (no `shard-NNNN.toml` emitted) — keeps the on-disk layout tidy and the merge step doesn't need to handle empty inputs.
 
-**Merge contract**: `attestrum merge --inputs shard-*.parquet --out merged.parquet` reads each shard's already-sealed Parquet (lex-sorted input order for determinism), concatenates the rows, re-runs `assign_input_ordinals` GLOBALLY (so each merged row has a unique 0..N input_ordinal in concat order — the E2.5 audit invariant continues to hold within the merged file), re-runs `assign_occurrence_indices` GLOBALLY (so cross-shard identical digests get a unified occurrence count), re-runs `sort_entries` by `(document_id, occurrence_index)`, then writes one merged Parquet. The merged Merkle root equals the root we would have computed had we built the corpus unsharded.
+**Merge contract**: `attestrum merge --inputs shard-*.parquet --out merged.parquet` reads each shard's already-sealed Parquet (lex-sorted input order for determinism), concatenates the rows, re-runs `assign_input_ordinals` GLOBALLY (so each merged row has a unique 0..N input_ordinal in concat order — the E2.5 audit invariant continues to hold within the merged file), re-runs `assign_occurrence_indices` GLOBALLY (so cross-shard identical digests get a unified occurrence count), re-runs `sort_entries` by `(document_id, occurrence_index)`, then writes one merged Parquet. The merged Merkle root equals the root we would have computed had we built the corpus unsharded. After the write, merge computes that root itself (`attestrum_merkle::merkle_root` over the sorted `document_id` leaves — the identical computation `build_corpus` performs), prints it as a `merkle_root:` stdout line, and writes a `merkle.root` file beside `--out` in `attestrum build`'s sibling-file format (64 lowercase hex chars + newline) — sharded CI pipelines consume the canonical root directly instead of parsing `attestrum inspect`.
 
 **Why merged bytes ≠ unsharded bytes (in the general shards > 1 case)**: the unsharded build's `input_ordinal` column reflects the original input order (the position in the source corpus.toml); the merged build's `input_ordinal` reflects shard-concat order, which is `(shard_id ascending, within-shard canonical sort)`. These only coincide when entries happen to be listed in shard_id-ascending order in the original corpus.toml — a synthetic property. The Merkle root computes only over sorted digests, so it's invariant under any permutation that preserves the multiset; byte-identity of the full Parquet is a stricter property that requires `input_ordinal` agreement.
 
@@ -36,13 +36,23 @@ flowchart TD
   REIO --> REASS[assign_occurrence_indices global pass]
   REASS --> RESORT[sort_entries by document_id then occurrence_index]
   RESORT --> WRITE[write_manifest merged.parquet]
-  WRITE --> OUT[merged.parquet plus optional merged merkle root via attestrum inspect]
+  WRITE --> ROOT[merkle_root over sorted document_id leaves]
+  ROOT --> OUT[merged.parquet plus merkle_root stdout line plus merkle.root sibling file]
+
+  classDef revised fill:#8a5a00,stroke:#e0a52e,color:#fff
+  classDef added fill:#1f6f3f,stroke:#3ec072,color:#fff
+  class ROOT added
+  class OUT revised
 ```
+
+🟩 new · 🟧 revised this revision
+
+**Changed this revision:** merge now emits the merged Merkle root itself (stdout line + `merkle.root` sibling file); the prior `OUT` node's "optional merged merkle root via attestrum inspect" indirection is gone.
 
 **Public surface** (in `crates/attestrum-cli/src/commands/`):
 
 - `pub mod plan` with `pub struct Args { corpus, shards, out }`, `pub enum PlanError { InvalidShardCount, CorpusMissing, CorpusRead, CorpusParse, EntryMissingSourceUrl, OutputDir, EmitShard, Serialize(#[from] toml::ser::Error) }`, `pub fn run(args) -> u8`, `pub fn shard_id(source_url: &str, shards: u32) -> u32`.
-- `pub mod merge` with `pub struct Args { inputs, out }`, `pub enum MergeError { NoInputs, InputRead, OutputDir, Write(#[from] attestrum_core::AttestrumError) }`, `pub fn run(args) -> u8`.
+- `pub mod merge` with `pub struct Args { inputs, out }`, `pub enum MergeError { NoInputs, InputRead, OutputDir, Write(#[from] attestrum_core::AttestrumError), RootFile }`, `pub fn run(args) -> u8`.
 
 **Test obligations** (per CLAUDE.md §7.1 flowchart → integration-edges test, satisfied at Sprint 3 E7 in `crates/attestrum-cli/tests/sharding.rs`):
 
@@ -50,8 +60,9 @@ flowchart TD
 - `plan_shards_equal_entry_count_one_per_shard_when_unique_urls` — `--shards N` where N == entry count, distinct source_urls: emits 1..N shard files (empty shards skipped per hash distribution), the union of all shards' entries equals the input, and every emitted shard has ≥ 1 entry.
 - `plan_duplicate_source_urls_colocate_in_same_shard` — 5 entries with identical `source_url` always land in the same single shard file (preserves multiset binding pre-build).
 - `plan_re_run_produces_identical_shard_files` — running `attestrum plan` twice with the same args (against two different output dirs) produces byte-identical shard files in each.
-- `merge_round_trip_matches_unsharded_build` — build corpus directly → root A; plan + build-each-shard + merge → root B; assert `root A == root B` AND assert the sorted leaf-set (sorted Vec<[u8; 32]> of document_ids) is identical between the two manifests. Note: byte-equality of `manifest.parquet` is NOT asserted because merged manifests' `input_ordinal` reflects merge-concat order rather than original input order; the deterministic-sharding contract is root equality + leaf-set equality, not full byte-identity.
+- `merge_round_trip_matches_unsharded_build` — build corpus directly → root A; plan + build-each-shard + merge → root B; assert `root A == root B` AND assert the sorted leaf-set (sorted Vec<[u8; 32]> of document_ids) is identical between the two manifests. Additionally asserts merge's own root output: the `merkle_root:` stdout line equals root A, and the `merkle.root` sibling file is byte-identical to the unsharded build's. Note: byte-equality of `manifest.parquet` is NOT asserted because merged manifests' `input_ordinal` reflects merge-concat order rather than original input order; the deterministic-sharding contract is root equality + leaf-set equality, not full byte-identity.
 - `merge_with_overlapping_digests_across_shards_globally_reassigns_occurrence_indices` — two single-entry shards each containing byte-identical content but distinct source_urls produce a merged manifest with two rows sharing `document_id` and carrying `occurrence_index` 0 and 1 globally (not 0 and 0 from their per-shard assignment).
+- `merge_merkle_root_sibling_write_failure_exits_nonzero` — a directory squatting on the `merkle.root` sibling path makes merge exit 1 with the `RootFile` error context (exercises the only new error path).
 
 **Out of scope for E7** (deferred to later sprints):
 
