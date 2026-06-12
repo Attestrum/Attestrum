@@ -60,9 +60,10 @@ env:
   EXPECTED_LEAVES: "9672101"
   # Canonical merged seal — source of truth:
   # docs/lookback/fineweb10bt-corpus-source.md §"Canonical seal".
-  # Empty until the first mode=capture run pins them.
-  CANONICAL_ROOT: ""
-  CANONICAL_MANIFEST_SHA256: ""
+  # Pinned from capture run 27428316052 (2026-06-12); mode=assert requires an
+  # exact reproduction.
+  CANONICAL_ROOT: "4cdf2491b9fbb0dc875fc06a6c94872b9f40b1c343860d92b8e0247f7032053c"
+  CANONICAL_MANIFEST_SHA256: "fa6c082ccd5f4e1b4ad95ac8966cf156221fbb3483f3ba2bf48dad5dc38defa5"
 
 jobs:
   seal:

@@ -97,8 +97,37 @@ cargo run -p attestrum-pipeline --release --example seal-fineweb-edu \
 
 ## Canonical seal (input → output, closeable)
 
-**Pending.** The canonical merged triple (Merkle root, merged
-`manifest.parquet` SHA-256, leaf count) will be captured by the first
-`fineweb10bt-seal-crosscheck` `mode=capture` run on Linux x86_64/glibc, the
-signing platform, then pinned here and in the workflow `CANONICAL_*` env, and
-reproduced by a full `mode=assert` matrix re-run before anything is signed.
+Sealing the pinned input above through the 14-shard matrix + `attestrum merge`
+yields this canonical result. A verifier who re-runs the generator on the
+byte-identical input — sharded any way, or unsharded — must reproduce the same
+Merkle root (multiset invariance; `crates/attestrum-cli/tests/sharding.rs`).
+Captured by `fineweb10bt-seal-crosscheck` `mode=capture`
+([run 27428316052](https://github.com/Attestrum/Attestrum/actions/runs/27428316052))
+on Linux x86_64/glibc, the signing platform.
+
+| Field | Value |
+|---|---|
+| Merkle root (BLAKE3, RFC 6962), merged | `4cdf2491b9fbb0dc875fc06a6c94872b9f40b1c343860d92b8e0247f7032053c` |
+| Leaves (rows) | 9,672,101 |
+| Merged `manifest.parquet` SHA-256 | `fa6c082ccd5f4e1b4ad95ac8966cf156221fbb3483f3ba2bf48dad5dc38defa5` |
+| Sealed by | `attestrum-pipeline` example `seal-fineweb-edu` (release, CI, 14-shard matrix) + `attestrum merge` |
+
+## Scale evidence (measured, capture run 27428316052)
+
+The ladder's first sharded rung and the Stage-4 calibration point. Measured on
+free standard GitHub Actions runners (ubuntu-24.04, 4 vCPU / 16 GB RAM), whole
+run **19.5 minutes end-to-end** for the 28.5 GB corpus:
+
+| Metric | Measured |
+|---|---|
+| Matrix | 14 shard jobs, fully parallel; each ~8–9 min including toolchain + build |
+| Per-shard seal (e.g. `000`: 726,000 rows / 3.47 GB text) | wall 5:12, peak RSS ~4.6 GiB (`ContentSource::Bytes` holds the shard's decoded text) |
+| Shard manifest artifact | ~55 MB each; only manifests cross the job boundary — the CAS never leaves the runner |
+| Merge (9,672,101 rows from 14 manifests) | wall **27.6 s**, peak RSS **8.7 GiB** (9,129,556 kB) |
+| Merged `manifest.parquet` | ~770 MB |
+
+**The Stage-4 datum:** merge held ~8.7 GiB at 9.67M rows (~940 B/row, roughly
+2× the pre-run estimate). Linear extrapolation to the ~100M-row 286 GB rung is
+~90 GiB — far beyond a 16 GB runner, so Stage 4 requires a streaming merge (or
+a large-memory machine); staged pairwise merging does not help, since the final
+stage still holds every row. Deferred with its own approval per the plan.
