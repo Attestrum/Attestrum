@@ -1,17 +1,16 @@
 ---
 title: "Lookback Tier-1 — deepmind-pg19 seal generator pipeline"
 models: "crates/attestrum-pipeline/examples/seal-pg19.rs, crates/attestrum-pipeline/src/lib.rs"
-source_of_truth: diagram
-last_verified: f577174 2026-06-12
+source_of_truth: code
+last_verified: 918d0e5 2026-06-12
 diagram_type: flowchart
 ---
 
 # Lookback Tier-1 — deepmind-pg19 seal generator
 
-**Source of truth: `diagram`** — this is the contract the seal generator
+**Source of truth: `code`** — the seal generator
 `crates/attestrum-pipeline/examples/seal-pg19.rs` (with its file-walking core
-`examples/pg19/seal.rs`) must implement; it flips to `code` when the
-implementation lands. Third Tier-1 reference bundle after WikiText-103
+`examples/pg19/seal.rs`) has landed; this diagram is now a derived view of it. Third Tier-1 reference bundle after WikiText-103
 (`wikitext-seal-pipeline.md`) and dolly-15k (`dolly-seal-pipeline.md`), and the
 first **large** rung: 28,752 plain-text books, ~11.5 GB — the corpus is
 downloaded and sealed in CI, never on a laptop and never committed.
