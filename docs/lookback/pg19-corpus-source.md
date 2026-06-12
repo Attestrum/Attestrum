@@ -123,3 +123,34 @@ free standard GitHub Actions runner (ubuntu-24.04, 4 vCPU / 16 GB RAM):
 The seal itself is ~16× faster than the download at this scale: the pipeline is
 I/O-bound on corpus acquisition, not hashing — the calibration datum for the
 sharded rungs above this one.
+
+## Published (signed + live)
+
+Sealed in CI, signed keyless under the **Attestrum GitHub Actions identity** (§A9 —
+never a personal one), and published by the `pg19-publish` workflow
+([run 27417217680](https://github.com/Attestrum/Attestrum/actions/runs/27417217680))
+on 2026-06-12. The pre-sign gate asserted the canonical triple above before Fulcio
+was contacted.
+
+| Field | Value |
+|---|---|
+| Hugging Face dataset | [`Attestrum/deepmind-pg19-sealed`](https://huggingface.co/datasets/Attestrum/deepmind-pg19-sealed) |
+| Predicate type | `https://attestrum.com/attestation/training-corpus/v0.3` |
+| Sigstore bundle | `attestrum/bundle.sigstore.json` (v0.3) |
+| Rekor logIndex (global) | `1803159051` |
+| Rekor `integratedTime` | `1781270344` (2026-06-12) |
+| Signing identity | `…/.github/workflows/pg19-publish.yml@refs/heads/main` (issuer `token.actions.githubusercontent.com`) |
+
+A third party with no Attestrum installed verifies the signed manifest with stock
+cosign (the closing gate of the publish run reported `Verified OK` against the
+Attestrum workflow SAN):
+
+```bash
+cosign verify-blob-attestation \
+  --new-bundle-format \
+  --type 'https://attestrum.com/attestation/training-corpus/v0.3' \
+  --bundle bundle.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/Attestrum/Attestrum/\.github/workflows/pg19-publish\.yml@refs/.+$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  manifest.parquet
+```
