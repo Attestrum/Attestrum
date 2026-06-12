@@ -54,6 +54,7 @@ If step 3 fails on a clean clone, surface it — the baseline has drifted.
 | `/crates/`, `/tools/`, `/tests/` | Rust source, linter tests, fixtures |
 | `/docs/diagrams/` | Mermaid architecture diagrams |
 | `/docs/migration/`, `/docs/schemas/`, `/docs/research/`, `/docs/guide/`, `/docs/license-inventory.md` | Migration / schema / research / user-guide / license docs |
+| `/docs/lookback/` | Corpus provenance records + attribution files for published reference bundles (backfilled 2026-06-12; public since 2026-06-01) |
 | `/.github/workflows/`, `/.githooks/` | CI definitions, pre-commit hook |
 | Workspace config (`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`) | Build / lint / dep config |
 | `/LICENSE-APACHE`, `/LICENSE-MIT` | License files |
