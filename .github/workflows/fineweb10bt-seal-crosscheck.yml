@@ -1,0 +1,363 @@
+name: fineweb10bt-seal-crosscheck
+
+# Lookback (fineweb-edu sample-10BT) — the seal-path divergence gate for the
+# ladder's FIRST SHARDED rung (28.5 GB / 9,672,101 rows; DATASET-LADDER
+# Stage 3), modeled on pg19-seal-crosscheck.yml.
+#
+# New vs pg19, in order of appearance:
+#   1. TWO-JOB topology. The corpus + CAS (~57-60 GB) does not fit one runner,
+#      so a 14-job matrix seals one upstream parquet file each (statically
+#      pinned filename + LFS SHA-256 — no dynamic listing), uploads only its
+#      shard manifest.parquet (~55 MB) as an artifact, and a merge job combines
+#      them with `attestrum merge` into the canonical manifest + Merkle root.
+#      The corpus never moves between jobs; only manifests do. This is the
+#      architecture the 286 GB Stage-4 rung scales up.
+#   2. Per-shard pre-seal integrity gate: every parquet file has an upstream
+#      LFS SHA-256 (unlike pg19's digestless GCS books), asserted after
+#      download and before sealing — upstream byte drift fails the matrix
+#      before anything reaches merge.
+#   3. The canonical root is the MERGED root: merge prints `merkle_root:` and
+#      writes merkle.root beside --out (both asserted equal); the triple
+#      (root + merged-manifest SHA-256 + leaf count) is captured/asserted on
+#      the merged artifact. Leaf count is asserted in BOTH modes — 9,672,101
+#      is an upstream-known fact, not a seal output.
+#   4. Measurement: per-shard download/seal timings land in each matrix job's
+#      summary; merge wall-time + peak RSS land in the merge summary — the
+#      Stage-3 calibration datum that decides whether the ~100M-row Stage-4
+#      rung needs a streaming merge.
+#
+# It SIGNS NOTHING and PUBLISHES NOTHING — no id-token permission, no Fulcio,
+# no Rekor entry, no Hugging Face push. Fully reversible: a public-dataset
+# download and a hash comparison. Trigger = workflow_dispatch ONLY.
+#
+# See docs/diagrams/lookback/fineweb10bt-seal-pipeline.md and
+# docs/lookback/fineweb10bt-corpus-source.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "capture = print + upload the merged seal triple (bootstrap); assert = require the pinned canonical values"
+        type: choice
+        options:
+          - assert
+          - capture
+        default: assert
+
+concurrency:
+  group: fineweb10bt-seal-crosscheck-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned HF revision of HuggingFaceFW/fineweb-edu.
+  HF_REV: "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
+  HF_BASE: "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/resolve/87f09149ef4734204d70ed1d046ddc9ca3f2b8f9/sample/10BT"
+  # Upstream-known row count (datasets-server; pinned in
+  # docs/lookback/fineweb10bt-corpus-source.md) — asserted in BOTH modes.
+  EXPECTED_LEAVES: "9672101"
+  # Canonical merged seal — source of truth:
+  # docs/lookback/fineweb10bt-corpus-source.md §"Canonical seal".
+  # Empty until the first mode=capture run pins them.
+  CANONICAL_ROOT: ""
+  CANONICAL_MANIFEST_SHA256: ""
+
+jobs:
+  seal:
+    name: "seal shard ${{ matrix.file }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # The 14 parquet files of sample/10BT at HF_REV, with their upstream
+        # LFS SHA-256 digests — source of truth:
+        # docs/lookback/fineweb10bt-corpus-source.md §"Pinned data files".
+        include:
+          - { file: "000_00000.parquet", sha256: "b1ba7b2ce4cb5ea6ef42dca40263eabb85f37700d01693a68e9b30a31d78e871" }
+          - { file: "001_00000.parquet", sha256: "3fcf2dc69cd52503986276d3d2d26a8c356d0f2ea28a0de4fdbda8cf87755693" }
+          - { file: "002_00000.parquet", sha256: "547ae182d132c9f06b6ce63149567208ea9f57630bfd9b1a2938e504f0c9ebd7" }
+          - { file: "003_00000.parquet", sha256: "22184e6eb25759ddd97783751ffc73e1705dfa2542e630dae1f2a8bac8ee6ddb" }
+          - { file: "004_00000.parquet", sha256: "33557ddd87a07a4ae6fcaf7a4789c7b484e5cc0c273ca12a65b74200e6d8748b" }
+          - { file: "005_00000.parquet", sha256: "e08d79927ecb377786572cd854817c748ceb8880878b1a0eb91abf8c85d505ea" }
+          - { file: "006_00000.parquet", sha256: "554fa2613c9261d6c9c396caab881de3160175794c6c3e1856bf28a0e9cb9b76" }
+          - { file: "007_00000.parquet", sha256: "4b7d1f697d4afff7f5f65cb7aa4d83acc6db716da4d46ea23399d0c50608c6e3" }
+          - { file: "008_00000.parquet", sha256: "a6d9dcc0c72ecd7c7f0173c2d06b3a4249a2ccaa94961469d1a522ca689bbf1a" }
+          - { file: "009_00000.parquet", sha256: "f836cd3c70b95776699eb6c356b2dbf702816e25dcf39992f5c80a29029d23c3" }
+          - { file: "010_00000.parquet", sha256: "e5a2eae25f057f0856a10bfae314c6ca8ea8bb08456d2131e9e89b2b8305e2f6" }
+          - { file: "011_00000.parquet", sha256: "db71cf0425bb3d1813a09f12ff1acd6dabdfb91a2e4f141960254ee5a7f036e7" }
+          - { file: "012_00000.parquet", sha256: "08b47a3e1c25161f796d2f8dbf99ccf60affdebdcea4910833d0d5783315551f" }
+          - { file: "013_00000.parquet", sha256: "b393f51fefab26cd6f4c8f65707c1924f6666c4961a0ebebe04bb57f7ec832de" }
+    env:
+      DATA: fineweb-shard-data
+      WS: fineweb-shard-ws
+    steps:
+      - uses: actions/checkout@v4
+
+      # A shard needs ~2.2 GB download + ~3.5 GB CAS; the 14 GB stock guarantee
+      # technically fits, but image free space has been measured as low as
+      # ~13 GB — keep the proven inline cleanup for margin (pg19 pattern).
+      - name: Free disk space (inline — no third-party action)
+        run: |
+          set -uo pipefail
+          echo "--- df before ---"; df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/share/boost \
+            /usr/local/lib/node_modules \
+            /usr/share/swift \
+            /opt/microsoft \
+            /opt/google/chrome \
+            /usr/local/share/powershell 2>/dev/null || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "--- df after ---"; df -h /
+          avail_gb="$(df -BG --output=avail / | tail -1 | tr -dc '0-9')"
+          echo "available: ${avail_gb} GB"
+          if [ "$avail_gb" -lt 20 ]; then
+            echo "::error::less than 20 GB free after cleanup (${avail_gb} GB) — not enough margin for shard + CAS + toolchain" >&2
+            exit 1
+          fi
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fineweb10bt-seal-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fineweb10bt-seal-
+
+      - name: Build seal-fineweb-edu (release)
+        run: cargo build --release -p attestrum-pipeline --example seal-fineweb-edu
+
+      # Pre-seal integrity gate: the shard's upstream LFS SHA-256 is pinned in
+      # the matrix — upstream byte drift fails here, before sealing.
+      - name: Download this job's shard + assert pinned SHA-256 (measured)
+        run: |
+          set -euo pipefail
+          mkdir -p "$DATA"
+          dl_start="$(date +%s)"
+          curl --fail-with-body -sSL --retry 5 --retry-delay 5 \
+            -o "$DATA/${{ matrix.file }}" "$HF_BASE/${{ matrix.file }}"
+          dl_end="$(date +%s)"
+          echo "DL_SECS=$((dl_end - dl_start))" >> "$GITHUB_ENV"
+          echo "${{ matrix.sha256 }}  $DATA/${{ matrix.file }}" | sha256sum -c -
+          du -h "$DATA/${{ matrix.file }}"
+
+      # stdout is exactly the 65-byte shard root line; stderr carries
+      # `leaves=… bytes=… manifest=…`. /usr/bin/time -v captures wall + RSS.
+      - name: Seal this shard (with time + peak RSS)
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v -o time.txt \
+            ./target/release/examples/seal-fineweb-edu "$DATA" "$WS" \
+            > root.txt 2> seal.stderr
+          echo "--- stdout (shard root) ---"; cat root.txt
+          echo "--- stderr ---"; cat seal.stderr
+          grep -E 'Elapsed \(wall clock\) time|Maximum resident set size' time.txt
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          if [ -z "$got_leaves" ] || [ "$got_leaves" = "0" ]; then
+            echo "::error::shard sealed zero leaves" >&2
+            exit 1
+          fi
+          test -f "$WS/.attestrum/manifests/manifest.parquet"
+          {
+            echo "## Shard ${{ matrix.file }}"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| Download | ${DL_SECS}s |"
+            echo "| Rows sealed | $got_leaves |"
+            echo "| Seal wall-time | $(grep 'Elapsed (wall clock)' time.txt | sed 's/.*: //') |"
+            echo "| Seal peak RSS | $(grep 'Maximum resident set size' time.txt | sed 's/.*: //') kB |"
+            echo "| Shard manifest | $(du -h "$WS/.attestrum/manifests/manifest.parquet" | cut -f1) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only the shard manifest crosses the job boundary (~55 MB). The CAS
+      # (~3.5 GB of corpus bytes) stays on the runner and is discarded with it.
+      - name: Upload shard manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.file }}
+          path: ${{ env.WS }}/.attestrum/manifests/manifest.parquet
+          if-no-files-found: error
+          retention-days: 7
+
+  merge:
+    name: "attestrum merge → canonical root (${{ inputs.mode }})"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs: seal
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — assert mode needs pinned canonical values
+        if: inputs.mode == 'assert'
+        run: |
+          set -euo pipefail
+          if [ -z "$CANONICAL_ROOT" ] || [ -z "$CANONICAL_MANIFEST_SHA256" ]; then
+            echo "::error::mode=assert but CANONICAL_* env values are empty — run mode=capture first, pin the values (corpus-source doc + this file), then re-dispatch." >&2
+            exit 1
+          fi
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fineweb10bt-merge-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fineweb10bt-merge-
+
+      - name: Build attestrum CLI (release)
+        run: cargo build --release -p attestrum-cli
+
+      # download-artifact@v4 with a pattern puts each artifact in its own
+      # subdirectory: shards/shard-<file>/manifest.parquet — 14 of them.
+      - name: Download the 14 shard manifests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shard-*
+          path: shards
+
+      - name: Assert all 14 shard manifests arrived
+        run: |
+          set -euo pipefail
+          got="$(find shards -name manifest.parquet -type f | wc -l | tr -d ' ')"
+          if [ "$got" != "14" ]; then
+            echo "::error::expected 14 shard manifests, got $got" >&2
+            find shards -type f
+            exit 1
+          fi
+          du -sh shards
+
+      # The Stage-3 calibration measurement: merge holds all 9.67M rows in
+      # memory; peak RSS here decides whether Stage 4 (~100M rows) needs a
+      # streaming merge. merge prints `merkle_root:` and writes merkle.root
+      # beside --out — both must agree.
+      - name: attestrum merge (with time + peak RSS)
+        run: |
+          set -euo pipefail
+          mkdir -p merged
+          # shellcheck disable=SC2046 — the manifest paths are glob-expanded on purpose
+          /usr/bin/time -v -o time.txt \
+            ./target/release/attestrum merge \
+            --inputs $(find shards -name manifest.parquet -type f | sort) \
+            --out merged/manifest.parquet \
+            > merge.txt
+          echo "--- merge stdout ---"; cat merge.txt
+          grep -E 'Elapsed \(wall clock\) time|Maximum resident set size' time.txt
+          test -f merged/manifest.parquet
+          test -f merged/merkle.root
+          stdout_root="$(sed -n 's/.*merkle_root:[[:space:]]*//p' merge.txt | head -n1)"
+          file_root="$(tr -d '\n' < merged/merkle.root)"
+          if [ "$stdout_root" != "$file_root" ]; then
+            echo "::error::merge stdout root ($stdout_root) != merkle.root file ($file_root)" >&2
+            exit 1
+          fi
+
+      # 9,672,101 is an upstream-known fact (pinned row count), not a seal
+      # output — asserted in BOTH modes.
+      - name: Assert merged leaf count == 9,672,101
+        run: |
+          set -euo pipefail
+          got_rows="$(sed -n 's/.*rows:[[:space:]]*\([0-9][0-9]*\).*/\1/p' merge.txt | head -n1)"
+          if [ "$got_rows" = "$EXPECTED_LEAVES" ]; then
+            echo "OK   merged rows: $got_rows"
+          else
+            echo "::error::merged row count mismatch — expected $EXPECTED_LEAVES, got '$got_rows'" >&2
+            exit 1
+          fi
+
+      - name: Report measurements to the job summary
+        run: |
+          set -euo pipefail
+          {
+            echo "## fineweb-edu 10BT Stage-3 merge measurements (calibrates Stage 4)"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| Merged rows | $(sed -n 's/.*rows:[[:space:]]*\([0-9][0-9]*\).*/\1/p' merge.txt | head -n1) |"
+            echo "| Merge wall-time | $(grep 'Elapsed (wall clock)' time.txt | sed 's/.*: //') |"
+            echo "| Merge peak RSS | $(grep 'Maximum resident set size' time.txt | sed 's/.*: //') kB |"
+            echo "| Merged manifest | $(du -h merged/manifest.parquet | cut -f1) |"
+            echo "| Shard manifests in | $(du -sh shards | cut -f1) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "capture: print the merged seal triple to pin"
+        if: inputs.mode == 'capture'
+        run: |
+          set -euo pipefail
+          got_root="$(tr -d '\n' < merged/merkle.root)"
+          got_manifest_sha="$(sha256sum merged/manifest.parquet | awk '{print $1}')"
+          got_rows="$(sed -n 's/.*rows:[[:space:]]*\([0-9][0-9]*\).*/\1/p' merge.txt | head -n1)"
+          {
+            echo "## CAPTURED canonical merged seal triple — pin these (corpus-source doc + CANONICAL_* env)"
+            echo ""
+            echo '```'
+            echo "CANONICAL_ROOT:            $got_root"
+            echo "CANONICAL_MANIFEST_SHA256: $got_manifest_sha"
+            echo "CANONICAL_LEAVES:          $got_rows"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "CANONICAL_ROOT:            $got_root"
+          echo "CANONICAL_MANIFEST_SHA256: $got_manifest_sha"
+          echo "CANONICAL_LEAVES:          $got_rows"
+
+      - name: "capture: upload merged manifest + merkle.root + measurements"
+        if: inputs.mode == 'capture'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fineweb10bt-merged-capture
+          path: |
+            merged/manifest.parquet
+            merged/merkle.root
+            time.txt
+            merge.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      # Triple assertion (assert mode). Root + merged-manifest hash; the leaf
+      # count was already asserted above in both modes.
+      - name: "assert: canonical merged root + manifest SHA-256"
+        if: inputs.mode == 'assert'
+        run: |
+          set -euo pipefail
+          fail=0
+
+          got_root="$(tr -d '\n' < merged/merkle.root)"
+          if [ "$got_root" = "$CANONICAL_ROOT" ]; then
+            echo "OK   root:     $got_root"
+          else
+            echo "::error::merged root mismatch — expected $CANONICAL_ROOT, got $got_root"
+            fail=1
+          fi
+
+          got_manifest_sha="$(sha256sum merged/manifest.parquet | awk '{print $1}')"
+          if [ "$got_manifest_sha" = "$CANONICAL_MANIFEST_SHA256" ]; then
+            echo "OK   manifest: $got_manifest_sha"
+          else
+            echo "::error::merged manifest.parquet SHA-256 mismatch — expected $CANONICAL_MANIFEST_SHA256, got $got_manifest_sha"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::fineweb10bt sharded seal cross-check FAILED — the matrix did not reproduce the canonical merged seal"
+            exit 1
+          fi
+          echo "14-shard matrix + merge reproduced the canonical merged seal byte-for-byte."
