@@ -149,14 +149,17 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get install -y -q aria2 >/dev/null
+          # aria2 input-file format: URI line + indented per-URI options. The
+          # explicit out= preserves the train/validation/test path structure —
+          # without it aria2c flattens every file to its basename in --dir.
           cat "$DATA"/train_files.txt "$DATA"/validation_files.txt "$DATA"/test_files.txt \
-            | sed "s#^#$GCS_BASE/#" > "$DATA/urls.txt"
-          url_count="$(wc -l < "$DATA/urls.txt" | tr -d ' ')"
+            | awk -v base="$GCS_BASE" '{ print base "/" $0; print "  out=" $0 }' > urls.txt
+          url_count="$(grep -c '^http' urls.txt)"
           echo "downloading $url_count files"
           dl_start="$(date +%s)"
           aria2c -j16 -x4 --max-tries=5 --retry-wait=5 \
             --auto-file-renaming=false --console-log-level=warn --summary-interval=60 \
-            --dir "$DATA" --input-file "$DATA/urls.txt"
+            --dir "$DATA" --input-file urls.txt
           dl_end="$(date +%s)"
           dl_secs="$((dl_end - dl_start))"
           dl_bytes="$(du -sb "$DATA/train" "$DATA/validation" "$DATA/test" | awk '{s+=$1} END {print s}')"
