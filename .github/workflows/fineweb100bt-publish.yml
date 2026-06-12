@@ -1,0 +1,558 @@
+name: fineweb100bt-publish
+
+# Lookback (fineweb-edu sample-100BT) — the gated seal → merge → sign → publish
+# pipeline for the ladder's first SHARDED rung, modeled on pg19-publish.yml
+# with the fineweb100bt-seal-crosscheck 140-shard matrix + merge front-end.
+#
+# ⛔ RUNNING THIS IS IRREVERSIBLE. On ANY dispatch (including target=static), the
+# sign step writes a PERMANENT public Rekor transparency-log entry binding the
+# corpus to the Attestrum workflow identity — there is no "sign without Rekor".
+# target=huggingface additionally pushes to the Hub and requires the HF_TOKEN repo
+# secret. Trigger is workflow_dispatch ONLY; the file existing on main runs nothing
+# until a human dispatches it. Do not dispatch without an explicit decision to
+# publish (CLAUDE.md §A9 — each publish is gated behind an explicit founder "go").
+#
+# Safety: the pre-sign gate (the fineweb100bt-seal-crosscheck triple assertion on
+# the MERGED artifact: root + manifest SHA-256 + leaf count) runs BEFORE
+# Fulcio/Rekor are ever contacted, so a divergent seal aborts the run before
+# anything is signed. The closing cosign step asserts the Attestrum GHA workflow
+# SAN (the §A9 / §21.1 guard).
+#
+# What gets signed and published is the MERGED manifest — the sharded matrix is
+# an internal build topology; the published artifact is identical (root-wise) to
+# an unsharded seal of the same rows.
+#
+# See docs/diagrams/lookback/fineweb100bt-seal-pipeline.md and
+# docs/lookback/fineweb100bt-corpus-source.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target (both SIGN; static = local artifacts, huggingface = Hub push + needs HF_TOKEN)"
+        type: choice
+        options:
+          - static
+          - huggingface
+        default: static
+      dataset:
+        description: "Hugging Face dataset repo (org/name)"
+        type: string
+        default: "Attestrum/fineweb-edu-sample-100BT-sealed"
+
+concurrency:
+  # Never cancel an in-flight sign/push — a partial run could leave a Rekor entry
+  # or a half-committed Hub repo. Serialize instead.
+  group: fineweb100bt-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # GHA OIDC token exchange → Fulcio keyless identity
+  contents: read
+
+env:
+  HF_BASE: "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/resolve/87f09149ef4734204d70ed1d046ddc9ca3f2b8f9/sample/100BT"
+  EXPECTED_LEAVES: "97270686"
+  # Canonical merged seal — source of truth:
+  # docs/lookback/fineweb100bt-corpus-source.md §"Canonical seal". Pinned from
+  # capture run 27428316052 + reproduced by the mode=assert crosscheck; this
+  # workflow refuses to sign anything else.
+  CANONICAL_ROOT: ""
+  CANONICAL_MANIFEST_SHA256: ""
+
+jobs:
+  seal:
+    name: "seal shard ${{ matrix.file }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same 140 pinned (file, sha256) pairs as fineweb100bt-seal-crosscheck.yml
+        # — source of truth: docs/lookback/fineweb100bt-corpus-source.md.
+        include:
+          - { file: "000_00000.parquet", sha256: "955ff462f3db09a52a4750e7a69901f89d64e48dfc936de0847c9f234f32b695" }
+          - { file: "000_00001.parquet", sha256: "776654388fdb2e5a1518b8d9d32543f418f1705d8bbaf408d221f08d76293680" }
+          - { file: "000_00002.parquet", sha256: "85b0bc930150d24b44041745b47ecb1433d961cb6974a31227430644008eec49" }
+          - { file: "000_00003.parquet", sha256: "34e77fe4ecc6075a2521d7716efb993636cd83ccefc2afc3fda3dbf35854c78b" }
+          - { file: "000_00004.parquet", sha256: "2f3f66cd93f0cf4919725e6dbcd1c240314a2866c9527870231e6148061ca73f" }
+          - { file: "000_00005.parquet", sha256: "9f089373c48cdeea728da9790bc369cc4d88243b3b18c13f5ec4e06e8446b6df" }
+          - { file: "000_00006.parquet", sha256: "20e2491fc8dd6211998a550cdeb8a0e28b6d93b4b8495e463c248871c332acf1" }
+          - { file: "000_00007.parquet", sha256: "98e15e6976fe0e9cafe4e695d37ca836cae9ffa3c4c3937f8f1325dc6bf899e8" }
+          - { file: "000_00008.parquet", sha256: "0641091de585eea70376e19c25ca34ca913af321c715e5a40805219424bebdf4" }
+          - { file: "000_00009.parquet", sha256: "6221c50fb09301b6d3653a18e384de1fe134c90e917926e987a502bcef91faf7" }
+          - { file: "001_00000.parquet", sha256: "e2882e48990027b0a8866cf5a305ca7411c92c09ac465b7ec73ad5ccbed70cab" }
+          - { file: "001_00001.parquet", sha256: "678e992f7b98482c5ded16da0b14d463550abeb5747340d5c5a8b6b7e410b526" }
+          - { file: "001_00002.parquet", sha256: "8c1bb7f92e3199aa3a0a48ecf62946a3349af47772bde984cc83cca5bef267e6" }
+          - { file: "001_00003.parquet", sha256: "f20dd1586eb6a9aab2eb8e97020d6c1e2b061fb88b9cee4103a0a98858023de5" }
+          - { file: "001_00004.parquet", sha256: "cb3b26b79288c4a965ae8c99cfc93eba5e14c5ec98472120b7e1dedb0015c6f8" }
+          - { file: "001_00005.parquet", sha256: "deae87e78f9811e23b835f59482734ba1d542f9bde91b93acf3bdd3902ede1c8" }
+          - { file: "001_00006.parquet", sha256: "7f9ac4b60f7cfa292cba83a676ce3afedfae44d343363671acb215447d4af172" }
+          - { file: "001_00007.parquet", sha256: "767f6546c88d78d630bd5ae6b091c82bec1026736c2d135fd331bfa161bd889f" }
+          - { file: "001_00008.parquet", sha256: "4b58ba114b677c498d8ecece6798958d0eced3bb283f3f000feb278749f88cfb" }
+          - { file: "001_00009.parquet", sha256: "5f3e20773432a85e89e4d7992b0b23e7f3ba107419fc17123436857bb1069fed" }
+          - { file: "002_00000.parquet", sha256: "4f662867f4b7baefb017e25615fb53a91d521be914d330db6e96c19e3d8c1497" }
+          - { file: "002_00001.parquet", sha256: "97c2b65c93604305f2ed862a448eddd2eb299402c75fbe7583852c2c1b3cac3b" }
+          - { file: "002_00002.parquet", sha256: "65b07ff5f637f3ad2ac7f3cedc00c4e146e403f777f04d9854c8b981d15400f7" }
+          - { file: "002_00003.parquet", sha256: "0c7ddaa8810808048c33ebfd2ef60e2be1598e73c1425dec36fc287cf7f72224" }
+          - { file: "002_00004.parquet", sha256: "697a748496ba4fbfb4e94c01c8eb99a3ed8256b24a92307d87c9028c404c4822" }
+          - { file: "002_00005.parquet", sha256: "3dee9accd7e7284eaa31b8a69aef426296d4231f94c0b56ba2f58178261d57e4" }
+          - { file: "002_00006.parquet", sha256: "7726945362c39720377929d50afe53ca82c792f6c62545e1d2aedf86f09648ad" }
+          - { file: "002_00007.parquet", sha256: "f93e5000c60bda7f5002003371ee6efe030cbf03a3c7c3bce1bcee19b4ce7a67" }
+          - { file: "002_00008.parquet", sha256: "39eeed04750507860ea3c3f0713d39bc55aba1a70db02d22d24a414162d19e2b" }
+          - { file: "002_00009.parquet", sha256: "16a04a934956c04595a54e45b47d93558e7f36ac619b5dc1ddb4909153d46ab8" }
+          - { file: "003_00000.parquet", sha256: "3d510f630e04c7be663a5cf20db7a0ed86a75ffa4b0f455bae1cba42d351f1db" }
+          - { file: "003_00001.parquet", sha256: "b60cf16e720a328deb6893a2065c76d0bc94413ac7d3aa81a0cd96f99821a0ae" }
+          - { file: "003_00002.parquet", sha256: "bb40e3de81a83e212f75c8e29bee8158cce1f3188107b2c31a4b4d690bf01761" }
+          - { file: "003_00003.parquet", sha256: "6608a6e81959b774e15e57e8c49c5155fa307052c45986e6a091824501860258" }
+          - { file: "003_00004.parquet", sha256: "a82c8f5921078c75ad91fdde1939258440c5362c13ac98daeeb0280d1de2e243" }
+          - { file: "003_00005.parquet", sha256: "3b1b1aa3e5eeae5b754a2566954d4fc0b172645396ba89e48de2487e64b41c8e" }
+          - { file: "003_00006.parquet", sha256: "e0ac7e5d2a3c48efa7e6a431753ea61285022b272209ac284c4c25b2ccc9b9a6" }
+          - { file: "003_00007.parquet", sha256: "72920f236f7e9ea7e01c1210d512240865b65551d4b50af0bd0f7ef5c4623ec4" }
+          - { file: "003_00008.parquet", sha256: "e2168d2fdd28508e4d0e313a735c72fbf4a82c3907c4819c1a7cf9a113134b23" }
+          - { file: "003_00009.parquet", sha256: "56aa32ba078320a9841b8c8bfec5485a0ee91d62f2358f23035c6f2b59e47e62" }
+          - { file: "004_00000.parquet", sha256: "f49f1c354515d52827509821c188c1c782f7f342fe1807b878accccd3b6ea24d" }
+          - { file: "004_00001.parquet", sha256: "910e38ed2219a9aa9396eba7b1d2ca28a744b73494b726de325bc012ef019e86" }
+          - { file: "004_00002.parquet", sha256: "ea6b4982a9d08263a1a1f0864a2a39417e00c78ea59258fefb67374fe88e8f39" }
+          - { file: "004_00003.parquet", sha256: "38a52b91572be74b2a1f95b03f967e433a4ada19755a0cf5986a9b3a11653690" }
+          - { file: "004_00004.parquet", sha256: "e85605b286cbfef58e7e2e16f7f9b5676111f4c788d975ab02a3717bdb6afe67" }
+          - { file: "004_00005.parquet", sha256: "b58df621355b14f956f19b1f948dd4ab3632c6456f5b4d3ef260365c9ae9f089" }
+          - { file: "004_00006.parquet", sha256: "4d32c43836fa5025ba545aef9cf36611e264f862a68f5b58cede281392a1f0f8" }
+          - { file: "004_00007.parquet", sha256: "ce56697450cf4f57edeadf7ee4d9f775008d7f2462a7a5ae1c169e76040fec61" }
+          - { file: "004_00008.parquet", sha256: "61ba332e3fbe11332c9a010a2a0b64c83ed17df031b5178adca587dd798997c8" }
+          - { file: "004_00009.parquet", sha256: "3c79a80adcb20ed955b7578083981adff986125bc2dd89e44ba0bad8cd618627" }
+          - { file: "005_00000.parquet", sha256: "f84649e2cd775292f5a521a1095defb2e4b472d34e5c6c0030c50c0ee5fc018c" }
+          - { file: "005_00001.parquet", sha256: "be9324f353455b39a22a79521f1b1c100a0c24c94f8275220039eac1aed920f6" }
+          - { file: "005_00002.parquet", sha256: "bc43566bfe69c4fc0fe6115716c4cb6c7fa46e09dd527ea4b2a81b81b8ea3f8e" }
+          - { file: "005_00003.parquet", sha256: "6ed97e6c8862c3502e1844e472ad16a9beb82e2c8e17ad5694e9a7045ff86be8" }
+          - { file: "005_00004.parquet", sha256: "ba81670a4f8662a2f223b4669a0d3d1a6d7c883dfcd70494e8476b216117f078" }
+          - { file: "005_00005.parquet", sha256: "0f870a2d57d287a6fe6b2f33d4385188c274ba8e4af4faf54a9494c401b01f23" }
+          - { file: "005_00006.parquet", sha256: "6c379b4936cf25368212b370359090beb41e05b1fdbd1bd4ffa9942fae954b4c" }
+          - { file: "005_00007.parquet", sha256: "09160cd46dc31123b2c49106196fa7fdc3a427ac0015f0089a41a4314f24efef" }
+          - { file: "005_00008.parquet", sha256: "9f92cae38b7243ae306098c9f739fe0b2be56e2a36020eefd943882cac1dc3a3" }
+          - { file: "005_00009.parquet", sha256: "ab3e2f0cddcae5f0d54eb0254cd859a0ed763be45fe433ed58830c24c98a8b62" }
+          - { file: "006_00000.parquet", sha256: "ec3fe27193176de866775563aeb88827e90486dc97f811a85efea1e115c48cce" }
+          - { file: "006_00001.parquet", sha256: "ec8686252960f21689025694ea7d1d825170a0b305998339b36ed1afe236c0a1" }
+          - { file: "006_00002.parquet", sha256: "ae98b91c695a31af4930cda913d0f5a9fbf8778eb764034b3d67429eef2bfc0d" }
+          - { file: "006_00003.parquet", sha256: "e7393b78a31aeccc3ac931622d5761ec9b22bc270c2942a862994cd7ee7e10c6" }
+          - { file: "006_00004.parquet", sha256: "6eaa51d93913045c178e70d6e319595a02b7aad5b24703b5f290c313dfc945b5" }
+          - { file: "006_00005.parquet", sha256: "2c9899beadfaeda7108c92f7b8c54115d74a12b280656fc9f937add178d30e6d" }
+          - { file: "006_00006.parquet", sha256: "04f3b0996c65b2ffb99fd571a5409508b7e67df66f0fedb918b49aae9fee4778" }
+          - { file: "006_00007.parquet", sha256: "2f7318492b187daf9e43a5d6928ad5ccd978affa487a59c54ec17018b795459e" }
+          - { file: "006_00008.parquet", sha256: "0575dbd7247b5afc8b2866653fb9e89a1c8de35f6174c136aee76edb1c98050e" }
+          - { file: "006_00009.parquet", sha256: "a8b3e8e5da7fedd316c76cdee79cd816cda48fddb6ab579949ec9059b181a4a7" }
+          - { file: "007_00000.parquet", sha256: "861c1371876508fe9454c1fd039653a2b998029d13ab92747fe92ed30b82b487" }
+          - { file: "007_00001.parquet", sha256: "7a3c3bcb55e4215a0e0720ea8e7de918007d4da0253789359922486e8bcda930" }
+          - { file: "007_00002.parquet", sha256: "1c69052cc54c446e5ade6c6455038993a5f8321fd29015d5c33612467a17876d" }
+          - { file: "007_00003.parquet", sha256: "de87e55703829ce55c49b9236d259e20e5c0813134a02cfb160167e32c785cf3" }
+          - { file: "007_00004.parquet", sha256: "93777e43d9d00b508c8b061912378d09ff00cea6fa6fb71bb289bd03aa7423c3" }
+          - { file: "007_00005.parquet", sha256: "c1354b2b762319b8c7ad56852910c909387f130713a65af862cef21a207aa9c4" }
+          - { file: "007_00006.parquet", sha256: "4ced9db298b90aa92b3ad9207c3146bc79123381673ab4e8d68fdf3690b3693c" }
+          - { file: "007_00007.parquet", sha256: "12500d5c20a47fc9fa013b069b83b13e479b2c3bef7e3ce39c84e8fc653199d3" }
+          - { file: "007_00008.parquet", sha256: "9af6e214393faa7c91608569314d1c09367e1deeb26aa36485d1aa4753c5c3db" }
+          - { file: "007_00009.parquet", sha256: "ad30fbf8bb1e0df31ea644c9e6941187414bdb0c59f21b6ff4585e78451ee78e" }
+          - { file: "008_00000.parquet", sha256: "da61fb9e93618c8ed2a3e20329cf26ba7073ac797bfe8dbf523421dfa30e1b68" }
+          - { file: "008_00001.parquet", sha256: "5846e99c57c716a364a48d8ddaf4b9ede53b52865e0ea2d9e4626a0ba1d749ed" }
+          - { file: "008_00002.parquet", sha256: "6102754c22f5ba224b16633774523612727878ed42e1b364a8dcbb252a407a81" }
+          - { file: "008_00003.parquet", sha256: "18294cbd02455e5b6c111d7510866f41f8073259ba4222037a0088654acccf19" }
+          - { file: "008_00004.parquet", sha256: "ae6062d438564f32b3f674a083292963f5a430c9948c1043376629e4555ab4d0" }
+          - { file: "008_00005.parquet", sha256: "5951a56ebd9edb291cb7b3ede8c0298e6d928b86b64e3159c67cc6373128e7f9" }
+          - { file: "008_00006.parquet", sha256: "8906dd1ff192f5a77373f157b8e0daa590ec21797d34a92e2818c5c7284e31df" }
+          - { file: "008_00007.parquet", sha256: "23012c54073f1362674e437b1c5ebe7c2bf998fdadb7adb4611e183dd17d1377" }
+          - { file: "008_00008.parquet", sha256: "430a269d951db31c5ee389e2a6446591de13614f627c9b218fc209e7dc962a3c" }
+          - { file: "008_00009.parquet", sha256: "29c4e9699b75fdc869988da0e75c17bfdfbec1df4e27102e40b23beaf7b11d00" }
+          - { file: "009_00000.parquet", sha256: "8bc9e6ec942e9797fbc3a752f724428da4e400559df4c8752e3fc08b8d4fcc1a" }
+          - { file: "009_00001.parquet", sha256: "2a92e5f0a71d0c09681c0378c57fd01f93d15804408fe48b9ef7b360400ad155" }
+          - { file: "009_00002.parquet", sha256: "fd98882fd0c6f0715b519f73088e025399baaed5d47d23b69711230230ebb0b6" }
+          - { file: "009_00003.parquet", sha256: "461b2907254965b904e15da071825e2c2f3627ba3d9b701376d8da2cf84f87c5" }
+          - { file: "009_00004.parquet", sha256: "dfa31314933e7e925f1ef152f46452b3f086c2857a61528f1385251c2350ef6f" }
+          - { file: "009_00005.parquet", sha256: "c3b30571f66e2a829a35d7d4ab132b6183ca30486c9cd2400430ae1e32871266" }
+          - { file: "009_00006.parquet", sha256: "7759e684f61d43a2eb46312b189c2e6b98cfb9a2e4b001711342cc7e10a270a9" }
+          - { file: "009_00007.parquet", sha256: "37b0026523ac5f0af08975a315e05be900587ba6ea129b16aaed82f968ff3102" }
+          - { file: "009_00008.parquet", sha256: "58803123013d10a25d172cc6319d1606f5b52046672b425ece49b28fadca3167" }
+          - { file: "009_00009.parquet", sha256: "f350a772442df44c87446af257c140066f0431c13759faddc9fd0285964b0a17" }
+          - { file: "010_00000.parquet", sha256: "4fce79a4201b4b04e28030f0b7f677eb99084ca064178ebf050c920d50b5b424" }
+          - { file: "010_00001.parquet", sha256: "8bc467f4fa0c96425675d0805d347c49440a1d4cbf3144ccf3ad5efb9fcd164f" }
+          - { file: "010_00002.parquet", sha256: "5b21a98b61a2224f310cffd00773b334de2401b198bafe006b6251ee374c61a2" }
+          - { file: "010_00003.parquet", sha256: "3d989ada06f5bc96fba4f1f376e2e6898f8dc92bda738cdb729f25ee8d88adfe" }
+          - { file: "010_00004.parquet", sha256: "3ba6424a8797f9d90d9f629143ea9ff6abc1fd331ecaf20597848db7cecdacd6" }
+          - { file: "010_00005.parquet", sha256: "03e1da7827b10a796486339220140c44087f5fea57b0e2f2d27436ef35182639" }
+          - { file: "010_00006.parquet", sha256: "ed99e9b6f25a017b4bd002fd2470086ea5a729cbe1b364550f3808f08291c08b" }
+          - { file: "010_00007.parquet", sha256: "04074548c93fce0dcd56a1c1eeccfd2ed28b96eae6b95bae96712e1cb2f30e73" }
+          - { file: "010_00008.parquet", sha256: "5959b241b3825595e4817724c5d57b0f420a93642625c2022e13973014f062bc" }
+          - { file: "010_00009.parquet", sha256: "5a49a432c677ad4deea070b9ba76b811be9c3cebc4e0c5e8974b8fcb928f33e0" }
+          - { file: "011_00000.parquet", sha256: "69119d14738751f9182db6fd87a7582e10f33b9e35571c8205bf6facf6b0a42d" }
+          - { file: "011_00001.parquet", sha256: "a8b8b5a3326d7ad5df554b4b2d6fb4401acbf7cc44b3894b677a384331e18b7a" }
+          - { file: "011_00002.parquet", sha256: "1ca4d7ca7f5fb97f326e7cb3ffa63317efa6acb695553868f5a48882d939cbdc" }
+          - { file: "011_00003.parquet", sha256: "ff5212cacd088f4127adc2041e18dcc170a8c2cb19dc92271ad22adaeed7e827" }
+          - { file: "011_00004.parquet", sha256: "26b8429f5c0c6e561310eac9050b27ffc4ea0869980162b058b3ef38a06ebd7a" }
+          - { file: "011_00005.parquet", sha256: "3c1708ff71a5fd15a8e62f2a591d60d5cc98c1f407e0a44e99011837154d2f39" }
+          - { file: "011_00006.parquet", sha256: "1ccd8d87762291d10e0a4c67f599faebdd6f4dbb70398c7631f6d4b0a8d7d3bd" }
+          - { file: "011_00007.parquet", sha256: "09083d8b1758a6e425029f3a370d11b78ac4ed5ad802d0b87b0ad353dd5cafbf" }
+          - { file: "011_00008.parquet", sha256: "38318ff88ddfb4be048bce2490b19d34bd8225f070e594656c16c30088925bc2" }
+          - { file: "011_00009.parquet", sha256: "9ba8e1241e041c4660d06936f38a616defe8326cc861b1aa9731125b85cefb15" }
+          - { file: "012_00000.parquet", sha256: "5c98fd3f113deff5395deb9f958740977982a977920b32bd46129376088d642a" }
+          - { file: "012_00001.parquet", sha256: "e81dbeb36b5ed534d49ade8587109105032574d5ace90d43a0d104cb37385e4a" }
+          - { file: "012_00002.parquet", sha256: "63825137c8919213efe76b648a6461a80f34f27d8e0586f178d117b1b586e90a" }
+          - { file: "012_00003.parquet", sha256: "5c9a0fb69c16a8a20fb8c76c619064734d2c704048349f96746fab2d95aeb26a" }
+          - { file: "012_00004.parquet", sha256: "ade4b1a8e79f458be18d086cd2861b05605b77f9b677908b3848ec3052bfb68a" }
+          - { file: "012_00005.parquet", sha256: "08043264388b9025fcd4abada9f4f03ac230e2b9f57b20f7f422c725a88b3d77" }
+          - { file: "012_00006.parquet", sha256: "9dbdc83a49b85e44fb6a1255a29c8aeeca1ef4cd3882f868f549fb35cafe5a52" }
+          - { file: "012_00007.parquet", sha256: "425cb44998932d9ac6ffbb039dc5fc6adf10aa5fa523c020a968e172e4095630" }
+          - { file: "012_00008.parquet", sha256: "dda63bc89a0afb6f9d2883ab798301bf91c9b572ed17fe504deef7c4086acece" }
+          - { file: "012_00009.parquet", sha256: "aad3c61ef272ec461e41bb40b8c6c1ebbb0a4b026808765f29fda04ce6fd9701" }
+          - { file: "013_00000.parquet", sha256: "5c618a6b5c584d857202542092c45633d8b98c7beeee4f54cad9bdd4c971a3df" }
+          - { file: "013_00001.parquet", sha256: "487da1a3e004fb2ca87996ca9836c16a49f64e8d70018944c819e49a62774e3a" }
+          - { file: "013_00002.parquet", sha256: "746fb74dac5227d1eb8b84c71ed05bf8952a25118575ebf2bf6d40b63c908326" }
+          - { file: "013_00003.parquet", sha256: "b0d7bf2012721323dc0ee2b86ce1aff5f02cfb4aab3f7cc0eb1510cb9e5322f0" }
+          - { file: "013_00004.parquet", sha256: "5407e63a718207c8f5e3982b3ef0d0835e7177e34d434fcb79234afd42532826" }
+          - { file: "013_00005.parquet", sha256: "b1b5b41b65cafff9f31190d1d487a3ec39c41e6e4698db6759a948f7a695b904" }
+          - { file: "013_00006.parquet", sha256: "2fbe83d800ab6c5a26f33122e342fac40135675708a71e6a280bcdad68293cc6" }
+          - { file: "013_00007.parquet", sha256: "9c74754bd8b524c04a6d2a57f1654340f8deb1414846db3456b83fe0e321f591" }
+          - { file: "013_00008.parquet", sha256: "cb27cb812ab0a0120823a05e67a5d5b0610dcf946782d381c8608f70cf858565" }
+          - { file: "013_00009.parquet", sha256: "92f097534c4887400ddea2f4878850c91f2b52c48bfc52354de61749c92e547a" }
+    env:
+      DATA: fineweb-shard-data
+      WS: fineweb-shard-ws
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space (inline — no third-party action)
+        run: |
+          set -uo pipefail
+          echo "--- df before ---"; df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/share/boost \
+            /usr/local/lib/node_modules \
+            /usr/share/swift \
+            /opt/microsoft \
+            /opt/google/chrome \
+            /usr/local/share/powershell 2>/dev/null || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "--- df after ---"; df -h /
+          avail_gb="$(df -BG --output=avail / | tail -1 | tr -dc '0-9')"
+          echo "available: ${avail_gb} GB"
+          if [ "$avail_gb" -lt 20 ]; then
+            echo "::error::less than 20 GB free after cleanup (${avail_gb} GB) — not enough margin for shard + CAS + toolchain" >&2
+            exit 1
+          fi
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fineweb100bt-seal-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fineweb100bt-seal-
+
+      - name: Build seal-fineweb-edu (release)
+        run: cargo build --release -p attestrum-pipeline --example seal-fineweb-edu
+
+      - name: Download this job's shard + assert pinned SHA-256
+        run: |
+          set -euo pipefail
+          mkdir -p "$DATA"
+          curl --fail-with-body -sSL --retry 5 --retry-delay 5 \
+            -o "$DATA/${{ matrix.file }}" "$HF_BASE/${{ matrix.file }}"
+          echo "${{ matrix.sha256 }}  $DATA/${{ matrix.file }}" | sha256sum -c -
+
+      - name: Seal this shard
+        run: |
+          set -euo pipefail
+          ./target/release/examples/seal-fineweb-edu "$DATA" "$WS" \
+            > root.txt 2> seal.stderr
+          echo "--- stdout (shard root) ---"; cat root.txt
+          echo "--- stderr ---"; cat seal.stderr
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          if [ -z "$got_leaves" ] || [ "$got_leaves" = "0" ]; then
+            echo "::error::shard sealed zero leaves" >&2
+            exit 1
+          fi
+          test -f "$WS/.attestrum/manifests/manifest.parquet"
+
+      - name: Upload shard manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.file }}
+          path: ${{ env.WS }}/.attestrum/manifests/manifest.parquet
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: "merge → gate → sign (keyless) → publish ${{ inputs.target }} → cosign verify"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs: seal
+    env:
+      WS: fineweb-publish-ws
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — huggingface target needs HF_TOKEN
+        if: inputs.target == 'huggingface'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::error::target=huggingface requires the HF_TOKEN repo secret (not set). Add it or run target=static." >&2
+            exit 1
+          fi
+          echo "HF_TOKEN present (masked)."
+
+      - name: Guard — canonical values must be pinned before signing
+        run: |
+          set -euo pipefail
+          if [ -z "$CANONICAL_ROOT" ] || [ -z "$CANONICAL_MANIFEST_SHA256" ]; then
+            echo "::error::CANONICAL_* env values are empty — run fineweb100bt-seal-crosscheck mode=capture, pin the triple (corpus-source doc + this file's CANONICAL_* + the crosscheck's), then re-dispatch. Refusing to sign an unpinned seal." >&2
+            exit 1
+          fi
+          echo "canonical values present; pre-sign gate will assert them after merge."
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fineweb100bt-merge-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fineweb100bt-merge-
+
+      - name: Build attestrum CLI (release)
+        run: cargo build --release -p attestrum-cli
+
+      - name: Download the 140 shard manifests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shard-*
+          path: shards
+
+      - name: Assert all 140 shard manifests arrived
+        run: |
+          set -euo pipefail
+          got="$(find shards -name manifest.parquet -type f | wc -l | tr -d ' ')"
+          if [ "$got" != "140" ]; then
+            echo "::error::expected 140 shard manifests, got $got" >&2
+            find shards -type f
+            exit 1
+          fi
+
+      # The published artifact layout mirrors attestrum build's workspace so
+      # sign/publish consume it unchanged: manifest.parquet + merkle.root under
+      # $WS/.attestrum/manifests/.
+      - name: attestrum merge → merged manifest + merkle.root
+        run: |
+          set -euo pipefail
+          mkdir -p "$WS/.attestrum/manifests"
+          # shellcheck disable=SC2046 — the manifest paths are glob-expanded on purpose
+          ./target/release/attestrum merge \
+            --inputs $(find shards -name manifest.parquet -type f | sort) \
+            --out "$WS/.attestrum/manifests/manifest.parquet" \
+            > merge.txt
+          echo "--- merge stdout ---"; cat merge.txt
+          test -f "$WS/.attestrum/manifests/manifest.parquet"
+          test -f "$WS/.attestrum/manifests/merkle.root"
+          stdout_root="$(sed -n 's/.*merkle_root:[[:space:]]*//p' merge.txt | head -n1)"
+          file_root="$(tr -d '\n' < "$WS/.attestrum/manifests/merkle.root")"
+          if [ "$stdout_root" != "$file_root" ]; then
+            echo "::error::merge stdout root ($stdout_root) != merkle.root file ($file_root)" >&2
+            exit 1
+          fi
+
+      - name: Pre-sign gate — assert canonical merged root, manifest SHA-256, leaf count
+        run: |
+          set -euo pipefail
+          fail=0
+          got_root="$(tr -d '\n' < "$WS/.attestrum/manifests/merkle.root")"
+          [ "$got_root" = "$CANONICAL_ROOT" ] \
+            && echo "OK   root:     $got_root" \
+            || { echo "::error::merged root mismatch — expected $CANONICAL_ROOT, got $got_root"; fail=1; }
+
+          got_manifest_sha="$(sha256sum "$WS/.attestrum/manifests/manifest.parquet" | awk '{print $1}')"
+          [ "$got_manifest_sha" = "$CANONICAL_MANIFEST_SHA256" ] \
+            && echo "OK   manifest: $got_manifest_sha" \
+            || { echo "::error::merged manifest.parquet SHA-256 mismatch — expected $CANONICAL_MANIFEST_SHA256, got $got_manifest_sha"; fail=1; }
+
+          got_rows="$(sed -n 's/.*rows:[[:space:]]*\([0-9][0-9]*\).*/\1/p' merge.txt | head -n1)"
+          [ "$got_rows" = "$EXPECTED_LEAVES" ] \
+            && echo "OK   leaves:   $got_rows" \
+            || { echo "::error::leaf count mismatch — expected $EXPECTED_LEAVES, got '$got_rows'"; fail=1; }
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::pre-sign gate FAILED — merged seal diverged from canonical; NOT signing." >&2
+            exit 1
+          fi
+          echo "pre-sign gate passed — canonical merged artifact confirmed; safe to sign."
+
+      # Determinism (CLAUDE.md §7): derive sign/publish epoch from the commit time,
+      # NOT wall-clock. The seal itself is epoch-0; this SDE only drives the
+      # predicate / dataset-card timestamps.
+      - name: Derive SOURCE_DATE_EPOCH from the commit
+        run: |
+          set -euo pipefail
+          sde="$(git show -s --format=%ct HEAD)"
+          echo "SOURCE_DATE_EPOCH=$sde" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$sde"
+
+      # Exchange the GHA ID-token request for a sigstore-audience token Fulcio
+      # accepts. Audience MUST be `sigstore`. Mask before exporting. (Proven
+      # cosign-interop.yml / pg19-publish.yml pattern.)
+      - name: Fetch SIGSTORE_ID_TOKEN via GHA OIDC exchange
+        run: |
+          set -euo pipefail
+          token="$(curl --fail-with-body -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" \
+            | jq -r '.value')"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to obtain sigstore-audience OIDC token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "SIGSTORE_ID_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # ⛔ The irreversible step: Fulcio (ephemeral cert, Attestrum workflow SAN) +
+      # Rekor (PERMANENT public DSSE entry). Bundle → $WS/bundles/manifest.sigstore.json.
+      - name: attestrum sign (ambient GHA keyless OIDC) — PERMANENT Rekor entry
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum sign \
+            "$WS/.attestrum/manifests/manifest.parquet" \
+            --workspace "$WS" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --publication-intent hf
+          test -f "$WS/bundles/manifest.sigstore.json"
+
+      # --license ODC-By (not the full SPDX id ODC-By-1.0): the dataset-card
+      # emitter lowercases this into the HF YAML license tag, and `odc-by` is
+      # the tag the Hub recognizes (upstream fineweb-edu uses it). The precise
+      # ODC-By-1.0 SPDX id is carried in every manifest row's license_spdx and
+      # in the attribution text.
+      - name: attestrum publish --target static (local artifact set)
+        if: inputs.target == 'static'
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target static \
+            --dataset "${{ inputs.dataset }}" \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license ODC-By \
+            --attribution-file docs/lookback/fineweb100bt-attribution.md \
+            --pretty-name "fineweb-edu sample-100BT (Attestrum-sealed)" \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public \
+            --out-dir "$WS/static-out"
+          echo "--- static-out tree ---"
+          find "$WS/static-out" -type f | sort
+
+      - name: Upload static artifact set (inspect before any HF push)
+        if: inputs.target == 'static'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fineweb100bt-static-out
+          path: ${{ env.WS }}/static-out
+          if-no-files-found: error
+          retention-days: 14
+
+      # ⛔ HF push — needs HF_TOKEN (hf-hub reads it from the env). Idempotent
+      # (exist_ok + re-commit). The merged manifest is ~8 GB (HF LFS).
+      - name: attestrum publish --target huggingface (Hub push)
+        if: inputs.target == 'huggingface'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target huggingface \
+            --dataset "${{ inputs.dataset }}" \
+            --revision main \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license ODC-By \
+            --attribution-file docs/lookback/fineweb100bt-attribution.md \
+            --pretty-name "fineweb-edu sample-100BT (Attestrum-sealed)" \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public
+
+      - name: Install cosign (sigstore/cosign-installer@v3)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
+        run: |
+          set -euo pipefail
+          version_json="$(cosign version --json)"
+          echo "$version_json"
+          git_version="$(echo "$version_json" | jq -r '.gitVersion')"
+          case "$git_version" in
+            v2.[5-9].*|v2.[1-9][0-9].*|v3.*)
+              echo "cosign $git_version: OK (>= v2.5 or any v3.x)"
+              ;;
+            *)
+              echo "::error::cosign binary is below v2.5 or unrecognised: $git_version" >&2
+              exit 1
+              ;;
+          esac
+
+      # THE acceptance gate: a third party with no Attestrum installed verifies the
+      # signed bundle with cosign alone, AND we assert the signing identity is the
+      # Attestrum GHA workflow — not a personal identity (CLAUDE-LOCAL §A9 / roadmap
+      # §21.1). Verbatim structure from pg19-publish.yml.
+      # The merged manifest (~8 GB) exceeds cosign's 128 MiB blob-read cap
+      # ("size of layer exceeded the limit" — hit by run 27431593593, the first
+      # rung whose MANIFEST outsizes the cap), so the digest is computed with
+      # sha256sum and handed to cosign via --digest/--digestAlg. cosign still
+      # performs every signature / identity / Rekor / in-toto-subject check —
+      # only the blob hashing moves to sha256sum. Stock tooling either way.
+      - name: cosign verify-blob-attestation (assert Attestrum GHA SAN)
+        run: |
+          set -euo pipefail
+          bundle="$WS/bundles/manifest.sigstore.json"
+          manifest="$WS/.attestrum/manifests/manifest.parquet"
+          identity_re='^https://github\.com/Attestrum/Attestrum/\.github/workflows/fineweb100bt-publish\.yml@refs/.+$'
+          issuer='https://token.actions.githubusercontent.com'
+          predicate_type='https://attestrum.com/attestation/training-corpus/v0.3'
+          echo "asserting identity matches: $identity_re"
+          echo "asserting issuer:           $issuer"
+          echo "asserting predicate type:   $predicate_type"
+          manifest_sha="$(sha256sum "$manifest" | awk '{print $1}')"
+          echo "manifest sha256:            $manifest_sha"
+          # Capture without set -e aborting mid-substitution, so a cosign
+          # failure still echoes its output (run 27431593593's failure was
+          # mute because the substitution aborted before the echo).
+          set +e
+          out="$(cosign verify-blob-attestation \
+            --new-bundle-format \
+            --type "$predicate_type" \
+            --bundle "$bundle" \
+            --certificate-identity-regexp "$identity_re" \
+            --certificate-oidc-issuer "$issuer" \
+            --digest "$manifest_sha" \
+            --digestAlg sha256 2>&1)"
+          rc=$?
+          set -e
+          echo "$out"
+          if [ "$rc" -ne 0 ] || ! echo "$out" | grep -q "Verified OK"; then
+            echo "::error::cosign did not report 'Verified OK' — signing identity is NOT the Attestrum fineweb100bt-publish workflow"
+            exit 1
+          fi
+          echo "cosign verify-blob-attestation: Verified OK with the Attestrum GHA workflow SAN"
