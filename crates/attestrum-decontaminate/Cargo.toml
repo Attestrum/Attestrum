@@ -1,0 +1,18 @@
+[package]
+name = "attestrum-decontaminate"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+attestrum-attest       = { path = "../attestrum-attest" }
+attestrum-text-minhash = { path = "../attestrum-text-minhash" }
+arrow                  = { workspace = true }
+blake3                 = { workspace = true }
+parquet                = { workspace = true }
+rayon                  = { workspace = true }
+serde                  = { workspace = true }
+serde_json             = { workspace = true }
+thiserror              = { workspace = true }

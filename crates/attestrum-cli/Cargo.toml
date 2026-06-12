@@ -41,6 +41,9 @@ attestrum-publish      = { path = "../attestrum-publish",  version = "0.1.0" }
 # v1.1: attestrum-index provides build_all for the `attestrum index build`
 # subcommand (MinHash / perceptual / ISCC fuzzy sidecars).
 attestrum-index        = { path = "../attestrum-index",    version = "0.1.0" }
+# decontaminate: benchmark-contamination scan over the shared MinHash kernel,
+# powering `attestrum decontaminate` (unsigned read-only report).
+attestrum-decontaminate = { path = "../attestrum-decontaminate", version = "0.1.0" }
 # Sprint 3 E7: blake3 hashing for `attestrum plan`'s shard_id assignment.
 # Sprint 4 E3.5 also uses it for the manifest.parquet digest fed into the
 # in-toto Statement's subject + the predicate's manifest.digest_set.

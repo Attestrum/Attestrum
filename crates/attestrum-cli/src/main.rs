@@ -474,6 +474,33 @@ enum Command {
         #[command(subcommand)]
         action: IndexAction,
     },
+
+    /// Scan a corpus for leaked evaluation-benchmark items and emit an
+    /// unsigned contamination report (`report.json` + `report.md`). Read-only;
+    /// it consumes the corpus and benchmark files and writes evidence.
+    Decontaminate {
+        /// Corpus file(s) to scan (`.jsonl` / `.json` / `.parquet`). Repeatable.
+        #[arg(long, value_name = "PATH", required = true)]
+        corpus: Vec<PathBuf>,
+
+        /// Benchmark file(s) to scan against (`.jsonl` / `.json` / `.parquet`);
+        /// each file is one benchmark, named by its file stem. Repeatable.
+        #[arg(long, value_name = "PATH", required = true)]
+        against: Vec<PathBuf>,
+
+        /// JSON field / Parquet column holding the text, applied to both corpus
+        /// and benchmark files.
+        #[arg(long, value_name = "KEY", default_value = "text")]
+        text_key: String,
+
+        /// MinHash Jaccard threshold for the `near` signal.
+        #[arg(long, value_name = "F", default_value_t = attestrum_decontaminate::DEFAULT_NEAR_THRESHOLD)]
+        near_threshold: f64,
+
+        /// Directory to write `report.json` + `report.md` into.
+        #[arg(long, value_name = "PATH", default_value = ".")]
+        out: PathBuf,
+    },
 }
 
 /// `attestrum index <action>` subcommands.
@@ -742,6 +769,31 @@ fn main() -> ExitCode {
                     ExitCode::from(1)
                 }
             },
+        },
+
+        Command::Decontaminate {
+            corpus,
+            against,
+            text_key,
+            near_threshold,
+            out,
+        } => match commands::decontaminate::run(commands::decontaminate::Args {
+            corpus,
+            against,
+            text_key,
+            near_threshold,
+            out,
+        }) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("attestrum decontaminate: {err}");
+                let mut source = std::error::Error::source(&err);
+                while let Some(s) = source {
+                    eprintln!("  caused by: {s}");
+                    source = std::error::Error::source(s);
+                }
+                ExitCode::from(1)
+            }
         },
     }
 }

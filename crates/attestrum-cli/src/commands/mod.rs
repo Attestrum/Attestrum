@@ -3,6 +3,7 @@
 
 pub mod bind;
 pub mod build;
+pub mod decontaminate;
 pub mod index;
 pub mod inspect;
 pub mod merge;

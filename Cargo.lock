@@ -451,6 +451,7 @@ dependencies = [
  "attestrum-bind",
  "attestrum-cas",
  "attestrum-core",
+ "attestrum-decontaminate",
  "attestrum-index",
  "attestrum-manifest",
  "attestrum-merkle",
@@ -475,6 +476,21 @@ name = "attestrum-core"
 version = "0.0.1"
 dependencies = [
  "schemars 1.2.1",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "attestrum-decontaminate"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "attestrum-attest",
+ "attestrum-text-minhash",
+ "blake3",
+ "parquet",
+ "rayon",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
