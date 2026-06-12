@@ -92,21 +92,34 @@ cargo run -p attestrum-pipeline --release --example seal-pg19 \
 
 ## Canonical seal (input → output, closeable)
 
-**Pending capture.** The canonical values are produced by the first
-`pg19-seal-crosscheck` run in `mode=capture` on Linux x86_64/glibc (the signing
-platform) and pinned here plus in the workflow's `CANONICAL_*` env in the same
-commit. Until then this section is intentionally blank — nothing is signed before
-a second run in `mode=assert` reproduces the triple byte-for-byte.
+Sealing the pinned input above with the seal generator yields this canonical
+result. A verifier who re-runs the command on the byte-identical input must
+reproduce the same Merkle root. Unlike the WikiText and dolly rungs the canonical
+values were produced **in CI** (the corpus outsizes a laptop): captured by
+`pg19-seal-crosscheck` `mode=capture`
+([run 27414439290](https://github.com/Attestrum/Attestrum/actions/runs/27414439290))
+on Linux x86_64/glibc, the signing platform.
 
 | Field | Value |
 |---|---|
-| Merkle root (BLAKE3, RFC 6962) | _pending capture_ |
-| Leaves (book files) | _pending capture — expected 28,752_ |
-| Total sealed bytes | _pending capture_ |
-| `manifest.parquet` SHA-256 | _pending capture_ |
+| Merkle root (BLAKE3, RFC 6962) | `64767babc25bcc20bf01538c36389cee6b35f65b26c1dbbb0acb0e7f11c1b8ca` |
+| Leaves (book files) | 28,752 |
+| Total sealed bytes | 11,737,206,770 |
+| `manifest.parquet` SHA-256 | `9a38c5017ae914c9bc03049dadf8da962ff939b08e90250efed46e4baa55471a` |
 | Sealed by | `attestrum-pipeline` example `seal-pg19` (release, CI) |
 
-## Scale evidence
+## Scale evidence (measured, capture run 27414439290)
 
-**Pending capture.** PG-19 is the ladder's calibration rung; the capture run
-records download throughput (GCS → runner), seal wall-time, and peak disk here.
+PG-19 is the ladder's first large rung and its calibration point. Measured on a
+free standard GitHub Actions runner (ubuntu-24.04, 4 vCPU / 16 GB RAM):
+
+| Metric | Measured |
+|---|---|
+| Corpus download (GCS, `aria2c -j16`) | 11,737,206,770 bytes in 754 s — **14.8 MB/s aggregate** |
+| Seal wall-time (28,752 leaves, 11.7 GB) | **47.6 s** |
+| Seal peak RSS | ~107 MB (`ContentSource::Path` streaming — the corpus never sits in RAM) |
+| Disk free after inline cleanup | 117 GB |
+
+The seal itself is ~16× faster than the download at this scale: the pipeline is
+I/O-bound on corpus acquisition, not hashing — the calibration datum for the
+sharded rungs above this one.

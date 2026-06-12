@@ -59,11 +59,11 @@ env:
   TEST_LIST_SHA256: "c84c08139695f3312df83239a1a41e7b9cde1baf7c08bfcf230ae09eaaf18d8c"
   EXPECTED_FILES: "28752"
   # Canonical seal — source of truth: docs/lookback/pg19-corpus-source.md
-  # §"Canonical seal". Empty until the first capture run pins them (commit 4 of
-  # the pg19 plan); mode=assert refuses to run while they are empty.
-  CANONICAL_ROOT: ""
-  CANONICAL_MANIFEST_SHA256: ""
-  CANONICAL_LEAVES: ""
+  # §"Canonical seal". Pinned from capture run 27414439290 (2026-06-12);
+  # mode=assert requires an exact reproduction.
+  CANONICAL_ROOT: "64767babc25bcc20bf01538c36389cee6b35f65b26c1dbbb0acb0e7f11c1b8ca"
+  CANONICAL_MANIFEST_SHA256: "9a38c5017ae914c9bc03049dadf8da962ff939b08e90250efed46e4baa55471a"
+  CANONICAL_LEAVES: "28752"
 
 jobs:
   seal-crosscheck:
