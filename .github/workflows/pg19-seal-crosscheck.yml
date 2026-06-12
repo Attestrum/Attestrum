@@ -1,0 +1,302 @@
+name: pg19-seal-crosscheck
+
+# Lookback Tier-1 (deepmind-pg19) — the seal-path divergence gate, modeled on
+# dolly-seal-crosscheck.yml, extended for the first LARGE rung (~11.5 GB corpus,
+# 28,752 book files; DATASET-LADDER Stage 2).
+#
+# New vs dolly, in order of appearance:
+#   1. An inline disk-cleanup step — a stock runner guarantees only ~14 GB free;
+#      download (11.5 GB) + CAS copy (11.5 GB) needs ~25-30 GB. Inline rm -rf of
+#      known big preinstalled dirs, NOT a third-party action: no new supply-chain
+#      trust surface in a workflow family that later signs.
+#   2. The corpus is fetched per-file from DeepMind's public GCS bucket (the HF
+#      repo carries only the loader + file lists). The three file lists are
+#      fetched at the PINNED HF revision and SHA-256-asserted against
+#      docs/lookback/pg19-corpus-source.md; aria2c bulk-downloads the 28,752
+#      books with retries; count + zero-byte assertions follow. The books carry
+#      no upstream digests — the sealed manifest IS the per-file digest list,
+#      and the canonical triple below pins the complete set.
+#   3. A `mode` input: `capture` (first run / recalibration — print + upload the
+#      seal triple, assert nothing) vs `assert` (default — require the pinned
+#      CANONICAL_* values). PG-19 is sealed in CI only, so the canonical values
+#      bootstrap from a capture run instead of a local seal.
+#   4. Measurement: download throughput, seal wall-time, peak RSS, and disk
+#      high-water mark land in the job summary — the Stage-2 calibration
+#      deliverable for the sharded rungs above this one.
+#
+# It SIGNS NOTHING and PUBLISHES NOTHING — no id-token permission, no Fulcio, no
+# Rekor entry, no Hugging Face push. Fully reversible: a public-dataset download
+# and a hash comparison. Trigger = workflow_dispatch ONLY.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "capture = print + upload the seal triple (bootstrap); assert = require the pinned canonical values"
+        type: choice
+        options:
+          - assert
+          - capture
+        default: assert
+
+concurrency:
+  group: pg19-seal-crosscheck-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DATA: pg19-data
+  WS: pg19-seal-ws
+  # Pinned HF revision of deepmind/pg19 (loader + file lists only; data is GCS).
+  HF_REV: "4d28bd77e66947ad3835cf78ed7aaeb4dd87ad8b"
+  HF_LISTS_BASE: "https://huggingface.co/datasets/deepmind/pg19/resolve/4d28bd77e66947ad3835cf78ed7aaeb4dd87ad8b/data"
+  GCS_BASE: "https://storage.googleapis.com/deepmind-gutenberg"
+  # Pinned file-list digests — source of truth: docs/lookback/pg19-corpus-source.md.
+  TRAIN_LIST_SHA256: "145b5f0896cc2fff3231222874a0f324ee04559144ecf25a873d294eb161719c"
+  VALIDATION_LIST_SHA256: "e66d9f76a39a7a73a62270e98395c9532d306ecd2b7a10ae4098dcdd133d179b"
+  TEST_LIST_SHA256: "c84c08139695f3312df83239a1a41e7b9cde1baf7c08bfcf230ae09eaaf18d8c"
+  EXPECTED_FILES: "28752"
+  # Canonical seal — source of truth: docs/lookback/pg19-corpus-source.md
+  # §"Canonical seal". Empty until the first capture run pins them (commit 4 of
+  # the pg19 plan); mode=assert refuses to run while they are empty.
+  CANONICAL_ROOT: ""
+  CANONICAL_MANIFEST_SHA256: ""
+  CANONICAL_LEAVES: ""
+
+jobs:
+  seal-crosscheck:
+    name: "seal-pg19 on Linux x86_64/glibc (${{ inputs.mode }})"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — assert mode needs pinned canonical values
+        if: inputs.mode == 'assert'
+        run: |
+          set -euo pipefail
+          if [ -z "$CANONICAL_ROOT" ] || [ -z "$CANONICAL_MANIFEST_SHA256" ] || [ -z "$CANONICAL_LEAVES" ]; then
+            echo "::error::mode=assert but CANONICAL_* env values are empty — run mode=capture first, pin the values (corpus-source doc + this file), then re-dispatch." >&2
+            exit 1
+          fi
+
+      # Stock runner guarantees ~14 GB free; this corpus needs ~25-30 GB. Remove
+      # the big preinstalled toolchains we never use. Each path is best-effort
+      # (image layouts drift); df before/after is the evidence.
+      - name: Free disk space (inline — no third-party action)
+        run: |
+          set -uo pipefail
+          echo "--- df before ---"; df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/share/boost \
+            /usr/local/lib/node_modules \
+            /usr/share/swift \
+            /opt/microsoft \
+            /opt/google/chrome \
+            /usr/local/share/powershell 2>/dev/null || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "--- df after ---"; df -h /
+          avail_gb="$(df -BG --output=avail / | tail -1 | tr -dc '0-9')"
+          echo "available: ${avail_gb} GB"
+          if [ "$avail_gb" -lt 35 ]; then
+            echo "::error::less than 35 GB free after cleanup (${avail_gb} GB) — not enough for corpus + CAS" >&2
+            exit 1
+          fi
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-pg19-seal-crosscheck-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-pg19-seal-crosscheck-
+
+      - name: Build seal-pg19 (release)
+        run: cargo build --release -p attestrum-pipeline --example seal-pg19
+
+      # The dataset's own file lists are the URL source — fetched at the pinned
+      # HF revision and digest-asserted, so the download set cannot drift even
+      # if the HF repo moves its main branch.
+      - name: Fetch + verify the pinned file lists
+        run: |
+          set -euo pipefail
+          mkdir -p "$DATA"
+          for f in train_files.txt validation_files.txt test_files.txt; do
+            curl --fail-with-body -sSL -o "$DATA/$f" "$HF_LISTS_BASE/$f"
+          done
+          cat > lists.sha256 <<EOF
+          $TRAIN_LIST_SHA256  $DATA/train_files.txt
+          $VALIDATION_LIST_SHA256  $DATA/validation_files.txt
+          $TEST_LIST_SHA256  $DATA/test_files.txt
+          EOF
+          echo "--- expected ---"; cat lists.sha256
+          sha256sum -c lists.sha256
+          wc -l "$DATA"/*_files.txt
+
+      - name: Download the corpus from GCS (aria2c, measured)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -q aria2 >/dev/null
+          cat "$DATA"/train_files.txt "$DATA"/validation_files.txt "$DATA"/test_files.txt \
+            | sed "s#^#$GCS_BASE/#" > "$DATA/urls.txt"
+          url_count="$(wc -l < "$DATA/urls.txt" | tr -d ' ')"
+          echo "downloading $url_count files"
+          dl_start="$(date +%s)"
+          aria2c -j16 -x4 --max-tries=5 --retry-wait=5 \
+            --auto-file-renaming=false --console-log-level=warn --summary-interval=60 \
+            --dir "$DATA" --input-file "$DATA/urls.txt"
+          dl_end="$(date +%s)"
+          dl_secs="$((dl_end - dl_start))"
+          dl_bytes="$(du -sb "$DATA/train" "$DATA/validation" "$DATA/test" | awk '{s+=$1} END {print s}')"
+          dl_mbps="$(awk -v b="$dl_bytes" -v s="$dl_secs" 'BEGIN { printf "%.1f", b/1048576/(s==0?1:s) }')"
+          echo "DL_SECS=$dl_secs" >> "$GITHUB_ENV"
+          echo "DL_BYTES=$dl_bytes" >> "$GITHUB_ENV"
+          echo "DL_MBPS=$dl_mbps" >> "$GITHUB_ENV"
+          echo "downloaded $dl_bytes bytes in ${dl_secs}s (${dl_mbps} MB/s)"
+          df -h /
+
+      - name: Assert download completeness (count per split, no zero-byte files)
+        run: |
+          set -euo pipefail
+          fail=0
+          for split_expected in train:28602 validation:50 test:100; do
+            split="${split_expected%%:*}"; expected="${split_expected##*:}"
+            got="$(find "$DATA/$split" -name '*.txt' -type f | wc -l | tr -d ' ')"
+            if [ "$got" = "$expected" ]; then
+              echo "OK   $split: $got files"
+            else
+              echo "::error::$split file count mismatch — expected $expected, got $got"
+              fail=1
+            fi
+          done
+          total="$(find "$DATA/train" "$DATA/validation" "$DATA/test" -name '*.txt' -type f | wc -l | tr -d ' ')"
+          [ "$total" = "$EXPECTED_FILES" ] || { echo "::error::total $total != $EXPECTED_FILES"; fail=1; }
+          empty="$(find "$DATA/train" "$DATA/validation" "$DATA/test" -name '*.txt' -type f -empty | head -5)"
+          if [ -n "$empty" ]; then
+            echo "::error::zero-byte files found:"; echo "$empty"
+            fail=1
+          fi
+          [ "$fail" -eq 0 ]
+
+      # stdout is exactly the 65-byte root line (64 hex + \n); stderr carries
+      # `leaves=… bytes=… manifest=…`. /usr/bin/time -v captures wall + peak RSS.
+      - name: Run seal-pg19 over the corpus (with time + peak RSS)
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v -o time.txt \
+            ./target/release/examples/seal-pg19 "$DATA" "$WS" \
+            > root.txt 2> seal.stderr
+          echo "--- stdout (root) ---"; cat root.txt
+          echo "--- stderr ---"; cat seal.stderr
+          echo "--- resource usage (Linux x86_64/glibc) ---"
+          grep -E 'Elapsed \(wall clock\) time|Maximum resident set size' time.txt
+          echo "--- disk high-water ---"; df -h /
+          du -sh "$WS" "$DATA"
+
+      - name: Report measurements to the job summary
+        run: |
+          set -euo pipefail
+          {
+            echo "## PG-19 Stage-2 measurements (calibrates the sharded rungs)"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| Download | $DL_BYTES bytes in ${DL_SECS}s (${DL_MBPS} MB/s aggregate, aria2c -j16) |"
+            echo "| Seal wall-time | $(grep 'Elapsed (wall clock)' time.txt | sed 's/.*: //') |"
+            echo "| Seal peak RSS | $(grep 'Maximum resident set size' time.txt | sed 's/.*: //') kB |"
+            echo "| Corpus on disk | $(du -sh "$DATA" | cut -f1) |"
+            echo "| Seal workspace (CAS + manifest) | $(du -sh "$WS" | cut -f1) |"
+            echo "| Disk free at end | $(df -h / | awk 'NR==2 {print $4}') |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "capture: print the seal triple to pin"
+        if: inputs.mode == 'capture'
+        run: |
+          set -euo pipefail
+          got_root="$(tr -d '\n' < root.txt)"
+          got_manifest_sha="$(sha256sum "$WS/.attestrum/manifests/manifest.parquet" | awk '{print $1}')"
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          got_bytes="$(sed -n 's/.*bytes=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          {
+            echo "## CAPTURED canonical seal triple — pin these (corpus-source doc + CANONICAL_* env)"
+            echo ""
+            echo '```'
+            echo "CANONICAL_ROOT:            $got_root"
+            echo "CANONICAL_MANIFEST_SHA256: $got_manifest_sha"
+            echo "CANONICAL_LEAVES:          $got_leaves"
+            echo "total sealed bytes:        $got_bytes"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "CANONICAL_ROOT:            $got_root"
+          echo "CANONICAL_MANIFEST_SHA256: $got_manifest_sha"
+          echo "CANONICAL_LEAVES:          $got_leaves"
+          echo "total sealed bytes:        $got_bytes"
+
+      - name: "capture: upload manifest + merkle.root + measurements"
+        if: inputs.mode == 'capture'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg19-capture
+          path: |
+            ${{ env.WS }}/.attestrum/manifests/manifest.parquet
+            ${{ env.WS }}/.attestrum/manifests/merkle.root
+            time.txt
+            root.txt
+            seal.stderr
+          if-no-files-found: error
+          retention-days: 30
+
+      # Triple assertion (assert mode). The trio (root + manifest hash + leaf
+      # count) guards against a root collision masking a different corpus.
+      - name: "assert: canonical root, manifest SHA-256, and leaf count"
+        if: inputs.mode == 'assert'
+        run: |
+          set -euo pipefail
+          fail=0
+
+          got_root="$(tr -d '\n' < root.txt)"
+          if [ "$got_root" = "$CANONICAL_ROOT" ]; then
+            echo "OK   root:        $got_root"
+          else
+            echo "::error::root mismatch — expected $CANONICAL_ROOT, got $got_root"
+            fail=1
+          fi
+
+          manifest="$WS/.attestrum/manifests/manifest.parquet"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::manifest not found at $manifest"
+            exit 1
+          fi
+          got_manifest_sha="$(sha256sum "$manifest" | awk '{print $1}')"
+          if [ "$got_manifest_sha" = "$CANONICAL_MANIFEST_SHA256" ]; then
+            echo "OK   manifest:    $got_manifest_sha"
+          else
+            echo "::error::manifest.parquet SHA-256 mismatch — expected $CANONICAL_MANIFEST_SHA256, got $got_manifest_sha"
+            fail=1
+          fi
+
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          if [ "$got_leaves" = "$CANONICAL_LEAVES" ]; then
+            echo "OK   leaves:      $got_leaves"
+          else
+            echo "::error::leaf count mismatch — expected $CANONICAL_LEAVES, got '$got_leaves'"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::pg19 seal-path cross-check FAILED — Linux did not reproduce the canonical seal"
+            exit 1
+          fi
+          echo "Linux x86_64/glibc reproduced the canonical pg19 seal byte-for-byte."
