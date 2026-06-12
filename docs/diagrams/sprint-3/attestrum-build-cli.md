@@ -2,7 +2,7 @@
 title: "attestrum build CLI subcommand lifecycle from invocation to sealed manifest"
 models: "crates/attestrum-cli/src/main.rs, crates/attestrum-cli/src/commands/build.rs"
 source_of_truth: code
-last_verified: c3398bc 2026-06-06
+last_verified: 1aca687 2026-06-12
 diagram_type: sequenceDiagram
 ---
 

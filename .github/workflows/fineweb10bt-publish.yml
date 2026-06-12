@@ -1,0 +1,406 @@
+name: fineweb10bt-publish
+
+# Lookback (fineweb-edu sample-10BT) — the gated seal → merge → sign → publish
+# pipeline for the ladder's first SHARDED rung, modeled on pg19-publish.yml
+# with the fineweb10bt-seal-crosscheck 14-shard matrix + merge front-end.
+#
+# ⛔ RUNNING THIS IS IRREVERSIBLE. On ANY dispatch (including target=static), the
+# sign step writes a PERMANENT public Rekor transparency-log entry binding the
+# corpus to the Attestrum workflow identity — there is no "sign without Rekor".
+# target=huggingface additionally pushes to the Hub and requires the HF_TOKEN repo
+# secret. Trigger is workflow_dispatch ONLY; the file existing on main runs nothing
+# until a human dispatches it. Do not dispatch without an explicit decision to
+# publish (CLAUDE.md §A9 — each publish is gated behind an explicit founder "go").
+#
+# Safety: the pre-sign gate (the fineweb10bt-seal-crosscheck triple assertion on
+# the MERGED artifact: root + manifest SHA-256 + leaf count) runs BEFORE
+# Fulcio/Rekor are ever contacted, so a divergent seal aborts the run before
+# anything is signed. The closing cosign step asserts the Attestrum GHA workflow
+# SAN (the §A9 / §21.1 guard).
+#
+# What gets signed and published is the MERGED manifest — the sharded matrix is
+# an internal build topology; the published artifact is identical (root-wise) to
+# an unsharded seal of the same rows.
+#
+# See docs/diagrams/lookback/fineweb10bt-seal-pipeline.md and
+# docs/lookback/fineweb10bt-corpus-source.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target (both SIGN; static = local artifacts, huggingface = Hub push + needs HF_TOKEN)"
+        type: choice
+        options:
+          - static
+          - huggingface
+        default: static
+      dataset:
+        description: "Hugging Face dataset repo (org/name)"
+        type: string
+        default: "Attestrum/fineweb-edu-sample-10BT-sealed"
+
+concurrency:
+  # Never cancel an in-flight sign/push — a partial run could leave a Rekor entry
+  # or a half-committed Hub repo. Serialize instead.
+  group: fineweb10bt-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # GHA OIDC token exchange → Fulcio keyless identity
+  contents: read
+
+env:
+  HF_BASE: "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/resolve/87f09149ef4734204d70ed1d046ddc9ca3f2b8f9/sample/10BT"
+  EXPECTED_LEAVES: "9672101"
+  # Canonical merged seal — source of truth:
+  # docs/lookback/fineweb10bt-corpus-source.md §"Canonical seal". Pinned from
+  # capture run 27428316052 + reproduced by the mode=assert crosscheck; this
+  # workflow refuses to sign anything else.
+  CANONICAL_ROOT: "4cdf2491b9fbb0dc875fc06a6c94872b9f40b1c343860d92b8e0247f7032053c"
+  CANONICAL_MANIFEST_SHA256: "fa6c082ccd5f4e1b4ad95ac8966cf156221fbb3483f3ba2bf48dad5dc38defa5"
+
+jobs:
+  seal:
+    name: "seal shard ${{ matrix.file }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same 14 pinned (file, sha256) pairs as fineweb10bt-seal-crosscheck.yml
+        # — source of truth: docs/lookback/fineweb10bt-corpus-source.md.
+        include:
+          - { file: "000_00000.parquet", sha256: "b1ba7b2ce4cb5ea6ef42dca40263eabb85f37700d01693a68e9b30a31d78e871" }
+          - { file: "001_00000.parquet", sha256: "3fcf2dc69cd52503986276d3d2d26a8c356d0f2ea28a0de4fdbda8cf87755693" }
+          - { file: "002_00000.parquet", sha256: "547ae182d132c9f06b6ce63149567208ea9f57630bfd9b1a2938e504f0c9ebd7" }
+          - { file: "003_00000.parquet", sha256: "22184e6eb25759ddd97783751ffc73e1705dfa2542e630dae1f2a8bac8ee6ddb" }
+          - { file: "004_00000.parquet", sha256: "33557ddd87a07a4ae6fcaf7a4789c7b484e5cc0c273ca12a65b74200e6d8748b" }
+          - { file: "005_00000.parquet", sha256: "e08d79927ecb377786572cd854817c748ceb8880878b1a0eb91abf8c85d505ea" }
+          - { file: "006_00000.parquet", sha256: "554fa2613c9261d6c9c396caab881de3160175794c6c3e1856bf28a0e9cb9b76" }
+          - { file: "007_00000.parquet", sha256: "4b7d1f697d4afff7f5f65cb7aa4d83acc6db716da4d46ea23399d0c50608c6e3" }
+          - { file: "008_00000.parquet", sha256: "a6d9dcc0c72ecd7c7f0173c2d06b3a4249a2ccaa94961469d1a522ca689bbf1a" }
+          - { file: "009_00000.parquet", sha256: "f836cd3c70b95776699eb6c356b2dbf702816e25dcf39992f5c80a29029d23c3" }
+          - { file: "010_00000.parquet", sha256: "e5a2eae25f057f0856a10bfae314c6ca8ea8bb08456d2131e9e89b2b8305e2f6" }
+          - { file: "011_00000.parquet", sha256: "db71cf0425bb3d1813a09f12ff1acd6dabdfb91a2e4f141960254ee5a7f036e7" }
+          - { file: "012_00000.parquet", sha256: "08b47a3e1c25161f796d2f8dbf99ccf60affdebdcea4910833d0d5783315551f" }
+          - { file: "013_00000.parquet", sha256: "b393f51fefab26cd6f4c8f65707c1924f6666c4961a0ebebe04bb57f7ec832de" }
+    env:
+      DATA: fineweb-shard-data
+      WS: fineweb-shard-ws
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space (inline — no third-party action)
+        run: |
+          set -uo pipefail
+          echo "--- df before ---"; df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/share/boost \
+            /usr/local/lib/node_modules \
+            /usr/share/swift \
+            /opt/microsoft \
+            /opt/google/chrome \
+            /usr/local/share/powershell 2>/dev/null || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "--- df after ---"; df -h /
+          avail_gb="$(df -BG --output=avail / | tail -1 | tr -dc '0-9')"
+          echo "available: ${avail_gb} GB"
+          if [ "$avail_gb" -lt 20 ]; then
+            echo "::error::less than 20 GB free after cleanup (${avail_gb} GB) — not enough margin for shard + CAS + toolchain" >&2
+            exit 1
+          fi
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fineweb10bt-seal-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fineweb10bt-seal-
+
+      - name: Build seal-fineweb-edu (release)
+        run: cargo build --release -p attestrum-pipeline --example seal-fineweb-edu
+
+      - name: Download this job's shard + assert pinned SHA-256
+        run: |
+          set -euo pipefail
+          mkdir -p "$DATA"
+          curl --fail-with-body -sSL --retry 5 --retry-delay 5 \
+            -o "$DATA/${{ matrix.file }}" "$HF_BASE/${{ matrix.file }}"
+          echo "${{ matrix.sha256 }}  $DATA/${{ matrix.file }}" | sha256sum -c -
+
+      - name: Seal this shard
+        run: |
+          set -euo pipefail
+          ./target/release/examples/seal-fineweb-edu "$DATA" "$WS" \
+            > root.txt 2> seal.stderr
+          echo "--- stdout (shard root) ---"; cat root.txt
+          echo "--- stderr ---"; cat seal.stderr
+          got_leaves="$(sed -n 's/.*leaves=\([0-9][0-9]*\).*/\1/p' seal.stderr | head -n1)"
+          if [ -z "$got_leaves" ] || [ "$got_leaves" = "0" ]; then
+            echo "::error::shard sealed zero leaves" >&2
+            exit 1
+          fi
+          test -f "$WS/.attestrum/manifests/manifest.parquet"
+
+      - name: Upload shard manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.file }}
+          path: ${{ env.WS }}/.attestrum/manifests/manifest.parquet
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: "merge → gate → sign (keyless) → publish ${{ inputs.target }} → cosign verify"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs: seal
+    env:
+      WS: fineweb-publish-ws
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — huggingface target needs HF_TOKEN
+        if: inputs.target == 'huggingface'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::error::target=huggingface requires the HF_TOKEN repo secret (not set). Add it or run target=static." >&2
+            exit 1
+          fi
+          echo "HF_TOKEN present (masked)."
+
+      - name: Setup Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Cache cargo + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fineweb10bt-merge-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fineweb10bt-merge-
+
+      - name: Build attestrum CLI (release)
+        run: cargo build --release -p attestrum-cli
+
+      - name: Download the 14 shard manifests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shard-*
+          path: shards
+
+      - name: Assert all 14 shard manifests arrived
+        run: |
+          set -euo pipefail
+          got="$(find shards -name manifest.parquet -type f | wc -l | tr -d ' ')"
+          if [ "$got" != "14" ]; then
+            echo "::error::expected 14 shard manifests, got $got" >&2
+            find shards -type f
+            exit 1
+          fi
+
+      # The published artifact layout mirrors attestrum build's workspace so
+      # sign/publish consume it unchanged: manifest.parquet + merkle.root under
+      # $WS/.attestrum/manifests/.
+      - name: attestrum merge → merged manifest + merkle.root
+        run: |
+          set -euo pipefail
+          mkdir -p "$WS/.attestrum/manifests"
+          # shellcheck disable=SC2046 — the manifest paths are glob-expanded on purpose
+          ./target/release/attestrum merge \
+            --inputs $(find shards -name manifest.parquet -type f | sort) \
+            --out "$WS/.attestrum/manifests/manifest.parquet" \
+            > merge.txt
+          echo "--- merge stdout ---"; cat merge.txt
+          test -f "$WS/.attestrum/manifests/manifest.parquet"
+          test -f "$WS/.attestrum/manifests/merkle.root"
+          stdout_root="$(sed -n 's/.*merkle_root:[[:space:]]*//p' merge.txt | head -n1)"
+          file_root="$(tr -d '\n' < "$WS/.attestrum/manifests/merkle.root")"
+          if [ "$stdout_root" != "$file_root" ]; then
+            echo "::error::merge stdout root ($stdout_root) != merkle.root file ($file_root)" >&2
+            exit 1
+          fi
+
+      - name: Pre-sign gate — assert canonical merged root, manifest SHA-256, leaf count
+        run: |
+          set -euo pipefail
+          fail=0
+          got_root="$(tr -d '\n' < "$WS/.attestrum/manifests/merkle.root")"
+          [ "$got_root" = "$CANONICAL_ROOT" ] \
+            && echo "OK   root:     $got_root" \
+            || { echo "::error::merged root mismatch — expected $CANONICAL_ROOT, got $got_root"; fail=1; }
+
+          got_manifest_sha="$(sha256sum "$WS/.attestrum/manifests/manifest.parquet" | awk '{print $1}')"
+          [ "$got_manifest_sha" = "$CANONICAL_MANIFEST_SHA256" ] \
+            && echo "OK   manifest: $got_manifest_sha" \
+            || { echo "::error::merged manifest.parquet SHA-256 mismatch — expected $CANONICAL_MANIFEST_SHA256, got $got_manifest_sha"; fail=1; }
+
+          got_rows="$(sed -n 's/.*rows:[[:space:]]*\([0-9][0-9]*\).*/\1/p' merge.txt | head -n1)"
+          [ "$got_rows" = "$EXPECTED_LEAVES" ] \
+            && echo "OK   leaves:   $got_rows" \
+            || { echo "::error::leaf count mismatch — expected $EXPECTED_LEAVES, got '$got_rows'"; fail=1; }
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::pre-sign gate FAILED — merged seal diverged from canonical; NOT signing." >&2
+            exit 1
+          fi
+          echo "pre-sign gate passed — canonical merged artifact confirmed; safe to sign."
+
+      # Determinism (CLAUDE.md §7): derive sign/publish epoch from the commit time,
+      # NOT wall-clock. The seal itself is epoch-0; this SDE only drives the
+      # predicate / dataset-card timestamps.
+      - name: Derive SOURCE_DATE_EPOCH from the commit
+        run: |
+          set -euo pipefail
+          sde="$(git show -s --format=%ct HEAD)"
+          echo "SOURCE_DATE_EPOCH=$sde" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$sde"
+
+      # Exchange the GHA ID-token request for a sigstore-audience token Fulcio
+      # accepts. Audience MUST be `sigstore`. Mask before exporting. (Proven
+      # cosign-interop.yml / pg19-publish.yml pattern.)
+      - name: Fetch SIGSTORE_ID_TOKEN via GHA OIDC exchange
+        run: |
+          set -euo pipefail
+          token="$(curl --fail-with-body -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" \
+            | jq -r '.value')"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to obtain sigstore-audience OIDC token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "SIGSTORE_ID_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # ⛔ The irreversible step: Fulcio (ephemeral cert, Attestrum workflow SAN) +
+      # Rekor (PERMANENT public DSSE entry). Bundle → $WS/bundles/manifest.sigstore.json.
+      - name: attestrum sign (ambient GHA keyless OIDC) — PERMANENT Rekor entry
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum sign \
+            "$WS/.attestrum/manifests/manifest.parquet" \
+            --workspace "$WS" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --publication-intent hf
+          test -f "$WS/bundles/manifest.sigstore.json"
+
+      # --license ODC-By (not the full SPDX id ODC-By-1.0): the dataset-card
+      # emitter lowercases this into the HF YAML license tag, and `odc-by` is
+      # the tag the Hub recognizes (upstream fineweb-edu uses it). The precise
+      # ODC-By-1.0 SPDX id is carried in every manifest row's license_spdx and
+      # in the attribution text.
+      - name: attestrum publish --target static (local artifact set)
+        if: inputs.target == 'static'
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target static \
+            --dataset "${{ inputs.dataset }}" \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license ODC-By \
+            --attribution-file docs/lookback/fineweb10bt-attribution.md \
+            --pretty-name "fineweb-edu sample-10BT (Attestrum-sealed)" \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public \
+            --out-dir "$WS/static-out"
+          echo "--- static-out tree ---"
+          find "$WS/static-out" -type f | sort
+
+      - name: Upload static artifact set (inspect before any HF push)
+        if: inputs.target == 'static'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fineweb10bt-static-out
+          path: ${{ env.WS }}/static-out
+          if-no-files-found: error
+          retention-days: 14
+
+      # ⛔ HF push — needs HF_TOKEN (hf-hub reads it from the env). Idempotent
+      # (exist_ok + re-commit). The merged manifest is ~770 MB (HF LFS).
+      - name: attestrum publish --target huggingface (Hub push)
+        if: inputs.target == 'huggingface'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./target/release/attestrum publish \
+            --target huggingface \
+            --dataset "${{ inputs.dataset }}" \
+            --revision main \
+            --manifest "$WS/.attestrum/manifests/manifest.parquet" \
+            --bundle "$WS/bundles/manifest.sigstore.json" \
+            --merkle-root "$WS/.attestrum/manifests/merkle.root" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --license ODC-By \
+            --attribution-file docs/lookback/fineweb10bt-attribution.md \
+            --pretty-name "fineweb-edu sample-10BT (Attestrum-sealed)" \
+            --publisher "Attestrum GitHub Actions" \
+            --classification public
+
+      - name: Install cosign (sigstore/cosign-installer@v3)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
+        run: |
+          set -euo pipefail
+          version_json="$(cosign version --json)"
+          echo "$version_json"
+          git_version="$(echo "$version_json" | jq -r '.gitVersion')"
+          case "$git_version" in
+            v2.[5-9].*|v2.[1-9][0-9].*|v3.*)
+              echo "cosign $git_version: OK (>= v2.5 or any v3.x)"
+              ;;
+            *)
+              echo "::error::cosign binary is below v2.5 or unrecognised: $git_version" >&2
+              exit 1
+              ;;
+          esac
+
+      # THE acceptance gate: a third party with no Attestrum installed verifies the
+      # signed bundle with cosign alone, AND we assert the signing identity is the
+      # Attestrum GHA workflow — not a personal identity (CLAUDE-LOCAL §A9 / roadmap
+      # §21.1). Verbatim structure from pg19-publish.yml.
+      - name: cosign verify-blob-attestation (assert Attestrum GHA SAN)
+        run: |
+          set -euo pipefail
+          bundle="$WS/bundles/manifest.sigstore.json"
+          manifest="$WS/.attestrum/manifests/manifest.parquet"
+          identity_re='^https://github\.com/Attestrum/Attestrum/\.github/workflows/fineweb10bt-publish\.yml@refs/.+$'
+          issuer='https://token.actions.githubusercontent.com'
+          predicate_type='https://attestrum.com/attestation/training-corpus/v0.3'
+          echo "asserting identity matches: $identity_re"
+          echo "asserting issuer:           $issuer"
+          echo "asserting predicate type:   $predicate_type"
+          out="$(cosign verify-blob-attestation \
+            --new-bundle-format \
+            --type "$predicate_type" \
+            --bundle "$bundle" \
+            --certificate-identity-regexp "$identity_re" \
+            --certificate-oidc-issuer "$issuer" \
+            "$manifest" 2>&1)"
+          echo "$out"
+          echo "$out" | grep -q "Verified OK" \
+            || { echo "::error::cosign did not report 'Verified OK' — signing identity is NOT the Attestrum fineweb10bt-publish workflow"; exit 1; }
+          echo "cosign verify-blob-attestation: Verified OK with the Attestrum GHA workflow SAN"
