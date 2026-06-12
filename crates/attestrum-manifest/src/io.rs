@@ -26,7 +26,7 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field, Fields, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
 use attestrum_core::{AttestrumError, Modality, Result, SourceType};
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::{EnabledStatistics, WriterProperties, WriterVersion};
@@ -503,6 +503,153 @@ pub fn read_manifest_metadata(path: &Path) -> Result<(String, String)> {
     ))
 }
 
+// ============================================================================
+// Streaming I/O — constant-memory merge support
+// ============================================================================
+
+/// Row batch size for [`ManifestBatchReader`]. Small enough that many shard
+/// readers buffered concurrently stay well within a runner's RAM, large enough
+/// to amortize per-batch overhead. NOT a PROTECTED constant — it never affects
+/// output bytes (the row sequence is what determines the file), only the
+/// reader's working-set size.
+const STREAM_BATCH_ROWS: usize = 8192;
+
+/// Total row count of a Parquet manifest, read from the file footer only (no
+/// row-group decode). Used to compute per-shard `input_ordinal` offsets before
+/// a streaming merge begins, without materializing any rows.
+pub fn manifest_row_count(path: &Path) -> Result<u64> {
+    let file = File::open(path).map_err(AttestrumError::Io)?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file)
+        .map_err(|e| AttestrumError::Internal(format!("parquet reader init: {e}")))?;
+    let n = builder.metadata().file_metadata().num_rows();
+    u64::try_from(n)
+        .map_err(|_| AttestrumError::Internal(format!("manifest: negative row count {n}")))
+}
+
+/// A batched, constant-memory reader over a Parquet manifest. Yields
+/// `Vec<ManifestEntry>` chunks of at most [`STREAM_BATCH_ROWS`] rows in on-disk
+/// order — the same row order [`read_manifest`] returns (canonical
+/// `(document_id, occurrence_index)` sort as written), without materializing
+/// the whole manifest.
+///
+/// Used by `attestrum merge` to k-way-merge sharded manifests at ~100M-row
+/// scale without holding every row in memory.
+pub struct ManifestBatchReader {
+    inner: ParquetRecordBatchReader,
+}
+
+impl ManifestBatchReader {
+    /// Open `path` for batched reading. Validates only the Parquet footer
+    /// eagerly; per-batch schema downcasts happen lazily in [`Iterator::next`].
+    pub fn open(path: &Path) -> Result<Self> {
+        let file = File::open(path).map_err(AttestrumError::Io)?;
+        let inner = ParquetRecordBatchReaderBuilder::try_new(file)
+            .map_err(|e| AttestrumError::Internal(format!("parquet reader init: {e}")))?
+            .with_batch_size(STREAM_BATCH_ROWS)
+            .build()
+            .map_err(|e| AttestrumError::Internal(format!("parquet reader build: {e}")))?;
+        Ok(Self { inner })
+    }
+}
+
+impl Iterator for ManifestBatchReader {
+    type Item = Result<Vec<ManifestEntry>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let batch = self.inner.next()?;
+        Some(
+            batch
+                .map_err(|e| AttestrumError::Internal(format!("parquet batch: {e}")))
+                .and_then(|b| {
+                    let mut out = Vec::with_capacity(b.num_rows());
+                    record_batch_to_entries(&b, &mut out)?;
+                    Ok(out)
+                }),
+        )
+    }
+}
+
+/// A streaming writer for Attestrum manifests. Accepts entries through repeated
+/// [`ManifestWriter::write_entries`] calls and flushes a single Parquet file on
+/// [`ManifestWriter::close`], using the PROTECTED [`writer_properties`].
+///
+/// **Byte-identity guarantee** (and why the internal buffering is load-bearing,
+/// not incidental): the output is byte-identical to a single
+/// [`write_manifest`] of the same row sequence *only* because this writer flushes
+/// to the underlying `ArrowWriter` in batches of exactly `max_row_group_size`
+/// rows. arrow-rs is NOT write-call-invariant: feeding it batches that straddle
+/// a row-group boundary shifts a data-page boundary near the cut and changes the
+/// bytes (observed as a 1-byte delta — see
+/// `streaming_writer_byte_identical_to_one_shot_across_row_group_boundary`). By
+/// making each `ArrowWriter::write` cover exactly one row group, every row group
+/// sees the identical value sequence whether it arrived as its own batch here or
+/// as a slice arrow split out of one giant `write_manifest` batch — so the
+/// per-row-group encoding, and thus the whole file, matches.
+///
+/// Memory is bounded by one row group's worth of buffered entries
+/// (`max_row_group_size`), independent of total manifest size — the property the
+/// streaming merge needs at ~100M-row scale. The caller is responsible for the
+/// canonical pipeline ordering (see [`write_manifest`]).
+pub struct ManifestWriter {
+    inner: ArrowWriter<File>,
+    buf: Vec<ManifestEntry>,
+    row_group_rows: usize,
+}
+
+impl ManifestWriter {
+    /// Create the output file and initialize the PROTECTED Parquet writer.
+    pub fn create(path: &Path) -> Result<Self> {
+        let file = File::create(path).map_err(AttestrumError::Io)?;
+        let props = writer_properties();
+        let row_group_rows = props.max_row_group_size();
+        let inner = ArrowWriter::try_new(file, arrow_schema(), Some(props))
+            .map_err(|e| AttestrumError::Internal(format!("parquet writer init: {e}")))?;
+        Ok(Self {
+            inner,
+            buf: Vec::new(),
+            row_group_rows,
+        })
+    }
+
+    /// Append a chunk of entries. Buffers internally and flushes a full row
+    /// group to the Parquet writer whenever `max_row_group_size` rows have
+    /// accumulated; the remainder is flushed by [`close`]. An empty slice is a
+    /// no-op.
+    ///
+    /// [`close`]: ManifestWriter::close
+    pub fn write_entries(&mut self, entries: &[ManifestEntry]) -> Result<()> {
+        self.buf.extend_from_slice(entries);
+        while self.buf.len() >= self.row_group_rows {
+            let tail = self.buf.split_off(self.row_group_rows);
+            let group = std::mem::replace(&mut self.buf, tail);
+            self.flush_batch(&group)?;
+        }
+        Ok(())
+    }
+
+    fn flush_batch(&mut self, entries: &[ManifestEntry]) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let batch = entries_to_record_batch(entries)?;
+        self.inner
+            .write(&batch)
+            .map_err(|e| AttestrumError::Internal(format!("parquet write batch: {e}")))?;
+        Ok(())
+    }
+
+    /// Flush the final partial row group, finalize the Parquet footer, and
+    /// close the file. Consumes the writer.
+    pub fn close(mut self) -> Result<()> {
+        let group = std::mem::take(&mut self.buf);
+        self.flush_batch(&group)?;
+        self.inner
+            .close()
+            .map_err(|e| AttestrumError::Internal(format!("parquet close: {e}")))?;
+        Ok(())
+    }
+}
+
 fn record_batch_to_entries(batch: &RecordBatch, out: &mut Vec<ManifestEntry>) -> Result<()> {
     let cols = batch.columns();
     if cols.len() != 18 {
@@ -755,5 +902,118 @@ mod tests {
         let kv_keys: Vec<&str> = kvs.iter().map(|kv| kv.key.as_str()).collect();
         assert!(kv_keys.contains(&KV_SCHEMA_VERSION));
         assert!(kv_keys.contains(&KV_WRITER_PROFILE));
+    }
+
+    // ------------------------------------------------------------------------
+    // Streaming I/O
+    // ------------------------------------------------------------------------
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn tmp_path(name: &str) -> std::path::PathBuf {
+        let n = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let mut p = std::env::temp_dir();
+        p.push(format!(
+            "attestrum-io-test-{name}-{}-{n}.parquet",
+            std::process::id()
+        ));
+        p
+    }
+
+    /// A lightweight entry whose `document_id` encodes `seed` — keeps the >1M
+    /// byte-invariance test's working set small without affecting the writer
+    /// codepaths under test.
+    fn min_entry(seed: u64) -> ManifestEntry {
+        let mut document_id = [0u8; 32];
+        document_id[..8].copy_from_slice(&seed.to_le_bytes());
+        ManifestEntry {
+            document_id,
+            sha256: [0u8; 32],
+            size_bytes: seed,
+            modality: Modality::Text,
+            mime_type: None,
+            source_url: None,
+            source_type: None,
+            source_dataset_id: None,
+            registered_domain: None,
+            license_spdx: None,
+            language: None,
+            fetched_at: None,
+            signals: ManifestSignals::default(),
+            included: true,
+            exclusion_reason: None,
+            chunk_refs: None,
+            input_ordinal: seed,
+            occurrence_index: 0,
+        }
+    }
+
+    #[test]
+    fn streaming_reader_yields_same_rows_as_read_manifest() {
+        let path = tmp_path("stream-read");
+        let entries: Vec<ManifestEntry> = (0..1000).map(min_entry).collect();
+        write_manifest(&path, &entries).expect("write");
+
+        let bulk = read_manifest(&path).expect("read_manifest");
+        let mut streamed: Vec<ManifestEntry> = Vec::new();
+        for batch in ManifestBatchReader::open(&path).expect("open stream reader") {
+            streamed.extend(batch.expect("batch"));
+        }
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(streamed.len(), 1000);
+        assert_eq!(bulk, streamed, "streaming reader must yield identical rows");
+    }
+
+    #[test]
+    fn manifest_row_count_reads_footer() {
+        let path = tmp_path("rowcount");
+        let entries: Vec<ManifestEntry> = (0..777).map(min_entry).collect();
+        write_manifest(&path, &entries).expect("write");
+        let n = manifest_row_count(&path).expect("row count");
+        std::fs::remove_file(&path).ok();
+        assert_eq!(n, 777);
+    }
+
+    /// The load-bearing byte-identity assumption behind the streaming merge:
+    /// chunking writes across many `write_entries` calls produces bytes
+    /// identical to one giant `write_manifest`, because Parquet row-group and
+    /// data-page boundaries are accumulation-driven, not write-call-driven.
+    /// `n > max_row_group_size` so the file spans two row groups — proving the
+    /// invariance across BOTH a row-group boundary and the many intra-group
+    /// data-page boundaries.
+    #[test]
+    fn streaming_writer_byte_identical_to_one_shot_across_row_group_boundary() {
+        let n: u64 = 1_000_000 + 50_000;
+        let entries: Vec<ManifestEntry> = (0..n).map(min_entry).collect();
+
+        let one_shot = tmp_path("oneshot");
+        write_manifest(&one_shot, &entries).expect("one-shot write");
+
+        let streamed = tmp_path("streamed");
+        let mut w = ManifestWriter::create(&streamed).expect("create stream writer");
+        for chunk in entries.chunks(STREAM_BATCH_ROWS) {
+            w.write_entries(chunk).expect("write chunk");
+        }
+        w.close().expect("close");
+
+        let a = std::fs::read(&one_shot).expect("read one-shot");
+        let b = std::fs::read(&streamed).expect("read streamed");
+        std::fs::remove_file(&one_shot).ok();
+        std::fs::remove_file(&streamed).ok();
+
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "byte length differs: one-shot {} vs streamed {}",
+            a.len(),
+            b.len()
+        );
+        assert!(
+            a == b,
+            "streaming writer output is not byte-identical to one-shot write_manifest"
+        );
     }
 }

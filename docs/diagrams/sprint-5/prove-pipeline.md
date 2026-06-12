@@ -2,7 +2,7 @@
 title: "Sprint 5 attestrum-prove pipeline — exact + fuzzy match (E1-E5) + non-inclusion (E6) + alternate manifest sources (E7) + CLI + API freeze (E8)"
 models: "crates/attestrum-prove/src/lib.rs, crates/attestrum-prove/Cargo.toml, crates/attestrum-prove/tests/api_surface.rs, crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-merkle/src/lib.rs, crates/attestrum-manifest/src/lib.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-attest/src/sign.rs, crates/attestrum-cli/src/commands/prove.rs, prove, ProofTarget, ManifestSource, ProveOpts, ProofArtifact, ProofKind, AttestrumProveError, MerkleTree, audit_path, FingerprintBundle, fingerprint_text, fingerprint_image"
 source_of_truth: code
-last_verified: 8c65a8f 2026-06-06
+last_verified: a4515a5 2026-06-12
 diagram_type: flowchart
 ---
 

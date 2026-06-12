@@ -29,8 +29,9 @@ use serde::{Deserialize, Serialize};
 pub mod io;
 
 pub use io::{
-    arrow_schema, read_manifest, read_manifest_metadata, write_manifest, writer_properties,
-    CREATED_BY, SCHEMA_VERSION, WRITER_PROFILE,
+    arrow_schema, manifest_row_count, read_manifest, read_manifest_metadata, write_manifest,
+    writer_properties, ManifestBatchReader, ManifestWriter, CREATED_BY, SCHEMA_VERSION,
+    WRITER_PROFILE,
 };
 
 // ============================================================================

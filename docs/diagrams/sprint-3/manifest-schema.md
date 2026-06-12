@@ -2,7 +2,7 @@
 title: "attestrum-manifest Parquet row schema (BUILD-PLAN §4.2 16 cols + input_ordinal + occurrence_index binding)"
 models: "crates/attestrum-manifest/src/lib.rs, crates/attestrum-manifest/src/io.rs"
 source_of_truth: code
-last_verified: 7db9838 2026-06-12
+last_verified: a4515a5 2026-06-12
 diagram_type: erDiagram
 ---
 
@@ -26,6 +26,8 @@ The `input_ordinal` column was added in Sprint 3 E2.5 per the E3 pre-implementat
 If that holds, the multiset Merkle binding is correct — no need to trust Attestrum's internal counter logic.
 
 **Deterministic Parquet writer config** (per E3 cross-check, more conservative than the original lean): PARQUET_1_0 writer version, ZSTD compression at level 3, dictionary encoding DISABLED globally, statistics DISABLED globally, raw `Int8`/`UInt8` encoding for `modality` and `source_type` enums (mapping pinned in KeyValue metadata), raw `Int64` for `fetched_at_ms` (avoids Arrow TIMESTAMP timezone-metadata leak), `created_by` pinned (NOT the parquet-rs default), bloom filters off, sorted by `(document_id, occurrence_index)`. `attestrum.manifest.schema_version = 2` lives in file-level KeyValue metadata, not as a per-row column.
+
+**Streaming I/O** (constant-memory read/write for `attestrum merge` at ~100M-row scale, added 2026-06-12 — same PROTECTED schema + writer config, no format change): `ManifestBatchReader` yields `Vec<ManifestEntry>` chunks in on-disk order without materializing the whole manifest; `ManifestWriter` accepts entries through repeated `write_entries` calls and emits a file **byte-identical** to a single `write_manifest` of the same row sequence; `manifest_row_count` reads the footer row count without decoding row groups. The byte-identity is load-bearing and non-obvious: arrow-rs is NOT write-call-invariant, so `ManifestWriter` flushes to the underlying `ArrowWriter` in batches of exactly `max_row_group_size` rows — making each `ArrowWriter::write` cover one row group, so a row group's encoding matches whether it arrived as its own batch or as a slice arrow split out of one giant `write_manifest` batch. Verified by `streaming_writer_byte_identical_to_one_shot_across_row_group_boundary` (crosses the 1M-row boundary).
 
 ```mermaid
 erDiagram
