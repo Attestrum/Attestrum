@@ -79,3 +79,11 @@ attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }
 arrow          = { workspace = true }
 parquet        = { workspace = true }
 proptest       = "1"
+# Streaming-merge byte-identity proptest (tests/merge_byte_identity.rs):
+# restated like attestrum-manifest above (integration tests don't inherit
+# regular deps) — attestrum-core for the Modality enum when constructing shard
+# fixtures, attestrum-merkle to cross-check the merged root against an
+# in-process reference. Both are already crate [dependencies]; no new external
+# crate, no lockfile/license change.
+attestrum-core   = { path = "../attestrum-core",   version = "0.0.1" }
+attestrum-merkle = { path = "../attestrum-merkle", version = "0.1.0" }

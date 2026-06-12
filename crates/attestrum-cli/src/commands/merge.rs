@@ -1,34 +1,56 @@
 //! `attestrum merge --inputs <files...> --out <merged.parquet>` — merges
-//! N already-sealed shard manifests into one. Reads each shard
-//! manifest via `attestrum_manifest::read_manifest`, concatenates rows in
-//! lexicographic input-path order (deterministic), re-runs
-//! `assign_occurrence_indices` GLOBALLY so cross-shard identical
-//! digests get a unified occurrence count, then re-runs `sort_entries`
-//! and writes the merged manifest. The merged Merkle root (RFC 6962 over
-//! the canonically sorted `document_id` leaves — the same computation as
-//! `attestrum_pipeline::build_corpus`) is printed as a `merkle_root:` line
-//! and written to a `merkle.root` file beside `--out` (64 lowercase hex
-//! chars + newline, the `attestrum build` sibling-file format), so sharded
-//! CI pipelines consume the canonical root without parsing `inspect`.
+//! N already-sealed shard manifests into one in a single streaming pass, with
+//! memory bounded independent of the total row count.
 //!
-//! See `docs/diagrams/sprint-3/sharding.md` for the determinism
-//! contract: the merged Merkle root ALWAYS equals the root of an
-//! unsharded build of the same logical corpus (multiset Merkle is
-//! invariant under within-group permutation). The merged
-//! `manifest.parquet` BYTES additionally equal the unsharded variant
-//! when no cross-shard duplicate digests exist (or when they happen to
-//! align — the typical case for production corpora where duplicate
-//! content shares a source_url and therefore co-locates to the same
-//! shard per `attestrum plan`'s assignment rule).
+//! Each shard manifest is read in batches ([`ManifestBatchReader`]) and the
+//! shards are k-way merged by `(document_id, shard_index)` into the canonical
+//! `(document_id, occurrence_index)` on-disk order. As each row is emitted the
+//! merge stamps `input_ordinal` = `shard_offset + within-shard position` (the
+//! concat-order position the in-memory build assigned) and `occurrence_index`
+//! via an O(1) running per-digest counter (equal digests are contiguous in the
+//! merged stream), appends the row to a streaming Parquet writer
+//! ([`ManifestWriter`]), and collects its `document_id` leaf for the root.
+//!
+//! This is BYTE-IDENTICAL to the previous load-everything / concat /
+//! re-`assign_*` / `sort_entries` / `write_manifest` implementation for any set
+//! of sorted shard manifests — every Attestrum-produced manifest is written in
+//! `(document_id, occurrence_index)` order, so the merged stream emits rows in
+//! exactly the order the old global sort produced, with the same
+//! `input_ordinal` / `occurrence_index` values. The only buffers that grow with
+//! the corpus are the leaf-digest vector (32 B/row) and one row group inside the
+//! writer; the merge no longer holds every row in memory, so it scales to the
+//! ~100M-row rungs where the old O(rows) merge exhausted the runner.
+//!
+//! **Precondition**: each shard manifest is internally sorted so equal
+//! `document_id`s are contiguous (guaranteed by `sort_entries`, which every seal
+//! path runs before writing). A shard whose `document_id`s are not
+//! non-decreasing is rejected with [`MergeError::UnsortedShard`] rather than
+//! silently producing a different result than the old merge.
+//!
+//! The merged Merkle root (RFC 6962 over BLAKE3 via
+//! `attestrum_merkle::merkle_root` over the canonically sorted `document_id`
+//! leaves) is printed as a `merkle_root:` line and written to a `merkle.root`
+//! file beside `--out` (64 lowercase hex chars + newline, the `attestrum build`
+//! sibling-file format). See `docs/diagrams/sprint-3/sharding.md` for the
+//! determinism contract: the merged Merkle root ALWAYS equals the root of an
+//! unsharded build of the same logical corpus (multiset Merkle is invariant
+//! under within-group permutation). The merged `manifest.parquet` BYTES
+//! additionally equal the unsharded variant only when `input_ordinal` happens
+//! to align — see `sharding.md`.
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::fs;
 use std::path::PathBuf;
 
-use attestrum_manifest::{
-    assign_input_ordinals, assign_occurrence_indices, read_manifest, sort_entries, write_manifest,
-    ManifestEntry,
-};
+use attestrum_manifest::{manifest_row_count, ManifestBatchReader, ManifestEntry, ManifestWriter};
 use thiserror::Error;
+
+/// How many merged entries to stage before handing a slice to the streaming
+/// writer. Bounds the merge-side staging buffer; the writer does its own
+/// row-group-aligned buffering internally, so this only batches the
+/// `entries`-to-Arrow conversion call frequency.
+const WRITE_CHUNK: usize = 8192;
 
 /// Subcommand arguments.
 #[derive(Debug)]
@@ -49,6 +71,12 @@ pub enum MergeError {
         #[source]
         source: attestrum_core::AttestrumError,
     },
+
+    #[error(
+        "shard manifest {path} is not sorted by document_id (equal digests must \
+         be contiguous); attestrum merge requires Attestrum-sealed manifests"
+    )]
+    UnsortedShard { path: PathBuf },
 
     #[error("output dir prepare failed at {path}: {source}")]
     OutputDir {
@@ -85,57 +113,87 @@ pub fn run(args: Args) -> u8 {
     }
 }
 
+/// One shard's streaming read cursor. The current batch is stored reversed so
+/// `rev_batch.pop()` yields rows in on-disk order in O(1) without cloning.
+struct ShardCursor {
+    reader: ManifestBatchReader,
+    /// Current batch, stored reversed: `pop()` returns the next row in order.
+    rev_batch: Vec<ManifestEntry>,
+    /// 0-based ordinal of the next row within this shard (across batches).
+    j: u64,
+    /// `input_ordinal` base for this shard = sum of prior shards' row counts.
+    offset: u64,
+    /// document_id of the last row popped — enforces within-shard sort order.
+    prev_doc: Option<[u8; 32]>,
+    /// Source path, for error context.
+    path: PathBuf,
+}
+
+impl ShardCursor {
+    /// Ensure `rev_batch` is non-empty unless the reader is exhausted. Skips
+    /// any empty batches the reader may yield.
+    fn fill(&mut self) -> Result<(), MergeError> {
+        while self.rev_batch.is_empty() {
+            match self.reader.next() {
+                None => break,
+                Some(Ok(mut batch)) => {
+                    batch.reverse();
+                    self.rev_batch = batch;
+                }
+                Some(Err(source)) => {
+                    return Err(MergeError::InputRead {
+                        path: self.path.clone(),
+                        source,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// document_id of the head row (next to emit), or None if exhausted.
+    fn peek_doc(&self) -> Option<[u8; 32]> {
+        self.rev_batch.last().map(|e| e.document_id)
+    }
+}
+
 fn run_inner(args: Args) -> Result<(), MergeError> {
     if args.inputs.is_empty() {
         return Err(MergeError::NoInputs);
     }
 
-    // Sort input paths lexicographically. The user's shell may have
-    // already done this (glob expansion), but be defensive — the
-    // concatenation order determines the global `assign_occurrence_indices`
-    // walk order, which is the only non-trivially-deterministic piece
-    // of the merge.
+    // Lex-sort input paths. The concat order this defines is what assigns
+    // input_ordinal (and, via contiguity, occurrence_index), matching the
+    // previous implementation's `sorted_inputs` walk.
     let mut sorted_inputs = args.inputs.clone();
     sorted_inputs.sort();
 
-    let mut merged: Vec<ManifestEntry> = Vec::new();
-    for input in &sorted_inputs {
-        let rows = read_manifest(input).map_err(|source| MergeError::InputRead {
-            path: input.clone(),
+    // Open one cursor per shard; compute each shard's input_ordinal offset from
+    // the footer row count (no row-group decode).
+    let mut cursors: Vec<ShardCursor> = Vec::with_capacity(sorted_inputs.len());
+    let mut offset: u64 = 0;
+    for path in &sorted_inputs {
+        let count = manifest_row_count(path).map_err(|source| MergeError::InputRead {
+            path: path.clone(),
             source,
         })?;
-        merged.extend(rows);
+        let reader = ManifestBatchReader::open(path).map_err(|source| MergeError::InputRead {
+            path: path.clone(),
+            source,
+        })?;
+        let mut cursor = ShardCursor {
+            reader,
+            rev_batch: Vec::new(),
+            j: 0,
+            offset,
+            prev_doc: None,
+            path: path.clone(),
+        };
+        cursor.fill()?;
+        cursors.push(cursor);
+        offset += count;
     }
-
-    // Global passes (mirror the epilogue from `attestrum_pipeline::build_corpus`
-    // adapted to merge semantics):
-    //
-    //   1. Re-assign `input_ordinal` so each row has a unique 0..N value
-    //      in concat order. Each shard manifest carried per-shard ordinals
-    //      (rows from two shards could both have ordinal 0), which would
-    //      break E2.5's audit invariant in the merged file. Re-stamping
-    //      makes the merged manifest auditable on its own terms — the
-    //      ordering is the merge concat order rather than the original
-    //      pre-shard input order, but the invariant "within each digest
-    //      group, sort-by-input_ordinal rank equals occurrence_index"
-    //      holds end-to-end.
-    //
-    //   2. Re-assign `occurrence_index` globally so cross-shard
-    //      identical digests get a unified counter (a digest that
-    //      appeared as occurrence 0 in two different shards becomes
-    //      occurrence 0 and 1 in the merged manifest).
-    //
-    //   3. Canonical sort by `(document_id, occurrence_index)`.
-    //
-    // The merged Merkle root computed over the sorted digests equals
-    // the root of an unsharded build (multiset Merkle is invariant
-    // under within-group permutation). The merged `manifest.parquet`
-    // BYTES, however, do NOT generally match unsharded — `input_ordinal`
-    // reflects merge concat order rather than original input order.
-    // Documented in `docs/diagrams/sprint-3/sharding.md` body.
-    assign_input_ordinals(&mut merged);
-    assign_occurrence_indices(&mut merged);
-    sort_entries(&mut merged);
+    let total_rows = offset;
 
     if let Some(parent) = args.out.parent() {
         if !parent.as_os_str().is_empty() {
@@ -145,12 +203,80 @@ fn run_inner(args: Args) -> Result<(), MergeError> {
             })?;
         }
     }
-    write_manifest(&args.out, &merged)?;
+    let mut writer = ManifestWriter::create(&args.out)?;
 
-    // `merged` is in canonical (document_id, occurrence_index) order, so the
-    // leaf sequence is exactly what `build_corpus` feeds `merkle_root` — the
-    // merged root equals the unsharded root by multiset invariance.
-    let leaves: Vec<[u8; 32]> = merged.iter().map(|r| r.document_id).collect();
+    // Min-heap of (document_id, shard_index): popping the global minimum emits
+    // all rows sharing a document_id contiguously (lower shard_index first =
+    // concat order), which is exactly the canonical (document_id,
+    // occurrence_index) on-disk order.
+    let mut heap: BinaryHeap<Reverse<([u8; 32], usize)>> = BinaryHeap::new();
+    for (idx, cursor) in cursors.iter().enumerate() {
+        if let Some(doc) = cursor.peek_doc() {
+            heap.push(Reverse((doc, idx)));
+        }
+    }
+
+    let mut leaves: Vec<[u8; 32]> =
+        Vec::with_capacity(usize::try_from(total_rows).unwrap_or(usize::MAX));
+    let mut out_buf: Vec<ManifestEntry> = Vec::with_capacity(WRITE_CHUNK);
+    let mut cur_doc: Option<[u8; 32]> = None;
+    let mut occ: u32 = 0;
+    let mut rows: u64 = 0;
+
+    while let Some(Reverse((doc, idx))) = heap.pop() {
+        let cursor = &mut cursors[idx];
+
+        // Within-shard order guard: document_id must be non-decreasing, or the
+        // contiguity the occurrence_index counter relies on is violated.
+        if let Some(prev) = cursor.prev_doc {
+            if doc < prev {
+                return Err(MergeError::UnsortedShard {
+                    path: cursor.path.clone(),
+                });
+            }
+        }
+
+        let mut entry = cursor
+            .rev_batch
+            .pop()
+            .expect("heap invariant: popped shard has a head row");
+        cursor.prev_doc = Some(doc);
+
+        // input_ordinal = concat position (shard offset + within-shard ordinal).
+        entry.input_ordinal = cursor.offset + cursor.j;
+        cursor.j += 1;
+
+        // occurrence_index = running per-digest counter over the contiguous
+        // (document_id-sorted) merged stream.
+        if cur_doc == Some(entry.document_id) {
+            occ += 1;
+        } else {
+            cur_doc = Some(entry.document_id);
+            occ = 0;
+        }
+        entry.occurrence_index = occ;
+
+        leaves.push(entry.document_id);
+        out_buf.push(entry);
+        rows += 1;
+        if out_buf.len() >= WRITE_CHUNK {
+            writer.write_entries(&out_buf)?;
+            out_buf.clear();
+        }
+
+        // Advance this shard and re-push its new head.
+        cursor.fill()?;
+        if let Some(next_doc) = cursor.peek_doc() {
+            heap.push(Reverse((next_doc, idx)));
+        }
+    }
+    if !out_buf.is_empty() {
+        writer.write_entries(&out_buf)?;
+    }
+    writer.close()?;
+
+    // The emission order IS the canonical (document_id, occurrence_index) leaf
+    // order, so this root equals the unsharded build's by multiset invariance.
     let root = attestrum_merkle::merkle_root(&leaves);
     let root_hex = hex_64(&root);
 
@@ -165,13 +291,13 @@ fn run_inner(args: Args) -> Result<(), MergeError> {
     tracing::info!(
         inputs = sorted_inputs.len(),
         out = %args.out.display(),
-        rows = merged.len(),
+        rows,
         merkle_root = %root_hex,
         "merge complete"
     );
     println!("attestrum merge: ok");
     println!("  inputs:       {}", sorted_inputs.len());
-    println!("  rows:         {}", merged.len());
+    println!("  rows:         {rows}");
     println!("  merkle_root:  {root_hex}");
     println!("  merkle_file:  {}", root_path.display());
     println!("  out:          {}", args.out.display());

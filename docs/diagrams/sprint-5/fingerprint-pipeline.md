@@ -2,7 +2,7 @@
 title: "Sprint 5 attestrum-fingerprint pipeline — text (E1) + image (E2) + bytes (E2) + MinHash/SimHash (E3) + ISCC composition (E4) + API freeze + determinism gate (E5)"
 models: "crates/attestrum-fingerprint/src/lib.rs, crates/attestrum-fingerprint/src/text/mod.rs, crates/attestrum-text-minhash/src/lib.rs, crates/attestrum-text-minhash/src/minhash.rs, crates/attestrum-fingerprint/src/text/simhash.rs, crates/attestrum-fingerprint/tests/api_surface.rs, crates/attestrum-fingerprint/tests/schema_derive.rs, crates/attestrum-fingerprint/tests/determinism.rs, fingerprint_text, fingerprint_image, normalize_text, FingerprintBundle, TextFingerprint, ImageFingerprint, IsccComposition, FingerprintOpts, AttestrumFingerprintError, FINGERPRINT_SCHEMA, Modality"
 source_of_truth: code
-last_verified: 8c65a8f 2026-06-06
+last_verified: 39fa850 2026-06-12
 diagram_type: flowchart
 ---
 

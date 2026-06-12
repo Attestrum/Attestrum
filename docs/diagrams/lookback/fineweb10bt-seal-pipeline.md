@@ -2,7 +2,7 @@
 title: "Lookback — fineweb-edu sample-10BT sharded-matrix seal pipeline"
 models: "crates/attestrum-pipeline/examples/seal-fineweb-edu.rs, crates/attestrum-cli/src/commands/merge.rs"
 source_of_truth: code
-last_verified: 7f7b327 2026-06-12
+last_verified: 39fa850 2026-06-12
 diagram_type: flowchart
 ---
 
@@ -35,12 +35,13 @@ Three decisions shape the pipeline:
    shard-invariant), so a leaf's identity does not depend on which shard sealed
    it. Per-shard `input_ordinal` restarts are fine: `merge` re-stamps ordinals
    globally over the concatenation.
-3. **The merged root is the canonical root.** `attestrum merge` concatenates
-   shard manifests in lexicographic input order, re-runs the global passes,
-   recomputes the RFC 6962 root over the sorted leaf set, prints
-   `merkle_root: <hex>`, and writes `merkle.root` beside the merged manifest —
-   byte-identical to what an (infeasible) unsharded build would produce
-   (multiset invariance; proven by `crates/attestrum-cli/tests/sharding.rs` and
+3. **The merged root is the canonical root.** `attestrum merge` k-way merges
+   the shard manifests (lexicographic input order) in a single streaming pass,
+   stamping `input_ordinal` + `occurrence_index` globally as it emits, recomputes
+   the RFC 6962 root over the sorted leaf set, prints `merkle_root: <hex>`, and
+   writes `merkle.root` beside the merged manifest — byte-identical to what an
+   (infeasible) unsharded build would produce (multiset invariance; proven by
+   `crates/attestrum-cli/tests/sharding.rs` + `tests/merge_byte_identity.rs` and
    re-proven through this example's split-vs-whole test).
 
 ```mermaid
@@ -65,7 +66,7 @@ flowchart TD
 
   subgraph MERGE["CI merge job (needs: all 14 seal jobs)"]
     GATHER["download 14 shard artifacts"]
-    MRG["attestrum merge --out manifest.parquet<br/>concat in lexicographic input order<br/>re-stamp input_ordinal + occurrence_index globally"]
+    MRG["attestrum merge --out manifest.parquet<br/>streaming k-way merge, lexicographic input order<br/>stamp input_ordinal + occurrence_index globally"]
     ROOT["merged manifest.parquet (9,672,101 rows)<br/>+ merkle_root: hex line + merkle.root file"]
     TRIPLE["mode=capture: record triple<br/>mode=assert: root + manifest SHA-256<br/>+ leaves == 9,672,101 must reproduce"]
     GATHER --> MRG --> ROOT --> TRIPLE
@@ -97,12 +98,15 @@ after column decode, so each row's text bytes are passed as
 the per-shard manifest deterministic regardless. Peak RSS per shard is bounded
 by the parquet reader's batch size, not the corpus.
 
-**Why the merge job measures RSS:** `merge` holds all manifest rows in memory
-(~4.5 GB est. at 9.67M rows). The capture run records peak RSS via
-`/usr/bin/time -v` — the calibration datum that decides whether the ~100M-row
-286 GB rung needs a streaming merge (deferred, separate approval). Fallback if
-this rung OOMs: staged merge (7+7 then 2) on the same runner — root-identical
-by multiset invariance.
+**Why the merge job measured RSS (and what it drove):** the capture run
+measured the original load-everything merge at **8.7 GiB peak for 9.67M rows**
+(~940 B/row) via `/usr/bin/time -v` — the calibration datum that showed the
+~100M-row 286 GB rung would need ~90 GiB, infeasible on a free runner. That
+measurement drove the **streaming k-way merge** (now landed — see
+`sharding.md`): `merge` no longer holds all rows; peak is bounded by one Parquet
+row group plus the 32-B-per-row leaf-digest vector (~4–5 GiB est. at 100M rows).
+The merged output is byte-identical, so this 10BT triple still reproduces
+exactly.
 
 The PROTECTED `attestrum-fingerprint` normalization and all other §4 systems
 (CLAUDE.md) are untouched, as in all prior rungs.
