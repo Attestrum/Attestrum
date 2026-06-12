@@ -2,7 +2,7 @@
 title: "attestrum prove pipeline — inclusion and non-inclusion"
 models: "crates/attestrum-prove/src/lib.rs::prove, crates/attestrum-fingerprint, crates/attestrum-merkle, crates/attestrum-attest"
 source_of_truth: diagram
-last_verified: 8d49acc 2026-06-06
+last_verified: 7db9838 2026-06-12
 diagram_type: flowchart
 ---
 

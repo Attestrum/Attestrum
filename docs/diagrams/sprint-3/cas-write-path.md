@@ -2,7 +2,7 @@
 title: "attestrum-pipeline to attestrum-cas write path under N parallel Rayon workers"
 models: "crates/attestrum-pipeline/src/lib.rs, crates/attestrum-cas/src/store.rs"
 source_of_truth: code
-last_verified: 8d49acc 2026-06-06
+last_verified: 7db9838 2026-06-12
 diagram_type: sequenceDiagram
 ---
 

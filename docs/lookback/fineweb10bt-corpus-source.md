@@ -131,3 +131,43 @@ run **19.5 minutes end-to-end** for the 28.5 GB corpus:
 ~90 GiB — far beyond a 16 GB runner, so Stage 4 requires a streaming merge (or
 a large-memory machine); staged pairwise merging does not help, since the final
 stage still holds every row. Deferred with its own approval per the plan.
+
+## Published (signed + live)
+
+Sealed by the 14-shard matrix, merged, gated on the canonical triple, signed
+keyless under the **Attestrum GitHub Actions identity** (§A9 — never a
+personal one), and pushed by the `fineweb10bt-publish` workflow
+([run 27431593593](https://github.com/Attestrum/Attestrum/actions/runs/27431593593))
+on 2026-06-12. The pre-sign gate asserted the canonical triple above before
+Fulcio was contacted; the pushed `attestrum/manifest.parquet`'s LFS SHA-256
+equals the canonical value.
+
+| Field | Value |
+|---|---|
+| Hugging Face dataset | [`Attestrum/fineweb-edu-sample-10BT-sealed`](https://huggingface.co/datasets/Attestrum/fineweb-edu-sample-10BT-sealed) |
+| Predicate type | `https://attestrum.com/attestation/training-corpus/v0.3` |
+| Sigstore bundle | `attestrum/bundle.sigstore.json` (v0.3) |
+| Rekor logIndex (global) | `1804671018` |
+| Rekor `integratedTime` | `1781285906` (2026-06-12) |
+| Signing identity | `…/.github/workflows/fineweb10bt-publish.yml@refs/heads/main` (issuer `token.actions.githubusercontent.com`) |
+
+A third party with no Attestrum installed verifies the signed manifest with
+stock cosign. **One scale note:** at 844 MB the merged manifest exceeds
+cosign's default 128 MiB blob-read cap (`size of layer exceeded the limit`),
+so the blob's digest is computed with `shasum`/`sha256sum` and handed to
+cosign via `--digest`/`--digestAlg` — cosign still performs every signature,
+identity, Rekor, and in-toto-subject check:
+
+```bash
+sha=$(shasum -a 256 manifest.parquet | awk '{print $1}')
+cosign verify-blob-attestation \
+  --new-bundle-format \
+  --type 'https://attestrum.com/attestation/training-corpus/v0.3' \
+  --bundle bundle.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/Attestrum/Attestrum/\.github/workflows/fineweb10bt-publish\.yml@refs/.+$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --digest "$sha" --digestAlg sha256
+```
+
+Verified `Verified OK` against the live HF artifacts on 2026-06-12 (cosign
+v3.0.6, independent machine).

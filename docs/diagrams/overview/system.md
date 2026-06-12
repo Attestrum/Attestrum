@@ -2,7 +2,7 @@
 title: "Attestrum system overview — inputs to outputs"
 models: "crates/attestrum-core, crates/attestrum-signals, crates/attestrum-cas, crates/attestrum-merkle, crates/attestrum-manifest, crates/attestrum-fingerprint, crates/attestrum-ledger, crates/attestrum-pipeline, crates/attestrum-attest, crates/attestrum-emit, crates/attestrum-prove, crates/attestrum-publish"
 source_of_truth: diagram
-last_verified: 8d49acc 2026-06-06
+last_verified: 7db9838 2026-06-12
 diagram_type: flowchart
 ---
 

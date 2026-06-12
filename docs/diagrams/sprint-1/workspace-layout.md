@@ -2,7 +2,7 @@
 title: "Sprint 1 workspace layout — frozen snapshot at Sprint 1 close (E12)"
 models: "Cargo.toml, rust-toolchain.toml, .cargo/config.toml, rustfmt.toml, clippy.toml, crates/, tools/diagram-linter/, docs/, .github/workflows/ci.yml"
 source_of_truth: diagram
-last_verified: 8d49acc 2026-06-06
+last_verified: 7db9838 2026-06-12
 diagram_type: flowchart
 ---
 

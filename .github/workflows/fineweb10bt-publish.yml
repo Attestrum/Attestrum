@@ -382,6 +382,12 @@ jobs:
       # signed bundle with cosign alone, AND we assert the signing identity is the
       # Attestrum GHA workflow — not a personal identity (CLAUDE-LOCAL §A9 / roadmap
       # §21.1). Verbatim structure from pg19-publish.yml.
+      # The merged manifest (844 MB) exceeds cosign's 128 MiB blob-read cap
+      # ("size of layer exceeded the limit" — hit by run 27431593593, the first
+      # rung whose MANIFEST outsizes the cap), so the digest is computed with
+      # sha256sum and handed to cosign via --digest/--digestAlg. cosign still
+      # performs every signature / identity / Rekor / in-toto-subject check —
+      # only the blob hashing moves to sha256sum. Stock tooling either way.
       - name: cosign verify-blob-attestation (assert Attestrum GHA SAN)
         run: |
           set -euo pipefail
@@ -393,14 +399,25 @@ jobs:
           echo "asserting identity matches: $identity_re"
           echo "asserting issuer:           $issuer"
           echo "asserting predicate type:   $predicate_type"
+          manifest_sha="$(sha256sum "$manifest" | awk '{print $1}')"
+          echo "manifest sha256:            $manifest_sha"
+          # Capture without set -e aborting mid-substitution, so a cosign
+          # failure still echoes its output (run 27431593593's failure was
+          # mute because the substitution aborted before the echo).
+          set +e
           out="$(cosign verify-blob-attestation \
             --new-bundle-format \
             --type "$predicate_type" \
             --bundle "$bundle" \
             --certificate-identity-regexp "$identity_re" \
             --certificate-oidc-issuer "$issuer" \
-            "$manifest" 2>&1)"
+            --digest "$manifest_sha" \
+            --digestAlg sha256 2>&1)"
+          rc=$?
+          set -e
           echo "$out"
-          echo "$out" | grep -q "Verified OK" \
-            || { echo "::error::cosign did not report 'Verified OK' — signing identity is NOT the Attestrum fineweb10bt-publish workflow"; exit 1; }
+          if [ "$rc" -ne 0 ] || ! echo "$out" | grep -q "Verified OK"; then
+            echo "::error::cosign did not report 'Verified OK' — signing identity is NOT the Attestrum fineweb10bt-publish workflow"
+            exit 1
+          fi
           echo "cosign verify-blob-attestation: Verified OK with the Attestrum GHA workflow SAN"
