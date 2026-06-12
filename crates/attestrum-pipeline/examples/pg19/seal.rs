@@ -243,18 +243,27 @@ mod tests {
 
     #[test]
     fn unreadable_split_dir_is_an_io_error() {
-        // A split path that exists as a FILE (not a dir) is skipped by is_dir();
-        // an unreadable directory must surface as SealError::Io. Simulate by
-        // pointing read_dir at a path whose parent exists but which is removed
-        // between is_dir() and read_dir via a dangling symlink (portable enough
-        // for unix CI + macOS dev).
+        // An unreadable split directory must surface as SealError::Io (not be
+        // silently skipped). chmod 000 only blocks non-root processes — the
+        // determinism matrix's musl job runs in a container as root, where the
+        // kernel ignores permission bits — so detect euid via the uid stamped
+        // on a file this process creates (std-only) and skip under root.
         #[cfg(unix)]
         {
+            use std::os::unix::fs::MetadataExt;
+            use std::os::unix::fs::PermissionsExt;
+
             let input = unique_dir("err-unreadable");
             let dir = input.join("train");
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("1.txt"), "x\n").unwrap();
-            use std::os::unix::fs::PermissionsExt;
+            if fs::metadata(dir.join("1.txt")).unwrap().uid() == 0 {
+                // Running as root (containerized CI): permission bits cannot
+                // make the dir unreadable; the assertion below would be
+                // meaningless. Covered on every non-root target instead.
+                let _ = fs::remove_dir_all(&input);
+                return;
+            }
             fs::set_permissions(&dir, fs::Permissions::from_mode(0o000)).unwrap();
             let result = book_paths(&input);
             fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
