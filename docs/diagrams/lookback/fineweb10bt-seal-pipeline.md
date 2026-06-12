@@ -1,16 +1,17 @@
 ---
 title: "Lookback — fineweb-edu sample-10BT sharded-matrix seal pipeline"
 models: "crates/attestrum-pipeline/examples/seal-fineweb-edu.rs, crates/attestrum-cli/src/commands/merge.rs"
-source_of_truth: diagram
-last_verified: 8b3dbb7 2026-06-12
+source_of_truth: code
+last_verified: 7f7b327 2026-06-12
 diagram_type: flowchart
 ---
 
 # Lookback — fineweb-edu sample-10BT sharded-matrix seal
 
-**Source of truth: `diagram`** — this is the contract the seal generator
-(`crates/attestrum-pipeline/examples/seal-fineweb-edu.rs`) and the CI workflows
-must implement; it flips to `code` when the example lands. Fourth reference
+**Source of truth: `code`** — the seal generator
+`crates/attestrum-pipeline/examples/seal-fineweb-edu.rs` (with its
+parquet-reading core `examples/fineweb_edu/seal.rs`) has landed; this diagram
+is now a derived view of it and of `attestrum merge`. Fourth reference
 bundle after WikiText-103, dolly-15k, and PG-19, and the ladder's first
 **sharded** rung: 9,672,101 web pages / 28.5 GB compressed parquet — too big
 for one runner's disk, so this rung exists to prove the architecture that
