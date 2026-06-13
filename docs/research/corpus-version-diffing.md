@@ -58,6 +58,22 @@ materializes either manifest in full — peak memory is the per-side leaf-digest
 plus one batch per reader, the same envelope `attestrum merge` accepts. It scales to
 manifests with tens of millions of rows.
 
+```mermaid
+flowchart TD
+    A["old manifest.parquet<br/>sealed · sorted by document_id"] --> V["validate<br/>schema version + path"]
+    B["new manifest.parquet<br/>sealed · sorted by document_id"] --> V
+    V --> J["streaming merge-join<br/>walk both in document_id order"]
+    J --> C{"compare document_id"}
+    C -->|in both| U["unchanged"]
+    C -->|old only| R["removed"]
+    C -->|new only| D["added"]
+    U --> REP["deterministic report<br/>+ composition shift + both Merkle roots"]
+    R --> REP
+    D --> REP
+    REP --> O1(["report.json"])
+    REP --> O2(["stdout summary"])
+```
+
 ## 2. Why it is valuable
 
 The honest starting state for most corpus work is a hunch: *"I think the dedup pass
@@ -137,6 +153,15 @@ removed 2 / unchanged 1** — not the "1 modified, 1 removed, 1 added" you might
 
 The two distinct Merkle roots on the `old:` and `new:` lines name the two corpus states
 cryptographically; the byte-count drop (645 → 406) reflects the smaller revised set.
+
+The identity model in one picture — an edited document is two events, not one:
+
+```mermaid
+flowchart LR
+    E["doc01<br/>content edited"] --> O["its old content hash<br/>→ removed"]
+    E --> N["its new content hash<br/>→ added"]
+    O -. "no link between them — a changed<br/>content hash IS a different document" .-> N
+```
 
 ## 4. When to use it
 
