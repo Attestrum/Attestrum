@@ -481,6 +481,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "attestrum-diff"
+version = "0.1.0"
+dependencies = [
+ "attestrum-attest",
+ "attestrum-core",
+ "attestrum-manifest",
+ "attestrum-merkle",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "attestrum-emit"
 version = "0.1.0"
 dependencies = [

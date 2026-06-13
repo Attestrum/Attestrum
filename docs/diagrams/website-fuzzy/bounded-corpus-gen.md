@@ -2,7 +2,7 @@
 title: "C3 bounded fuzzy-corpus generator — showcase passages → kernel → fuzzy-index.json"
 models: "tools/fuzzy-web-gen/src/lib.rs, tools/fuzzy-web-gen/src/main.rs, tests/fixtures/showcase-passages/display.json, tests/fixtures/fuzzy-web/fuzzy-index.json, normalize_text"
 source_of_truth: code
-last_verified: 39d7ac4 2026-06-06
+last_verified: e71552c 2026-06-12
 diagram_type: flowchart
 ---
 

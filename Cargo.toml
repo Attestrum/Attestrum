@@ -19,6 +19,7 @@ members = [
     "crates/attestrum-fingerprint-registry",
     "crates/attestrum-index",
     "crates/attestrum-cli",
+    "crates/attestrum-diff",
     "tools/diagram-linter",
     "tools/secret-scanner",
     "tools/fuzzy-web-gen",

@@ -2,7 +2,7 @@
 title: "C2 wasm text-MinHash kernel — one source, native + wasm consumers, byte-identity gates"
 models: "crates/attestrum-fingerprint-wasm/src/lib.rs, crates/attestrum-text-minhash/src/lib.rs, crates/attestrum-text-minhash/src/minhash.rs, crates/attestrum-fingerprint-wasm/tests/crosscheck.rs, MINHASH_PERMS, normalize_text, fingerprint_text"
 source_of_truth: code
-last_verified: 9681203 2026-06-06
+last_verified: e71552c 2026-06-12
 diagram_type: flowchart
 ---
 

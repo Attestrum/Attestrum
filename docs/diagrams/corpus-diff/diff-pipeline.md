@@ -1,6 +1,6 @@
 ---
 title: "attestrum diff — read-only corpus-version delta over two sealed manifests (merge-join on document_id)"
-models: "crates/attestrum-diff/ (planned), crates/attestrum-cli/src/commands/diff.rs (planned)"
+models: "crates/attestrum-diff/src/lib.rs, crates/attestrum-cli/src/commands/diff.rs (planned)"
 source_of_truth: diagram
 last_verified: e71552c 2026-06-12
 diagram_type: flowchart
@@ -99,6 +99,24 @@ existing protected/landed code consumed read-only (`read_manifest_metadata`,
 `attestrum-diff` crate + `commands/diff.rs` · 🟩 green `output` = the two report
 surfaces · amber = exit paths · grey = declared-and-deferred (stated in the
 report, not computed in v1).
+
+## Public API (`crates/attestrum-diff`)
+
+The crate's surface, as the flowchart's nodes map to it:
+
+- `compare` — the streaming merge-join entry point; consumes two canonically
+  sorted `ManifestEntry` streams and returns a `DiffReport`.
+- `DiffReport` — the whole report: `REPORT_VERSION` tag, `IDENTITY_MODE` string,
+  the `DEFERRED` declared-and-deferred list, optional verbatim timestamp, the two
+  `VersionSummary` sides, and the `Delta`.
+- `VersionSummary` — per-version Merkle root + counts (documents, distinct,
+  exact-duplicate, bytes) + composition histograms.
+- `Delta` — added / removed / unchanged counts, example-id lists (capped at
+  `MAX_EXAMPLES`), `MultisetShift` records (occurrence-count changes), and the
+  per-dimension `ShareShift` composition shift.
+- `MultisetShift`, `ShareShift` — the two delta-detail records.
+- `render_json` — canonical deterministic JSON (via the shared
+  `deterministic_json`); `render_summary` — the human stdout summary.
 
 ## Reuse boundary
 
