@@ -1,16 +1,17 @@
 ---
 title: "attestrum diff — read-only corpus-version delta over two sealed manifests (merge-join on document_id)"
-models: "crates/attestrum-diff/src/lib.rs, crates/attestrum-cli/src/commands/diff.rs (planned)"
-source_of_truth: diagram
-last_verified: e71552c 2026-06-12
+models: "crates/attestrum-diff/src/lib.rs, crates/attestrum-cli/src/commands/diff.rs"
+source_of_truth: code
+last_verified: 01cde77 2026-06-12
 diagram_type: flowchart
 ---
 
 # attestrum diff — corpus-version delta pipeline
 
-Source of truth: `diagram` — this is the contract the code must implement; it
-flips to `source_of_truth: code` once `crates/attestrum-diff/` and
-`commands/diff.rs` land (§2 drift rule, same commit).
+Source of truth: `code` — implemented in `crates/attestrum-diff/` (the `compare`
+merge-join engine) and `crates/attestrum-cli/src/commands/diff.rs` (the
+subcommand). This diagram is now a derived view; re-verify it when either lands
+a change.
 
 `attestrum diff <manifestA> <manifestB>` answers *"what changed between two
 already-sealed corpus states?"* — the read-only, **unsigned** sibling of

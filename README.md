@@ -55,6 +55,7 @@ Requires Rust 1.85+ (toolchain pinned via `rust-toolchain.toml`).
 ```bash
 attestrum build    --corpus <corpus.toml> --workspace <dir>          # compile a corpus into a deterministic sealed manifest
 attestrum inspect  <manifest.parquet>                                # read-only manifest inspector
+attestrum diff     <old.parquet> <new.parquet> [--out <report.json>] # read-only corpus-version delta (added/removed/unchanged + shift)
 attestrum plan     --corpus <corpus.toml> --shards <n> --out <dir>   # deterministic sub-corpus sharding
 attestrum merge    --inputs '<dir>/shard-*.parquet' --out <path>     # merge sharded builds (merged root == unsharded)
 attestrum sign     <manifest> --source-date-epoch <ts>               # keyless Sigstore Bundle v0.3 (needs an OIDC id_token)
