@@ -2,7 +2,7 @@
 title: "verify.html — visitor verification handoff"
 models: "crates/attestrum-emit/src/verify_html.rs"
 source_of_truth: code
-last_verified: dae1a12 2026-06-07
+last_verified: 8d9cbd7 2026-06-13
 diagram_type: sequenceDiagram
 ---
 

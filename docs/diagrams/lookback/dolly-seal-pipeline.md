@@ -2,7 +2,7 @@
 title: "Lookback Tier-1 — databricks-dolly-15k seal generator pipeline"
 models: "crates/attestrum-pipeline/examples/seal-dolly.rs, crates/attestrum-pipeline/src/lib.rs"
 source_of_truth: code
-last_verified: 4a7a00e 2026-06-07
+last_verified: 8d9cbd7 2026-06-13
 diagram_type: flowchart
 ---
 

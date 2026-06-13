@@ -2,7 +2,7 @@
 title: "Lookback Tier-1 — deepmind-pg19 seal generator pipeline"
 models: "crates/attestrum-pipeline/examples/seal-pg19.rs, crates/attestrum-pipeline/src/lib.rs"
 source_of_truth: code
-last_verified: 918d0e5 2026-06-12
+last_verified: 8d9cbd7 2026-06-13
 diagram_type: flowchart
 ---
 
