@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-attestrum-attest       = { path = "../attestrum-attest" }
-attestrum-text-minhash = { path = "../attestrum-text-minhash" }
+attestrum-attest       = { path = "../attestrum-attest",       version = "0.0.1" }
+attestrum-text-minhash = { path = "../attestrum-text-minhash", version = "0.1.0" }
 arrow                  = { workspace = true }
 blake3                 = { workspace = true }
 parquet                = { workspace = true }
