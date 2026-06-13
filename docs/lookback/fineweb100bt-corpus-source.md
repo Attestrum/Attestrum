@@ -233,26 +233,50 @@ cargo run -p attestrum-pipeline --release --example seal-fineweb-edu \
 
 ## Canonical seal (input → output, closeable)
 
-> **PENDING the first `fineweb100bt-seal-crosscheck` `mode=capture` run.** The
-> capture run prints the canonical triple (merged Merkle root + merged
-> `manifest.parquet` SHA-256 + leaf count); those values are then pinned here
-> and in both workflows' `CANONICAL_*` env, and `mode=assert` must reproduce
-> them byte-for-byte before anything is signed.
+Sealing the pinned input above through the 140-shard matrix + streaming
+`attestrum merge` yields this canonical result. A verifier who re-runs the
+generator on the byte-identical input — sharded any way, or unsharded — must
+reproduce the same Merkle root (multiset invariance;
+`crates/attestrum-cli/tests/sharding.rs` + `tests/merge_byte_identity.rs`).
+Captured by `fineweb100bt-seal-crosscheck` `mode=capture`
+([run 27451315236](https://github.com/Attestrum/Attestrum/actions/runs/27451315236))
+on Linux x86_64/glibc, the signing platform.
 
 | Field | Value |
 |---|---|
-| Merkle root (BLAKE3, RFC 6962), merged | _pending capture_ |
-| Leaves (rows) | 97,270,686 (upstream-known; asserted in both modes) |
-| Merged `manifest.parquet` SHA-256 | _pending capture_ |
+| Merkle root (BLAKE3, RFC 6962), merged | `9ded6e9d6174c03851ec1e2d060cbf81fffdd1c3b2c0ab41bcb4f9b70bfdeafe` |
+| Leaves (rows) | 97,270,686 |
+| Merged `manifest.parquet` SHA-256 | `939f9fda83f47723714faedde09de269e5a9c9a38fb84a335bf54cb5215b85f3` |
 | Sealed by | `attestrum-pipeline` example `seal-fineweb-edu` (release, CI, 140-shard matrix) + streaming `attestrum merge` |
 
-## Scale evidence (measured)
+## Scale evidence (measured, capture run 27451315236)
 
-> **PENDING the capture run.** This is the at-scale validation of the streaming
-> merge: at ~97.3M rows the previous load-everything merge would have needed
-> ~90 GiB; the streaming merge's measured peak RSS (one row group + the
-> leaf-digest vector) lands here from the capture run's `merge` job summary,
-> alongside per-shard seal timings and the merged manifest size (~8 GB).
+The ladder's headline rung and the at-scale validation of the streaming merge.
+Measured on a free standard GitHub Actions runner (ubuntu-24.04, 4 vCPU /
+16 GB RAM):
+
+| Metric | Measured |
+|---|---|
+| Matrix | 140 shard jobs, ~12 at a time (`max-parallel: 12`) |
+| Merge (97,270,686 rows from 140 manifests) | wall **4:58**, peak RSS **9.18 GiB** (9,627,096 kB) |
+| Merged `manifest.parquet` | ~6.9 GB |
+
+**The streaming-merge result:** at 97.27M rows the previous load-everything
+merge would have needed ~91 GiB (~970 B/row) — impossible on a 16 GB runner.
+The streaming merge held **9.18 GiB** and fit with ~7 GB to spare, which is
+what makes this rung feasible in free CI at all. That 9.18 GiB is higher than
+the early ~4–5 GiB estimate: ~3.1 GB is the leaf-digest vector (97.27M × 32 B —
+the one allocation that scales with rows, removable only by a streaming Merkle
+root, which would touch §4 `attestrum-merkle`), and the remainder is the 140
+shard readers held open simultaneously to seed the k-way heap, each carrying
+Parquet decode buffers. For this rung that fits comfortably; rungs with many
+more shards would want a smaller reader batch size or lazy reader open. The
+merged bytes are byte-identical regardless.
+
+**Download note:** a first capture attempt (run 27449603824, ~20-wide) had 6
+shards fail on HTTP 429 (HF rate limiting); capping to 12-wide with hardened
+retry (`--retry 10 --retry-delay 15 --retry-all-errors`) and re-running the 5
+stragglers cleared it, and the merge produced the triple above.
 
 ## Published (signed + live)
 

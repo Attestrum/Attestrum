@@ -35,10 +35,13 @@ Three decisions shape the pipeline (identical to 10BT, scaled):
    re-stamps ordinals globally over the concatenation.
 3. **The merged root is the canonical root, via a STREAMING merge.**
    `attestrum merge` k-way merges the 140 shard manifests (lexicographic input
-   order) in a single streaming pass — peak memory bounded by one Parquet row
-   group + the leaf-digest vector, NOT O(rows). At ~97.3M rows the old
-   load-everything merge would have needed ~90 GiB; this rung is the at-scale
-   proof the streaming merge holds memory flat. It recomputes the RFC 6962 root
+   order) in a single streaming pass — it never holds all rows. At ~97.3M rows
+   the old load-everything merge would have needed ~91 GiB (impossible on a
+   16 GB runner); the streaming merge measured **9.18 GiB** (capture run
+   27451315236) and fit with ~7 GB to spare. That figure is the leaf-digest
+   vector (~3.1 GB, 97.27M × 32 B) plus the 140 shard readers held open to seed
+   the k-way heap — it scales with rows + shard count, not as O(all rows in
+   memory). It recomputes the RFC 6962 root
    over the sorted leaf set, prints `merkle_root: <hex>`, and writes
    `merkle.root` — byte-identical to an (infeasible) unsharded build (multiset
    invariance; `crates/attestrum-cli/tests/sharding.rs` +
@@ -66,7 +69,7 @@ flowchart TD
 
   subgraph MERGE["CI merge job (needs: all 140 seal jobs)"]
     GATHER["download 140 shard artifacts"]
-    MRG["attestrum merge --out manifest.parquet<br/>STREAMING k-way merge, lexicographic input order<br/>stamp input_ordinal + occurrence_index globally<br/>peak RSS flat (one row group + leaf vector)"]
+    MRG["attestrum merge --out manifest.parquet<br/>STREAMING k-way merge, lexicographic input order<br/>stamp input_ordinal + occurrence_index globally<br/>peak RSS 9.18 GiB measured at 97M rows, never all rows"]
     ROOT["merged manifest.parquet (97,270,686 rows)<br/>+ merkle_root: hex line + merkle.root file"]
     TRIPLE["mode=capture: record triple<br/>mode=assert: root + manifest SHA-256<br/>+ leaves == 97,270,686 must reproduce"]
     GATHER --> MRG --> ROOT --> TRIPLE

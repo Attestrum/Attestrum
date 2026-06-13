@@ -55,10 +55,10 @@ env:
   EXPECTED_LEAVES: "97270686"
   # Canonical merged seal — source of truth:
   # docs/lookback/fineweb100bt-corpus-source.md §"Canonical seal". Pinned from
-  # capture run 27428316052 + reproduced by the mode=assert crosscheck; this
+  # capture run 27451315236 + reproduced by the mode=assert crosscheck; this
   # workflow refuses to sign anything else.
-  CANONICAL_ROOT: ""
-  CANONICAL_MANIFEST_SHA256: ""
+  CANONICAL_ROOT: "9ded6e9d6174c03851ec1e2d060cbf81fffdd1c3b2c0ab41bcb4f9b70bfdeafe"
+  CANONICAL_MANIFEST_SHA256: "939f9fda83f47723714faedde09de269e5a9c9a38fb84a335bf54cb5215b85f3"
 
 jobs:
   seal:
