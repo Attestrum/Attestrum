@@ -17,6 +17,9 @@ attestrum-core         = { path = "../attestrum-core",     version = "0.0.1" }
 attestrum-cas          = { path = "../attestrum-cas",      version = "0.1.0" }
 attestrum-manifest     = { path = "../attestrum-manifest", version = "0.1.0" }
 attestrum-merkle       = { path = "../attestrum-merkle",   version = "0.1.0" }
+# attestrum diff: the read-only corpus-version delta engine the `attestrum diff`
+# subcommand drives (compare / render_json / render_summary).
+attestrum-diff         = { path = "../attestrum-diff",     version = "0.1.0" }
 attestrum-pipeline     = { path = "../attestrum-pipeline", version = "0.1.0" }
 # Sprint 4 E3.5: attestrum-attest provides the in-toto Statement wrapper,
 # TrainingCorpusPredicate type, deterministic_json helper, and the

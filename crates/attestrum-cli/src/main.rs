@@ -110,6 +110,31 @@ enum Command {
         out: PathBuf,
     },
 
+    /// Diff two sealed manifests and report the corpus-version delta
+    /// (added / removed / unchanged documents, multiset shifts, and
+    /// per-source / per-modality composition shift) as a deterministic,
+    /// unsigned report. Read-only; never mutates either manifest. Streams
+    /// both — constant memory beyond the per-side leaf vectors.
+    Diff {
+        /// Path to the old (baseline) sealed `manifest.parquet`.
+        #[arg(value_name = "OLD")]
+        old: PathBuf,
+
+        /// Path to the new sealed `manifest.parquet`.
+        #[arg(value_name = "NEW")]
+        new: PathBuf,
+
+        /// Optional path to write the deterministic `report.json`. The
+        /// human-readable summary always prints to stdout.
+        #[arg(long, value_name = "PATH")]
+        out: Option<PathBuf>,
+
+        /// Reproducible-Builds timestamp, embedded in the report verbatim.
+        /// Omitted → the report carries no wall-clock.
+        #[arg(long, value_name = "STRING")]
+        timestamp: Option<String>,
+    },
+
     /// Verify a Sigstore Bundle v0.3 against a sealed manifest. Reads
     /// the bundle + manifest, refreshes the TUF trust root (unless
     /// `--offline`), cryptographically validates the cert chain + DSSE
@@ -551,6 +576,21 @@ fn main() -> ExitCode {
 
         Command::Merge { inputs, out } => {
             let code = commands::merge::run(commands::merge::Args { inputs, out });
+            ExitCode::from(code)
+        }
+
+        Command::Diff {
+            old,
+            new,
+            out,
+            timestamp,
+        } => {
+            let code = commands::diff::run(commands::diff::Args {
+                old,
+                new,
+                out,
+                timestamp,
+            });
             ExitCode::from(code)
         }
 
