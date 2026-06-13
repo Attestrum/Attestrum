@@ -45,8 +45,18 @@ fn write_fixture(path: &Path, seeds: &[u8]) {
     write_manifest(path, &entries).expect("write manifest fixture");
 }
 
+// A fresh directory per call: tests run in parallel, and several write
+// identically-named manifest fixtures, so a shared directory races (one test
+// reads a manifest mid-write from another). Path normalization makes the report
+// output directory-independent, so unique dirs change nothing about the bytes.
 fn fixtures_dir() -> PathBuf {
-    let d = std::env::temp_dir().join("attestrum-remove-golden-test");
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let d = std::env::temp_dir().join(format!(
+        "attestrum-remove-golden-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::SeqCst)
+    ));
     std::fs::create_dir_all(&d).expect("create temp dir");
     d
 }
