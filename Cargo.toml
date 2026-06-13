@@ -23,6 +23,7 @@ members = [
     "crates/attestrum-dedup",
     "crates/attestrum-remove",
     "crates/attestrum-cli",
+    "crates/attestrum-diff",
     "tools/diagram-linter",
     "tools/secret-scanner",
     "tools/fuzzy-web-gen",

@@ -6,6 +6,7 @@ pub mod build;
 pub mod compose;
 pub mod decontaminate;
 pub mod dedup;
+pub mod diff;
 pub mod index;
 pub mod inspect;
 pub mod merge;
