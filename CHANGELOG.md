@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Changed — Docs: foundational research papers now name the read-only analysis subcommands
+
+- **`how-attestrum-works-end-to-end.md` and `provenance-without-disclosure.md`** were written when the CLI was build/sign/verify/prove and presented that as the whole surface. They now acknowledge the shipped read-only analysis family — `inspect`, `diff`, `decontaminate`, `compose`, `dedup`, `remove` — so the "current CLI" / "pipeline, in stages" framing no longer reads as complete-but-stale. Content/claims otherwise unchanged.
+
 ### Added — `attestrum diff`: read-only corpus-version delta over two sealed manifests
 
 - **New `attestrum diff <OLD> <NEW>` subcommand** answers *"what changed between two sealed corpus states?"* — the corpus-evolution sibling of `attestrum inspect`. It reports documents **added / removed / unchanged**, **multiset shifts** (a document whose occurrence count changed), and a **composition shift** across five lenses (modality, source type, source dataset, SPDX license, language), plus each version's document/byte counts, exact-duplicate count, and Merkle root. Output is a deterministic `report.json` (`--out`) and a human summary on stdout; `--timestamp` embeds a Reproducible-Builds timestamp verbatim, and absent it the report carries no wall-clock. Same two manifests → byte-identical report on any machine (a committed golden + a double-run determinism test gate it).

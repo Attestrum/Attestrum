@@ -2,7 +2,7 @@
 
 ### A user walkthrough — from a folder of files to a proof anyone can check
 
-**Status:** explanation / user guide. Walks through the actual commands a user runs and what each produces, with a diagram of the whole flow. Companion to `docs/research/provenance-without-disclosure.md`, which argues the privacy properties; this document shows the mechanics. Commands reflect the current CLI; the report names no organization and offers no legal advice.
+**Status:** explanation / user guide. Walks through the actual commands a user runs and what each produces, with a diagram of the whole flow. Companion to `docs/research/provenance-without-disclosure.md`, which argues the privacy properties; this document shows the mechanics. The commands shown are the core seal → sign → publish → verify → prove path and reflect the current CLI; the CLI also ships read-only analysis subcommands (see the closing notes). The report names no organization and offers no legal advice.
 
 ---
 
@@ -232,7 +232,7 @@ And here is what did **not**: the corpus itself. That asymmetry is the whole poi
 
 - The proof establishes integrity of, and membership against, the *declared* manifest; it does not by itself prove the manifest is a complete record of what trained any particular model. The fuller treatment of what the cryptography does and does not establish is in `docs/research/provenance-without-disclosure.md` §8.
 - Exact membership rests on content hashing; approximate / fuzzy matching is a weaker, discovery-grade signal and is labeled as such.
-- Commands above show the common path; run any subcommand with `--help` for the full set of flags.
+- Commands above show the core seal → sign → publish → verify → prove path. The CLI also ships read-only analysis subcommands not walked through here — `inspect` (manifest summary), `diff` (corpus-version delta), `decontaminate` (benchmark-contamination scan), `compose` (training-content summary), `dedup` (intra-corpus near-duplicate rate), and `remove` (two-manifest removal evidence) — each with its own note under `docs/research/`. Run any subcommand with `--help` for the full set of flags.
 
 ---
 

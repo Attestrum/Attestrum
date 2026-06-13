@@ -2,7 +2,7 @@
 title: "attestrum-index fuzzy-lookup sidecar on-disk format (v1 — minhash / perceptual / iscc)"
 models: "crates/attestrum-index/src/format.rs"
 source_of_truth: code
-last_verified: b547f16 2026-06-12
+last_verified: c1539b0 2026-06-13
 diagram_type: erDiagram
 ---
 

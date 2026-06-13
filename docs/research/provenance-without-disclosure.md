@@ -26,6 +26,7 @@ Attestrum is a deterministic Rust command-line tool. Its pipeline, in stages:
 - **sign** — wrap a statement about the sealed corpus in an in-toto attestation and sign it with Sigstore, producing a Sigstore bundle that standard tooling can verify.
 - **verify** — check a bundle against an expected signing identity using stock tooling, with no Attestrum installation required.
 - **prove** — emit a membership proof (inclusion or non-inclusion) for a queried work against a sealed corpus.
+- **analysis (read-only)** — a family of subcommands that report on a sealed corpus without signing anything or modifying a manifest: `diff` (what changed between two sealed versions), `decontaminate` (benchmark-contamination scan), `compose` (training-content summary), `dedup` (intra-corpus near-duplicate rate), and `remove` (two-manifest removal evidence). Each emits a deterministic report.
 
 The artifacts are designed to be checked by widely used open-source software rather than by Attestrum itself: the Sigstore bundle verifies with `cosign`; the dataset descriptor is emitted as Croissant JSON-LD that validates against the public `mlcroissant` validator; the attestation uses in-toto predicate types. This "verifiable with stock tooling, no Attestrum required" property is a deliberate design goal, intended to avoid creating a dependence on Attestrum to trust an Attestrum-produced artifact.
 
