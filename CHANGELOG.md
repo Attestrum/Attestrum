@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Fixed — `attestrum publish` streams the manifest for its stats (constant memory)
+
+- **`attestrum publish` no longer loads the whole manifest into memory.** `read_manifest_stats` read every row into a `Vec<ManifestEntry>` (~30 GB at 97M rows) just to compute the leaf count and summed content bytes — the same OOM that the `sign` fix above addressed, one pipeline step later (it cancelled the 100BT Hub push ~43 s in, after `sign` had already succeeded). It now streams the manifest via `ManifestBatchReader`, accumulating only the two scalars it needs. Identical output; no behavior change for any corpus that previously fit. This was the publish-side instance of the latent full-load flagged when `sign` was fixed.
+
 ### Fixed — `attestrum sign` streams the manifest (constant memory; signs 100M+ row corpora)
 
 - **`attestrum sign` no longer loads the whole manifest into memory.** It previously read every row into a `Vec<ManifestEntry>` (~30 GB at 97M rows) to build the predicate, and read the entire manifest file into memory to hash it (~8 GB) — which OOMs a 16 GB CI runner and surfaces as a silent job cancellation mid-sign. It now makes a single **constant-memory streaming pass** (`ManifestBatchReader` → a `PredicateAggregator` that holds only the document_id leaf vector + per-signal counters + the license map) and **streams the file hash** (`attestrum_cas::stream_hash_path`), the same pattern `build`/`merge`/`compose` already use. Peak memory drops from ~30 GB to ~3 GB, so a 100M-row corpus signs on a standard runner. `sign` was the last pipeline step that still did a full in-memory load.

@@ -2,8 +2,8 @@
 //! Sprint 5 D3 E7. Wraps `attestrum_publish::HuggingFaceTarget::publish()`
 //! end-to-end as a user-facing CLI subcommand.
 //!
-//! The CLI is the orchestrator: it reads the sealed manifest via
-//! `attestrum_manifest::read_manifest` to derive [`ManifestStats`], reads
+//! The CLI is the orchestrator: it streams the sealed manifest via
+//! `attestrum_manifest::ManifestBatchReader` to derive [`ManifestStats`], reads
 //! the Sigstore Bundle v0.3 JSON via `attestrum_attest::extract_identity`
 //! to populate the verify.html stub's identity fields, constructs the
 //! three plan-input structs (`CroissantPlan`, `DatasetCardPlan`,
@@ -67,7 +67,7 @@
 use std::path::PathBuf;
 
 use attestrum_attest::{extract_identity, statement_from_bundle, TrainingCorpusPredicate};
-use attestrum_manifest::read_manifest;
+use attestrum_manifest::ManifestBatchReader;
 use attestrum_publish::{
     AttestrumPublishError, CroissantPlan, CycloneDxPlan, DatasetCardPlan, GitHubReleaseTarget,
     HuggingFaceTarget, ManifestStats, PublishPlan, PublishReceipt, PublishTarget,
@@ -451,9 +451,20 @@ fn resolve_source_date_epoch(args: &Args) -> Result<i64, String> {
 /// emit plans embed. Bubble I/O / schema errors as human messages —
 /// `read_manifest` already produces a clear context-laden error.
 fn read_manifest_stats(path: &std::path::Path) -> Result<ManifestStats, String> {
-    let entries = read_manifest(path).map_err(|e| format!("read manifest {path:?}: {e}"))?;
-    let leaf_count = entries.len() as u64;
-    let total_bytes = entries.iter().map(|e| e.size_bytes).sum();
+    // Stream the manifest in CONSTANT memory rather than loading every row into
+    // a Vec<ManifestEntry> (~30 GB at 97M rows — OOMs a 16 GB runner and
+    // cancels the publish step). We only need the row count and the summed
+    // content bytes. Mirrors the streaming `sign` / `merge` / `compose` paths.
+    let reader =
+        ManifestBatchReader::open(path).map_err(|e| format!("read manifest {path:?}: {e}"))?;
+    let mut leaf_count: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    for batch in reader {
+        for e in batch.map_err(|e| format!("read manifest {path:?}: {e}"))? {
+            leaf_count += 1;
+            total_bytes += e.size_bytes;
+        }
+    }
     Ok(ManifestStats {
         leaf_count,
         total_bytes,
