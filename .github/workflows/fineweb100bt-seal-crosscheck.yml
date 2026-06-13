@@ -67,6 +67,10 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
+      # Cap concurrent downloads under the free-plan 20-job ceiling: a full
+      # ~20-wide burst rate-limited (HTTP 429) 6/140 shards on the first capture
+      # run (27449603824). 12-wide + the stronger retry below keeps HF happy.
+      max-parallel: 12
       matrix:
         # The 140 parquet files of sample/100BT at HF_REV, with their upstream
         # LFS SHA-256 digests — source of truth:
@@ -269,7 +273,9 @@ jobs:
           set -euo pipefail
           mkdir -p "$DATA"
           dl_start="$(date +%s)"
-          curl --fail-with-body -sSL --retry 5 --retry-delay 5 \
+          # --retry honors HF's Retry-After on 429; 10 attempts × 15s covers a
+          # rate-limit burst (see max-parallel note above).
+          curl --fail-with-body -sSL --retry 10 --retry-delay 15 --retry-all-errors \
             -o "$DATA/${{ matrix.file }}" "$HF_BASE/${{ matrix.file }}"
           dl_end="$(date +%s)"
           echo "DL_SECS=$((dl_end - dl_start))" >> "$GITHUB_ENV"

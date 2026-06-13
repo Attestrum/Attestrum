@@ -67,6 +67,9 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
+      # Match the crosscheck: cap concurrent HF downloads to avoid the 429
+      # rate-limiting that hit a ~20-wide burst (capture run 27449603824).
+      max-parallel: 12
       matrix:
         # Same 140 pinned (file, sha256) pairs as fineweb100bt-seal-crosscheck.yml
         # — source of truth: docs/lookback/fineweb100bt-corpus-source.md.
@@ -262,7 +265,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$DATA"
-          curl --fail-with-body -sSL --retry 5 --retry-delay 5 \
+          # --retry honors HF's Retry-After on 429; 10 attempts × 15s covers a
+          # rate-limit burst (see max-parallel note above).
+          curl --fail-with-body -sSL --retry 10 --retry-delay 15 --retry-all-errors \
             -o "$DATA/${{ matrix.file }}" "$HF_BASE/${{ matrix.file }}"
           echo "${{ matrix.sha256 }}  $DATA/${{ matrix.file }}" | sha256sum -c -
 
