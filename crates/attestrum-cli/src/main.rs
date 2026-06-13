@@ -501,6 +501,67 @@ enum Command {
         #[arg(long, value_name = "PATH", default_value = ".")]
         out: PathBuf,
     },
+
+    /// Summarize a sealed manifest's training-content composition (language /
+    /// source-type / SPDX-license / modality mix) and emit an unsigned report
+    /// (`report.json` + `report.md`) — the EU AI Act Article 53(1)(d) surface.
+    /// Read-only; it streams the manifest and writes a summary.
+    Compose {
+        /// Sealed `manifest.parquet` to summarize.
+        #[arg(long, value_name = "PATH", required = true)]
+        manifest: PathBuf,
+
+        /// Directory to write `report.json` + `report.md` into.
+        #[arg(long, value_name = "PATH", default_value = ".")]
+        out: PathBuf,
+    },
+
+    /// Report the intra-corpus near-duplicate rate (LSH-banded MinHash) and emit
+    /// an unsigned report (`report.json` + `report.md`). Read-only; it ingests
+    /// the corpus and recomputes signatures via the shared MinHash kernel.
+    Dedup {
+        /// Corpus file(s) to scan (`.jsonl` / `.json` / `.parquet`). Repeatable.
+        #[arg(long, value_name = "PATH", required = true)]
+        corpus: Vec<PathBuf>,
+
+        /// JSON field / Parquet column holding the text.
+        #[arg(long, value_name = "KEY", default_value = "text")]
+        text_key: String,
+
+        /// MinHash Jaccard threshold for the near-duplicate verify step.
+        #[arg(long, value_name = "F", default_value_t = attestrum_dedup::cluster::DEFAULT_NEAR_THRESHOLD)]
+        near_threshold: f64,
+
+        /// Directory to write `report.json` + `report.md` into.
+        #[arg(long, value_name = "PATH", default_value = ".")]
+        out: PathBuf,
+    },
+
+    /// Prove a document was removed between two sealed corpus versions
+    /// (inclusion in `--before` + non-inclusion in `--after`) and emit an
+    /// unsigned report bundling both in-toto proofs. Read-only; reuses
+    /// `attestrum prove` in both directions and mints no new predicate.
+    Remove {
+        /// Sealed `manifest.parquet` of the earlier version (target present).
+        #[arg(long, value_name = "PATH", required = true)]
+        before: PathBuf,
+
+        /// Sealed `manifest.parquet` of the later version (target removed).
+        #[arg(long, value_name = "PATH", required = true)]
+        after: PathBuf,
+
+        /// 64-char lowercase BLAKE3 `document_id` of the removed document.
+        #[arg(long, value_name = "HEX", required = true)]
+        target: String,
+
+        /// Reproducible-Builds timestamp (epoch seconds) for the proofs' `built_at`.
+        #[arg(long, value_name = "TS", default_value_t = 0)]
+        source_date_epoch: i64,
+
+        /// Directory to write `report.json` + `report.md` into.
+        #[arg(long, value_name = "PATH", default_value = ".")]
+        out: PathBuf,
+    },
 }
 
 /// `attestrum index <action>` subcommands.
@@ -787,6 +848,69 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("attestrum decontaminate: {err}");
+                let mut source = std::error::Error::source(&err);
+                while let Some(s) = source {
+                    eprintln!("  caused by: {s}");
+                    source = std::error::Error::source(s);
+                }
+                ExitCode::from(1)
+            }
+        },
+
+        Command::Compose { manifest, out } => {
+            match commands::compose::run(commands::compose::Args { manifest, out }) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("attestrum compose: {err}");
+                    let mut source = std::error::Error::source(&err);
+                    while let Some(s) = source {
+                        eprintln!("  caused by: {s}");
+                        source = std::error::Error::source(s);
+                    }
+                    ExitCode::from(1)
+                }
+            }
+        }
+
+        Command::Dedup {
+            corpus,
+            text_key,
+            near_threshold,
+            out,
+        } => match commands::dedup::run(commands::dedup::Args {
+            corpus,
+            text_key,
+            near_threshold,
+            out,
+        }) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("attestrum dedup: {err}");
+                let mut source = std::error::Error::source(&err);
+                while let Some(s) = source {
+                    eprintln!("  caused by: {s}");
+                    source = std::error::Error::source(s);
+                }
+                ExitCode::from(1)
+            }
+        },
+
+        Command::Remove {
+            before,
+            after,
+            target,
+            source_date_epoch,
+            out,
+        } => match commands::remove::run(commands::remove::Args {
+            before,
+            after,
+            target,
+            source_date_epoch,
+            out,
+        }) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("attestrum remove: {err}");
                 let mut source = std::error::Error::source(&err);
                 while let Some(s) = source {
                     eprintln!("  caused by: {s}");

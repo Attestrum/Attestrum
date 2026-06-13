@@ -450,14 +450,17 @@ dependencies = [
  "attestrum-attest",
  "attestrum-bind",
  "attestrum-cas",
+ "attestrum-compose",
  "attestrum-core",
  "attestrum-decontaminate",
+ "attestrum-dedup",
  "attestrum-index",
  "attestrum-manifest",
  "attestrum-merkle",
  "attestrum-pipeline",
  "attestrum-prove",
  "attestrum-publish",
+ "attestrum-remove",
  "blake3",
  "clap",
  "parquet",
@@ -469,6 +472,18 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "attestrum-compose"
+version = "0.1.0"
+dependencies = [
+ "attestrum-attest",
+ "attestrum-core",
+ "attestrum-manifest",
+ "attestrum-merkle",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -494,6 +509,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "attestrum-dedup"
+version = "0.1.0"
+dependencies = [
+ "attestrum-attest",
+ "attestrum-decontaminate",
+ "attestrum-text-minhash",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -638,6 +664,19 @@ dependencies = [
  "tokio",
  "tracing",
  "wiremock",
+]
+
+[[package]]
+name = "attestrum-remove"
+version = "0.1.0"
+dependencies = [
+ "attestrum-attest",
+ "attestrum-core",
+ "attestrum-manifest",
+ "attestrum-prove",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

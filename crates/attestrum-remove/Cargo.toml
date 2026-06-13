@@ -1,0 +1,24 @@
+[package]
+name = "attestrum-remove"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Reuses the already-shipped inclusion / non-inclusion proof builder; remove
+# mints no new predicate and touches no §4 protected system.
+attestrum-prove  = { path = "../attestrum-prove",  version = "0.1.0" }
+attestrum-attest = { path = "../attestrum-attest", version = "0.0.1" }
+serde            = { workspace = true }
+serde_json       = { workspace = true }
+thiserror        = { workspace = true }
+
+[dev-dependencies]
+# Integration tests build manifest fixtures (target present in `before`, absent
+# from `after`) and call build_removal over them. Both are already transitive
+# deps via attestrum-prove; restated because integration tests don't inherit
+# regular deps. No new external crate.
+attestrum-core     = { path = "../attestrum-core",     version = "0.0.1" }
+attestrum-manifest = { path = "../attestrum-manifest", version = "0.1.0" }

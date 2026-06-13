@@ -44,6 +44,15 @@ attestrum-index        = { path = "../attestrum-index",    version = "0.1.0" }
 # decontaminate: benchmark-contamination scan over the shared MinHash kernel,
 # powering `attestrum decontaminate` (unsigned read-only report).
 attestrum-decontaminate = { path = "../attestrum-decontaminate", version = "0.1.0" }
+# compose: Article 53 training-content summary over a sealed manifest,
+# powering `attestrum compose` (unsigned read-only report).
+attestrum-compose       = { path = "../attestrum-compose",       version = "0.1.0" }
+# dedup: intra-corpus near-duplicate rate over the shared MinHash kernel,
+# powering `attestrum dedup` (unsigned read-only report).
+attestrum-dedup         = { path = "../attestrum-dedup",         version = "0.1.0" }
+# remove: two-manifest removal evidence (inclusion-before + non-inclusion-after),
+# powering `attestrum remove` (unsigned read-only report; reuses attestrum-prove).
+attestrum-remove        = { path = "../attestrum-remove",        version = "0.1.0" }
 # Sprint 3 E7: blake3 hashing for `attestrum plan`'s shard_id assignment.
 # Sprint 4 E3.5 also uses it for the manifest.parquet digest fed into the
 # in-toto Statement's subject + the predicate's manifest.digest_set.

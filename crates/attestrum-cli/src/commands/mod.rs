@@ -3,7 +3,9 @@
 
 pub mod bind;
 pub mod build;
+pub mod compose;
 pub mod decontaminate;
+pub mod dedup;
 pub mod index;
 pub mod inspect;
 pub mod merge;
@@ -11,6 +13,7 @@ pub mod oidc;
 pub mod plan;
 pub mod prove;
 pub mod publish;
+pub mod remove;
 pub mod sign;
 pub mod verify;
 pub mod walk_chain;

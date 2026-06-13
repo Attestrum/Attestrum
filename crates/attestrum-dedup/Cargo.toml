@@ -1,0 +1,18 @@
+[package]
+name = "attestrum-dedup"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Ingest (read_corpus + Doc, JSONL/Parquet) is reused from the sibling
+# decontaminate crate — dedup is the second consumer of corpus ingestion, so we
+# share the one tested reader rather than fork it.
+attestrum-decontaminate = { path = "../attestrum-decontaminate", version = "0.1.0" }
+# The PROTECTED MinHash kernel, consumed read-only: normalize_text + compute.
+attestrum-text-minhash  = { path = "../attestrum-text-minhash",  version = "0.1.0" }
+attestrum-attest        = { path = "../attestrum-attest",        version = "0.0.1" }
+serde                   = { workspace = true }
+serde_json              = { workspace = true }
