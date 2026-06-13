@@ -280,10 +280,48 @@ stragglers cleared it, and the merge produced the triple above.
 
 ## Published (signed + live)
 
-> **PENDING an explicit founder go to dispatch `fineweb100bt-publish`** (§A9 —
-> each publish is gated). Once published: HF dataset
-> `Attestrum/fineweb-edu-sample-100BT-sealed`, predicate type
-> `https://attestrum.com/attestation/training-corpus/v0.3`, Rekor logIndex, and
-> the Attestrum GHA workflow signing identity are recorded here. The ~8 GB
-> merged manifest exceeds cosign's 128 MiB blob-read cap, so verification uses
-> the `--digest`/`--digestAlg` form (same as 10BT).
+Sealed by the 140-shard matrix, merged with the streaming `attestrum merge`,
+gated on the canonical triple above, signed keyless under the **Attestrum
+GitHub Actions identity** (§A9 — never a personal one), and pushed by the
+`fineweb100bt-publish` workflow
+([run 27477470972](https://github.com/Attestrum/Attestrum/actions/runs/27477470972))
+on 2026-06-13. The pre-sign gate asserted the canonical triple before Fulcio was
+contacted; the pushed `attestrum/manifest.parquet`'s SHA-256 equals the
+canonical value. **This is the ladder's headline 100 GB+ rung** and the largest
+sealed corpus to date (97,270,686 leaves / 286.4 GB).
+
+| Field | Value |
+|---|---|
+| Hugging Face dataset | [`Attestrum/fineweb-edu-sample-100BT-sealed`](https://huggingface.co/datasets/Attestrum/fineweb-edu-sample-100BT-sealed) |
+| Predicate type | `https://attestrum.com/attestation/training-corpus/v0.3` |
+| Sigstore bundle | `attestrum/bundle.sigstore.json` (v0.3) |
+| Rekor logIndex (global) | `1810342310` |
+| Rekor `integratedTime` | `1781386612` (2026-06-13) |
+| Signing identity | `…/.github/workflows/fineweb100bt-publish.yml@refs/heads/main` (issuer `token.actions.githubusercontent.com`) |
+| Merged Merkle root | `9ded6e9d6174c03851ec1e2d060cbf81fffdd1c3b2c0ab41bcb4f9b70bfdeafe` |
+| Merged `manifest.parquet` SHA-256 | `939f9fda83f47723714faedde09de269e5a9c9a38fb84a335bf54cb5215b85f3` |
+
+A third party with no Attestrum installed verifies the signed manifest with
+stock cosign. At ~8 GB the merged manifest far exceeds cosign's default 128 MiB
+blob-read cap, so the blob's digest is computed with `sha256sum` and handed to
+cosign via `--digest`/`--digestAlg` — cosign still performs every signature,
+identity, Rekor, and in-toto-subject check:
+
+```bash
+sha=$(shasum -a 256 manifest.parquet | awk '{print $1}')
+cosign verify-blob-attestation \
+  --new-bundle-format \
+  --type 'https://attestrum.com/attestation/training-corpus/v0.3' \
+  --bundle bundle.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/Attestrum/Attestrum/\.github/workflows/fineweb100bt-publish\.yml@refs/.+$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --digest "$sha" --digestAlg sha256
+```
+
+Verified `Verified OK` against the live HF bundle on 2026-06-13 (cosign v3.0.6,
+independent machine, against the canonical digest above — no 8 GB download
+needed). **Tooling note:** the `--digest` flag requires cosign **v3.0.x** (it is
+absent from cosign v2.5.2, which `sigstore/cosign-installer@v3` installed by
+default); the publish workflow's own closing gate now pins `cosign-release:
+v3.0.6` so that gate matches the documented verify command. Sign + Hub-push both
+succeeded; the bundle was live before the gate ran.

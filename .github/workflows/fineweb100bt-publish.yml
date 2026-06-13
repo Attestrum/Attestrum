@@ -501,6 +501,14 @@ jobs:
 
       - name: Install cosign (sigstore/cosign-installer@v3)
         uses: sigstore/cosign-installer@v3
+        # Pin the cosign BINARY (not the action). The @v3 action default drifted
+        # to cosign v2.5.2, which lacks the `verify-blob-attestation --digest`
+        # flag the closing gate needs for the >128 MiB merged manifest (run
+        # 27477470972's gate failed "unknown flag: --digest" though sign + push
+        # had already succeeded and the bundle was live + independently verified
+        # with v3.0.6). v3.0.6 is the version the lookback docs verify against.
+        with:
+          cosign-release: v3.0.6
 
       - name: Verify installed cosign supports --new-bundle-format (v2.5+ or v3+)
         run: |
