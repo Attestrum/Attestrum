@@ -34,6 +34,8 @@ flowchart LR
 - **macOS** is fine for development and small corpora — it produces the *identical, correct* seal, just slower.
 - **Windows** is **untested and not recommended** — it is not in the determinism matrix, so byte-identity is unproven there.
 
+> **Large corpus, or signing from somewhere other than GitHub Actions?** See [`sealing-at-scale.md`](./sealing-at-scale.md) — sharding and self-hosted / cloud compute for hundreds of GB, and the full menu of non-personal signing identities (other CI providers, Kubernetes cluster workload identity, org KMS keys).
+
 ---
 
 ## Step 1 — `build`: seal the corpus (offline)
@@ -183,6 +185,7 @@ The `audience=sigstore` value is mandatory; mask the token before exporting it.
 
 ## Further reading
 
+- [`sealing-at-scale.md`](./sealing-at-scale.md) — where to run the seal for large corpora, and what identity signs it (other CI providers, cluster workload identity, org KMS keys).
 - [`how-attestrum-works-end-to-end.md`](../research/how-attestrum-works-end-to-end.md) — the conceptual walkthrough.
 - [`deterministic-by-construction.md`](../research/deterministic-by-construction.md) — why seals are byte-identical, and the cross-platform performance data.
 - [`provenance-without-disclosure.md`](../research/provenance-without-disclosure.md) — how the corpus stays private.
