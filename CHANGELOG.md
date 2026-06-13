@@ -6,6 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
+### Changed — Process: plan-first gate now covers any visible external artifact
+
+- **CLAUDE.md §3 (Plan-First Gate) now explicitly extends to any request that would produce a visible external artifact** — a page deployed to attestrum.com or any public URL, a commit, a tag, a published dataset — regardless of how the request is framed (ideation, brainstorm, "make me a…"). Previously the gate enumerated only "feature, fix, or refactor," leaving a gap where an ideation-framed request carrying an execution imperative could be acted on without an approval checkpoint. The rule directs agents to present ideas as a numbered proposal and wait for explicit approval before creating any artifact.
+
 ### Added — `attestrum decontaminate`: benchmark-contamination scan (unsigned, read-only)
 
 - **New subcommand `attestrum decontaminate --corpus <…> --against <benchmark…>`** answers "did evaluation-benchmark questions leak into this corpus?" — a corpus-composition question in the same family as inclusion / non-inclusion. It reads JSONL/Parquet corpus and benchmark files (each benchmark file named by its stem), scans every document against every benchmark item with three signals — **exact** (a shared 13-gram), **near** (MinHash Jaccard ≥ `--near-threshold`, default 0.80), and **contained** (≥ 0.90 of the item's 5-gram shingles present in the doc, catching an answer buried in filler) — and writes an unsigned `report.json` + `report.md`. It modifies no manifest and emits no signed predicate; it is read-only and network-free.

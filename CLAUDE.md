@@ -172,6 +172,8 @@ You start every feature, fix, or refactor in plan mode. In plan mode:
 - You **may** read any file.
 - You **may** draft Mermaid diagrams in `docs/diagrams/<sprint-or-area>/` once a sprint plan is approved.
 
+**The plan-first gate also applies to any request that would produce a visible external artifact** — a page deployed to attestrum.com or any public URL, a commit, a tag, a published dataset, or any action whose output is immediately visible outside this repository — regardless of how the request is framed (ideation, brainstorm, "what could we…", "make me a…"). When in doubt about scope, present ideas as a numbered proposal and wait for explicit approval before creating any artifact.
+
 **The transition out of plan mode requires explicit human approval.** Ask if uncertain. Better to ask once than scaffold a wrong directory tree.
 
 **The loop per feature:**
