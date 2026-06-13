@@ -2,7 +2,7 @@
 title: "attestrum sign flow — DSSE-wrapped Sigstore Bundle v0.3 emission (Session 2 contract for X→Y hybrid)"
 models: "crates/attestrum-attest/src/sign.rs, crates/attestrum-attest/src/dsse_sign.rs, crates/attestrum-attest/src/statement.rs, crates/attestrum-attest/src/predicate.rs, crates/attestrum-cli/src/commands/sign.rs, crates/attestrum-cli/src/lifecycle.rs, crates/attestrum-cli/tests/sign_flow_contract.rs, dsse_sign, statement, predicate, lifecycle, TRAINING_CORPUS_PREDICATE_TYPE, in-toto Statement v1, DSSE Envelope"
 source_of_truth: code
-last_verified: 7db9838 2026-06-12
+last_verified: 6d24830 2026-06-13
 diagram_type: sequenceDiagram
 ---
 
@@ -49,7 +49,7 @@ sequenceDiagram
   participant Cmd as attestrum_cli::commands::sign::run
   participant Att as attestrum_attest::sign::sign<br/>(wrapper, callsite-aliased as attest_sign, delegates to dsse_sign)
   participant Dse as attestrum_attest::dsse_sign<br/>(NEW — Session 2)
-  participant Mn as attestrum_manifest::read_manifest
+  participant Mn as attestrum_manifest::ManifestBatchReader<br/>(streaming, constant memory — replaced full read_manifest)
   participant Pred as attestrum_attest::predicate::TrainingCorpusPredicate
   participant Stmt as attestrum_attest::statement::InTotoStatement
   participant Schema as schemars JSON-Schema validate
@@ -64,9 +64,9 @@ sequenceDiagram
   U->>Cmd: parse args (manifest, workspace, oidc_flow, source_date_epoch)
   Cmd->>Cmd: validate args, resolve workspace, locate manifest
   Cmd->>Att: attest_sign(SignContext { manifest_path, workspace, oidc, sde })
-  Att->>Mn: read_manifest(manifest_path)
-  Mn-->>Att: Vec ManifestEntry + schema_version + writer_profile
-  Att->>Att: compute merkle_root from sorted document_id digests
+  Att->>Mn: footer schema check (read_manifest_metadata) then stream batches (ManifestBatchReader)
+  Mn-->>Att: row batches folded into PredicateAggregator<br/>(document_id leaves + signal counters + license map) — never the whole Vec ManifestEntry
+  Att->>Att: compute merkle_root from accumulated sorted document_id digests
   Att->>Pred: build TrainingCorpusPredicate from manifest + ctx
   Pred-->>Att: TrainingCorpusPredicate
   Att->>Stmt: InTotoStatement::new(predicateType=TRAINING_CORPUS_PREDICATE_TYPE, subject=[{name, digest:{blake3, sha256(manifest)}}], predicate)

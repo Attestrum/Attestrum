@@ -6,7 +6,10 @@ Attestrum is pre-MVP (Sprint 4 of 6). No versioned releases yet. The first tagge
 
 ## [Unreleased] — pre-MVP
 
-### Changed — Docs: foundational research papers now name the read-only analysis subcommands
+### Fixed — `attestrum sign` streams the manifest (constant memory; signs 100M+ row corpora)
+
+- **`attestrum sign` no longer loads the whole manifest into memory.** It previously read every row into a `Vec<ManifestEntry>` (~30 GB at 97M rows) to build the predicate, and read the entire manifest file into memory to hash it (~8 GB) — which OOMs a 16 GB CI runner and surfaces as a silent job cancellation mid-sign. It now makes a single **constant-memory streaming pass** (`ManifestBatchReader` → a `PredicateAggregator` that holds only the document_id leaf vector + per-signal counters + the license map) and **streams the file hash** (`attestrum_cas::stream_hash_path`), the same pattern `build`/`merge`/`compose` already use. Peak memory drops from ~30 GB to ~3 GB, so a 100M-row corpus signs on a standard runner. `sign` was the last pipeline step that still did a full in-memory load.
+- **Byte-identical output — already-signed bundles still reproduce.** The predicate (Merkle root, row count, per-signal PPM coverage, license inventory) and the manifest digest are computed identically to the prior full-load path: BLAKE3/SHA-256 are streaming-invariant, the document_id leaves are collected in the same on-disk canonical order, and the signal/license aggregations are order-independent. A new differential test (`streaming_aggregator_matches_slice_oracles`) pins the streaming aggregator to the prior slice implementations across multiple batch chunkings; the existing sign-flow contract and the 4-target determinism matrix stay green. No §4 protected system changes — predicate schema, the `attestrum-merkle` crate, and the manifest schema are untouched.
 
 - **`how-attestrum-works-end-to-end.md` and `provenance-without-disclosure.md`** were written when the CLI was build/sign/verify/prove and presented that as the whole surface. They now acknowledge the shipped read-only analysis family — `inspect`, `diff`, `decontaminate`, `compose`, `dedup`, `remove` — so the "current CLI" / "pipeline, in stages" framing no longer reads as complete-but-stale. Content/claims otherwise unchanged.
 

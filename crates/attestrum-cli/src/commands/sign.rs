@@ -26,9 +26,11 @@ use attestrum_attest::{
     LicensingPosture, ManifestRef, PublicationIntent, RulesetMode, SignRequest, SignalCoverage,
     Subject, TrainingCorpusPredicate, TRAINING_CORPUS_PREDICATE_TYPE,
 };
-use attestrum_manifest::{read_manifest, read_manifest_metadata, ManifestEntry, SCHEMA_VERSION};
+use attestrum_cas::stream_hash_path;
+use attestrum_manifest::{
+    read_manifest_metadata, ManifestBatchReader, ManifestEntry, SCHEMA_VERSION,
+};
 use attestrum_merkle::merkle_root;
-use sha2::{Digest, Sha256};
 
 use crate::lifecycle::{sign_transition, ExitCode, SignEvent, SignState};
 
@@ -133,7 +135,9 @@ pub fn run(args: Args) -> u8 {
     // OidcResolved → ManifestLoaded | Exit(RuntimeError) | Exit(SchemaError).
     // Schema-version check first so wrong-version files don't get loaded
     // (mirrors inspect's pattern at commands/inspect.rs:73).
-    let rows: Vec<ManifestEntry> = match read_manifest_metadata(&args.manifest) {
+    // read_manifest_metadata reads only the Parquet footer (no row decode),
+    // so its failure is the ReadIoError / parse-init path.
+    match read_manifest_metadata(&args.manifest) {
         Ok((schema_version, _writer_profile)) if schema_version != SCHEMA_VERSION => {
             eprintln!(
                 "attestrum sign: schema version mismatch: expected {SCHEMA_VERSION}, got {schema_version}"
@@ -141,20 +145,27 @@ pub fn run(args: Args) -> u8 {
             state = sign_transition(state, SignEvent::ReadSchemaMismatch);
             return terminal_code(state);
         }
-        Ok(_) => match read_manifest(&args.manifest) {
-            Ok(r) => {
-                state = sign_transition(state, SignEvent::ReadOk);
-                r
-            }
-            Err(e) => {
-                eprintln!("attestrum sign: manifest schema mismatch: {e}");
-                state = sign_transition(state, SignEvent::ReadSchemaMismatch);
-                return terminal_code(state);
-            }
-        },
+        Ok(_) => {}
         Err(e) => {
             eprintln!("attestrum sign: parquet read failed: {e}");
             state = sign_transition(state, SignEvent::ReadIoError);
+            return terminal_code(state);
+        }
+    }
+
+    // Stream the manifest in CONSTANT memory, accumulating only what the
+    // predicate needs (the document_id leaf vector + per-signal counters +
+    // the license BTreeMap) — never the whole Vec<ManifestEntry>, which is
+    // ~30 GB at 100M rows and OOMs a 16 GB runner. Mirrors the streaming
+    // `attestrum merge` and `attestrum compose` (aggregate_manifest) paths.
+    let aggregates = match stream_predicate_aggregates(&args.manifest) {
+        Ok(a) => {
+            state = sign_transition(state, SignEvent::ReadOk);
+            a
+        }
+        Err(e) => {
+            eprintln!("attestrum sign: manifest schema mismatch: {e}");
+            state = sign_transition(state, SignEvent::ReadSchemaMismatch);
             return terminal_code(state);
         }
     };
@@ -171,7 +182,7 @@ pub fn run(args: Args) -> u8 {
 
     // ManifestLoaded → PredicateBuilt.
     let predicate = build_predicate(
-        &rows,
+        &aggregates,
         &args,
         source_date_epoch,
         &manifest_digest,
@@ -335,7 +346,7 @@ fn terminal_code(state: SignState) -> u8 {
 /// `target_triple` comes from the build.rs-propagated env;
 /// row aggregation uses BTreeMap; SignalCoverage is u32 PPM (v0.3 schema).
 fn build_predicate(
-    rows: &[ManifestEntry],
+    aggregates: &PredicateAggregates,
     args: &Args,
     source_date_epoch: i64,
     manifest_digest: &DigestMap,
@@ -371,20 +382,19 @@ fn build_predicate(
     let manifest = ManifestRef {
         uri: manifest_uri,
         digest_set: manifest_digest.clone(),
-        row_count: rows.len() as u64,
+        row_count: aggregates.row_count,
         byte_count,
     };
 
-    // Merkle root over the canonically-sorted document_id leaves.
-    // Manifest rows are guaranteed sorted by (document_id, occurrence_index)
-    // per the PROTECTED Sprint 3 E3 schema, so the leaves slice we
-    // pass to merkle_root is already in canonical order.
-    let leaves: Vec<[u8; 32]> = rows.iter().map(|r| r.document_id).collect();
-    let merkle_root_bytes = merkle_root(&leaves);
-    let merkle_root_hex = hex_64(&merkle_root_bytes);
+    // Merkle root over the canonically-sorted document_id leaves. Manifest
+    // rows are guaranteed sorted by (document_id, occurrence_index) per the
+    // PROTECTED Sprint 3 E3 schema, and the streaming aggregator collected
+    // the document_id leaves in that same on-disk order — so this root is
+    // byte-identical to the prior full-slice computation.
+    let merkle_root_hex = hex_64(&aggregates.merkle_root);
 
-    let signal_coverage = signal_coverage_ppm(rows);
-    let license_inventory = aggregate_license_inventory(rows);
+    let signal_coverage = aggregates.signal_coverage.clone();
+    let license_inventory = aggregates.license_inventory.clone();
     let publication_intent = args
         .publication_intent
         .as_deref()
@@ -420,115 +430,156 @@ fn build_predicate(
     }
 }
 
-/// Compute per-signal PPM coverage from the manifest's per-row signals.
-/// PPM = `(evaluated_count * 1_000_000) / total_count`, clamped to
-/// `0..=1_000_000`. Returns `None` for any signal that was never
-/// evaluated (so the wire form is `null`, distinct from `Some(0)`
-/// which means "evaluated and zero coverage").
-///
-/// "Evaluated" predicate per signal — derived from the [`ManifestSignals`]
-/// shape at `crates/attestrum-manifest/src/lib.rs:48-62`:
-///
-/// | Signal       | Evaluated iff                                         |
-/// |--------------|-------------------------------------------------------|
-/// | robots_txt   | `robots_disallow == true || robots_user_agent.is_some()` |
-/// | ai_txt       | `ai_txt_disallow == true`                             |
-/// | tdm_rep      | `tdmrep_reservation != 0 || tdmrep_policy_url.is_some()` |
-/// | aipref       | `aipref_usage_pref.is_some()`                         |
-/// | iptc_plus    | `iptc_plus_dmi.is_some()`                             |
-/// | c2pa         | `c2pa_training_mining.is_some()`                      |
-/// | rsl          | `rsl_permits.is_some()`                               |
-/// | liccium      | `liccium_tdmai_iscc.is_some() || liccium_tdmai_allow.is_some()` |
-/// | cloudflare   | `cloudflare_ai_train.is_some()`                       |
-///
-/// `tdmrep_reservation == 0` is the "unset" sentinel per the
-/// `ManifestSignals` doc comment; we honor that here.
-fn signal_coverage_ppm(rows: &[ManifestEntry]) -> SignalCoverage {
-    if rows.is_empty() {
-        return SignalCoverage::default();
-    }
-    let total = rows.len() as u64;
-    let mut robots_txt = 0u64;
-    let mut ai_txt = 0u64;
-    let mut tdm_rep = 0u64;
-    let mut aipref = 0u64;
-    let mut iptc_plus = 0u64;
-    let mut c2pa = 0u64;
-    let mut rsl = 0u64;
-    let mut liccium = 0u64;
-    let mut cloudflare = 0u64;
-    for r in rows {
-        let s = &r.signals;
+// ============================================================================
+// Streaming predicate aggregation — constant memory, scales to 100M+ rows
+// ============================================================================
+
+/// The predicate-relevant aggregates of a manifest, computed in a single
+/// constant-memory pass. Replaces the prior "load the whole
+/// `Vec<ManifestEntry>`" approach, which is ~30 GB at 100M rows and OOMs a
+/// 16 GB runner — `sign` was the last non-streaming step in the seal pipeline
+/// (`build` and `merge` already stream).
+struct PredicateAggregates {
+    /// RFC 6962 BLAKE3 Merkle root over the document_id leaves, in on-disk
+    /// (canonical) order — byte-identical to the prior full-slice root.
+    merkle_root: [u8; 32],
+    /// Total rows == leaf count == `manifest.row_count`.
+    row_count: u64,
+    signal_coverage: SignalCoverage,
+    license_inventory: Vec<LicenseInventoryEntry>,
+}
+
+/// Constant-memory accumulator that folds one [`ManifestEntry`] at a time,
+/// holding only the document_id leaf vector (~32 B/row — the same vector
+/// `attestrum merge` and `attestrum compose` hold), the nine per-signal
+/// "evaluated" counters, and the per-SPDX license map. Mirrors
+/// `attestrum_compose`'s `Aggregator`. The `add` per-row logic and the
+/// `finish` finalization are byte-for-byte equivalent to the prior
+/// `signal_coverage_ppm` + `aggregate_license_inventory` slice functions,
+/// which are retained as test oracles (see `mod tests`).
+#[derive(Default)]
+struct PredicateAggregator {
+    leaves: Vec<[u8; 32]>,
+    row_count: u64,
+    // Per-signal "evaluated" counts — see the evaluated-iff table on the
+    // `signal_coverage_ppm` test oracle this reproduces.
+    robots_txt: u64,
+    ai_txt: u64,
+    tdm_rep: u64,
+    aipref: u64,
+    iptc_plus: u64,
+    c2pa: u64,
+    rsl: u64,
+    liccium: u64,
+    cloudflare: u64,
+    // spdx_id -> (byte_count, row_count). BTreeMap gives byte-stable output
+    // ordering across runs (the determinism the license inventory needs).
+    license_by_spdx: BTreeMap<String, (u64, u64)>,
+}
+
+impl PredicateAggregator {
+    fn add(&mut self, e: &ManifestEntry) {
+        self.leaves.push(e.document_id);
+        self.row_count += 1;
+
+        let s = &e.signals;
         if s.robots_disallow || s.robots_user_agent.is_some() {
-            robots_txt += 1;
+            self.robots_txt += 1;
         }
         if s.ai_txt_disallow {
-            ai_txt += 1;
+            self.ai_txt += 1;
         }
         if s.tdmrep_reservation != 0 || s.tdmrep_policy_url.is_some() {
-            tdm_rep += 1;
+            self.tdm_rep += 1;
         }
         if s.aipref_usage_pref.is_some() {
-            aipref += 1;
+            self.aipref += 1;
         }
         if s.iptc_plus_dmi.is_some() {
-            iptc_plus += 1;
+            self.iptc_plus += 1;
         }
         if s.c2pa_training_mining.is_some() {
-            c2pa += 1;
+            self.c2pa += 1;
         }
         if s.rsl_permits.is_some() {
-            rsl += 1;
+            self.rsl += 1;
         }
         if s.liccium_tdmai_iscc.is_some() || s.liccium_tdmai_allow.is_some() {
-            liccium += 1;
+            self.liccium += 1;
         }
         if s.cloudflare_ai_train.is_some() {
-            cloudflare += 1;
+            self.cloudflare += 1;
+        }
+
+        if let Some(spdx) = &e.license_spdx {
+            let entry = self.license_by_spdx.entry(spdx.clone()).or_insert((0, 0));
+            entry.0 += e.size_bytes;
+            entry.1 += 1;
         }
     }
-    SignalCoverage {
-        robots_txt: Some(ppm(robots_txt, total)),
-        ai_txt: Some(ppm(ai_txt, total)),
-        tdm_rep: Some(ppm(tdm_rep, total)),
-        aipref: Some(ppm(aipref, total)),
-        iptc_plus: Some(ppm(iptc_plus, total)),
-        c2pa: Some(ppm(c2pa, total)),
-        rsl: Some(ppm(rsl, total)),
-        liccium: Some(ppm(liccium, total)),
-        cloudflare: Some(ppm(cloudflare, total)),
+
+    fn finish(self) -> PredicateAggregates {
+        // Compute the root here so the ~3.1 GB leaf vector is dropped before
+        // the rest of the predicate is built.
+        let merkle_root_bytes = merkle_root(&self.leaves);
+
+        let signal_coverage = if self.row_count == 0 {
+            SignalCoverage::default()
+        } else {
+            let total = self.row_count;
+            SignalCoverage {
+                robots_txt: Some(ppm(self.robots_txt, total)),
+                ai_txt: Some(ppm(self.ai_txt, total)),
+                tdm_rep: Some(ppm(self.tdm_rep, total)),
+                aipref: Some(ppm(self.aipref, total)),
+                iptc_plus: Some(ppm(self.iptc_plus, total)),
+                c2pa: Some(ppm(self.c2pa, total)),
+                rsl: Some(ppm(self.rsl, total)),
+                liccium: Some(ppm(self.liccium, total)),
+                cloudflare: Some(ppm(self.cloudflare, total)),
+            }
+        };
+
+        let license_inventory = self
+            .license_by_spdx
+            .into_iter()
+            .map(|(spdx_id, (byte_count, row_count))| LicenseInventoryEntry {
+                spdx_id,
+                byte_count,
+                row_count: Some(row_count),
+                notes: None,
+            })
+            .collect();
+
+        PredicateAggregates {
+            merkle_root: merkle_root_bytes,
+            row_count: self.row_count,
+            signal_coverage,
+            license_inventory,
+        }
     }
+}
+
+/// Stream a Parquet manifest through the constant-memory [`ManifestBatchReader`],
+/// folding each row into a [`PredicateAggregator`] — never materializing the
+/// whole `Vec<ManifestEntry>`. Errors surface as strings; the caller maps them
+/// to the `ReadSchemaMismatch` transition (matching the prior `read_manifest`
+/// error arm).
+fn stream_predicate_aggregates(path: &Path) -> Result<PredicateAggregates, String> {
+    let reader = ManifestBatchReader::open(path).map_err(|e| e.to_string())?;
+    let mut acc = PredicateAggregator::default();
+    for batch in reader {
+        for entry in batch.map_err(|e| e.to_string())? {
+            acc.add(&entry);
+        }
+    }
+    Ok(acc.finish())
 }
 
 fn ppm(count: u64, total: u64) -> u32 {
     // total is guaranteed > 0 by caller. Defensive .min in case the
     // arithmetic ever overflows the 0..=1_000_000 range.
     ((count.saturating_mul(1_000_000) / total).min(1_000_000)) as u32
-}
-
-/// Aggregate per-row `license_spdx` into a sorted `LicenseInventoryEntry`
-/// list. Rows with `license_spdx == None` are not represented; absent
-/// license info shows up as `LicensingPosture::Undisclosed` at the
-/// outer field. BTreeMap iteration gives byte-stable output ordering
-/// across runs.
-fn aggregate_license_inventory(rows: &[ManifestEntry]) -> Vec<LicenseInventoryEntry> {
-    let mut by_spdx: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-    for r in rows {
-        if let Some(spdx) = &r.license_spdx {
-            let entry = by_spdx.entry(spdx.clone()).or_insert((0, 0));
-            entry.0 += r.size_bytes;
-            entry.1 += 1;
-        }
-    }
-    by_spdx
-        .into_iter()
-        .map(|(spdx_id, (byte_count, row_count))| LicenseInventoryEntry {
-            spdx_id,
-            byte_count,
-            row_count: Some(row_count),
-            notes: None,
-        })
-        .collect()
 }
 
 fn publication_intent_from_cli(s: &str) -> Option<PublicationIntent> {
@@ -562,17 +613,17 @@ fn resolve_source_date_epoch(args: &Args) -> Result<i64, String> {
 // File hashing
 // ============================================================================
 
-/// Compute BLAKE3 + SHA-256 of a file's bytes in a single read. Used
-/// for both the in-toto Subject.digest and the predicate's
-/// `manifest.digest_set`.
+/// Compute BLAKE3 + SHA-256 of a file by STREAMING it in fixed-size chunks
+/// (`attestrum_cas::stream_hash_path`) rather than reading the whole file into
+/// memory — the ~8 GB merged 100BT manifest would otherwise spike RAM on a
+/// 16 GB runner. BLAKE3 and SHA-256 are streaming-invariant, so the hex
+/// digests are identical to a one-shot hash. Feeds both the in-toto
+/// Subject.digest and the predicate's `manifest.digest_set`.
 fn hash_file_blake3_sha256(path: &Path) -> std::io::Result<DigestMap> {
-    let bytes = fs::read(path)?;
-    let blake3_hex = hex_64(blake3::hash(&bytes).as_bytes());
-    let sha256_bytes: [u8; 32] = Sha256::digest(&bytes).into();
-    let sha256_hex = hex_64(&sha256_bytes);
+    let sh = stream_hash_path(path)?;
     Ok(DigestMap {
-        blake3: blake3_hex,
-        sha256: sha256_hex,
+        blake3: hex_64(&sh.blake3),
+        sha256: hex_64(&sh.sha256),
     })
 }
 
@@ -668,6 +719,167 @@ mod tests {
             input_ordinal: 0,
             occurrence_index: 0,
         }
+    }
+
+    // ---- Test oracles -------------------------------------------------------
+    // The prior slice-based implementations, retained here as the reference the
+    // streaming `PredicateAggregator` must match byte-for-byte. The four
+    // pre-existing oracle tests below pin their behavior; the differential test
+    // `streaming_aggregator_matches_slice_oracles` ties the aggregator to them.
+
+    /// Per-signal PPM coverage. Evaluated-iff per signal: robots_txt =
+    /// `robots_disallow || robots_user_agent.is_some()`; ai_txt =
+    /// `ai_txt_disallow`; tdm_rep = `tdmrep_reservation != 0 ||
+    /// tdmrep_policy_url.is_some()`; aipref/iptc_plus/c2pa/rsl/cloudflare =
+    /// their respective `*.is_some()`; liccium = `liccium_tdmai_iscc.is_some()
+    /// || liccium_tdmai_allow.is_some()`.
+    fn signal_coverage_ppm(rows: &[ManifestEntry]) -> SignalCoverage {
+        if rows.is_empty() {
+            return SignalCoverage::default();
+        }
+        let total = rows.len() as u64;
+        let mut robots_txt = 0u64;
+        let mut ai_txt = 0u64;
+        let mut tdm_rep = 0u64;
+        let mut aipref = 0u64;
+        let mut iptc_plus = 0u64;
+        let mut c2pa = 0u64;
+        let mut rsl = 0u64;
+        let mut liccium = 0u64;
+        let mut cloudflare = 0u64;
+        for r in rows {
+            let s = &r.signals;
+            if s.robots_disallow || s.robots_user_agent.is_some() {
+                robots_txt += 1;
+            }
+            if s.ai_txt_disallow {
+                ai_txt += 1;
+            }
+            if s.tdmrep_reservation != 0 || s.tdmrep_policy_url.is_some() {
+                tdm_rep += 1;
+            }
+            if s.aipref_usage_pref.is_some() {
+                aipref += 1;
+            }
+            if s.iptc_plus_dmi.is_some() {
+                iptc_plus += 1;
+            }
+            if s.c2pa_training_mining.is_some() {
+                c2pa += 1;
+            }
+            if s.rsl_permits.is_some() {
+                rsl += 1;
+            }
+            if s.liccium_tdmai_iscc.is_some() || s.liccium_tdmai_allow.is_some() {
+                liccium += 1;
+            }
+            if s.cloudflare_ai_train.is_some() {
+                cloudflare += 1;
+            }
+        }
+        SignalCoverage {
+            robots_txt: Some(ppm(robots_txt, total)),
+            ai_txt: Some(ppm(ai_txt, total)),
+            tdm_rep: Some(ppm(tdm_rep, total)),
+            aipref: Some(ppm(aipref, total)),
+            iptc_plus: Some(ppm(iptc_plus, total)),
+            c2pa: Some(ppm(c2pa, total)),
+            rsl: Some(ppm(rsl, total)),
+            liccium: Some(ppm(liccium, total)),
+            cloudflare: Some(ppm(cloudflare, total)),
+        }
+    }
+
+    fn aggregate_license_inventory(rows: &[ManifestEntry]) -> Vec<LicenseInventoryEntry> {
+        let mut by_spdx: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+        for r in rows {
+            if let Some(spdx) = &r.license_spdx {
+                let entry = by_spdx.entry(spdx.clone()).or_insert((0, 0));
+                entry.0 += r.size_bytes;
+                entry.1 += 1;
+            }
+        }
+        by_spdx
+            .into_iter()
+            .map(|(spdx_id, (byte_count, row_count))| LicenseInventoryEntry {
+                spdx_id,
+                byte_count,
+                row_count: Some(row_count),
+                notes: None,
+            })
+            .collect()
+    }
+
+    /// The key determinism test: the streaming `PredicateAggregator` must
+    /// produce the SAME root, count, signal coverage, and license inventory as
+    /// the slice oracles — fed in several chunkings to prove batch-boundary
+    /// invariance (the streaming reader yields 8192-row batches in production).
+    #[test]
+    fn streaming_aggregator_matches_slice_oracles() {
+        let mut rows = vec![
+            sample_entry(0x01, Some("MIT")),
+            sample_entry(0x02, Some("Apache-2.0")),
+            sample_entry(0x03, Some("MIT")),
+            sample_entry(0x04, None),
+            sample_entry(0x05, Some("Apache-2.0")),
+            sample_entry(0x06, Some("MIT")),
+            sample_entry(0x07, None),
+        ];
+        rows[0].signals.robots_disallow = true;
+        rows[1].signals.ai_txt_disallow = true;
+        rows[2].signals.tdmrep_reservation = 1;
+        rows[3].signals.cloudflare_ai_train = Some("no".into());
+        rows[4].signals.rsl_permits = Some("nothing".into());
+        // Vary size_bytes so the license byte_count sums are exercised.
+        for (i, r) in rows.iter_mut().enumerate() {
+            r.size_bytes = 10 * (i as u64 + 1);
+        }
+
+        let want_coverage = signal_coverage_ppm(&rows);
+        let want_inventory = aggregate_license_inventory(&rows);
+        let want_inv: Vec<_> = want_inventory
+            .iter()
+            .map(|e| (e.spdx_id.clone(), e.byte_count, e.row_count))
+            .collect();
+        let want_root = merkle_root(&rows.iter().map(|r| r.document_id).collect::<Vec<_>>());
+        let want_count = rows.len() as u64;
+
+        for chunk_size in [1usize, 2, 3, 7, 100] {
+            let mut acc = PredicateAggregator::default();
+            for chunk in rows.chunks(chunk_size) {
+                for e in chunk {
+                    acc.add(e);
+                }
+            }
+            let got = acc.finish();
+            assert_eq!(got.row_count, want_count, "row_count (chunk {chunk_size})");
+            assert_eq!(
+                got.merkle_root, want_root,
+                "merkle_root (chunk {chunk_size})"
+            );
+            assert_eq!(
+                got.signal_coverage, want_coverage,
+                "signal_coverage (chunk {chunk_size})"
+            );
+            let got_inv: Vec<_> = got
+                .license_inventory
+                .iter()
+                .map(|e| (e.spdx_id.clone(), e.byte_count, e.row_count))
+                .collect();
+            assert_eq!(got_inv, want_inv, "license_inventory (chunk {chunk_size})");
+        }
+    }
+
+    /// An empty manifest streams to the default (all-`None`) coverage, an empty
+    /// inventory, and the empty-tree root — matching the prior `rows.is_empty()`
+    /// guards.
+    #[test]
+    fn streaming_aggregator_empty_matches_oracles() {
+        let got = PredicateAggregator::default().finish();
+        assert_eq!(got.row_count, 0);
+        assert_eq!(got.signal_coverage, signal_coverage_ppm(&[]));
+        assert!(got.license_inventory.is_empty());
+        assert_eq!(got.merkle_root, merkle_root(&[]));
     }
 
     #[test]
