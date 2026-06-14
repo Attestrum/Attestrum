@@ -2,7 +2,7 @@
 title: "attestrum inspect CLI subcommand lifecycle state machine"
 models: "crates/attestrum-cli/src/commands/inspect.rs, crates/attestrum-cli/src/lifecycle.rs"
 source_of_truth: code
-last_verified: 7db9838 2026-06-12
+last_verified: 369bc52 2026-06-13
 diagram_type: stateDiagram-v2
 ---
 
@@ -24,7 +24,7 @@ stateDiagram-v2
     ArgsParsed --> Validated: manifest path exists and is a file
     ArgsParsed --> Exit2: manifest path missing or not a file
     Validated --> LocalRead: dispatch inspect is always offline
-    LocalRead --> ManifestLoaded: read_manifest returns Vec ManifestEntry
+    LocalRead --> ManifestLoaded: stream batches via ManifestBatchReader (constant memory)
     LocalRead --> Exit1: parquet read I O error
     LocalRead --> Exit8: parquet schema mismatch
     ManifestLoaded --> Summarized: compute root leaf_count total_bytes per_modality_histogram

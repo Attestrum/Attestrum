@@ -8,10 +8,10 @@
 //! single concrete consumer.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use attestrum_core::Modality;
-use attestrum_manifest::{read_manifest, read_manifest_metadata, ManifestEntry, SCHEMA_VERSION};
+use attestrum_manifest::{read_manifest_metadata, ManifestBatchReader, SCHEMA_VERSION};
 use attestrum_merkle::merkle_root;
 
 use crate::lifecycle::{transition, ExitCode, InspectEvent, InspectState};
@@ -70,7 +70,9 @@ pub fn run(args: Args) -> u8 {
     // Read metadata first because it carries the schema-version
     // assertion. If metadata reads cleanly but the version is wrong,
     // we Exit8 without ever loading the rows.
-    let rows: Vec<ManifestEntry> = match read_manifest_metadata(&args.manifest) {
+    // Schema-version gate. read_manifest_metadata reads only the Parquet
+    // footer (no row decode), so its failure is the ReadIoError path.
+    match read_manifest_metadata(&args.manifest) {
         Ok((schema_version, _writer_profile)) if schema_version != SCHEMA_VERSION => {
             eprintln!(
                 "attestrum inspect: schema version mismatch: expected {SCHEMA_VERSION}, got {schema_version}"
@@ -78,20 +80,7 @@ pub fn run(args: Args) -> u8 {
             state = transition(state, InspectEvent::ReadSchemaMismatch);
             return terminal_code(state);
         }
-        Ok(_) => match read_manifest(&args.manifest) {
-            Ok(r) => {
-                state = transition(state, InspectEvent::ReadOk);
-                r
-            }
-            Err(e) => {
-                // Metadata succeeded but row read failed: treat as
-                // schema-mismatch (the file claims to be schema "1"
-                // but doesn't have the column shape we expect).
-                eprintln!("attestrum inspect: manifest schema mismatch: {e}");
-                state = transition(state, InspectEvent::ReadSchemaMismatch);
-                return terminal_code(state);
-            }
-        },
+        Ok(_) => {}
         Err(e) => {
             // KeyValue metadata read failed → not a recognisable Attestrum
             // Parquet file at all → runtime error.
@@ -99,11 +88,28 @@ pub fn run(args: Args) -> u8 {
             state = transition(state, InspectEvent::ReadIoError);
             return terminal_code(state);
         }
+    }
+
+    // Stream the manifest in CONSTANT memory to build the summary — never
+    // load the whole Vec<ManifestEntry> (~30 GB at 100M rows, OOMs a 16 GB
+    // box). Mirrors the streaming `sign` / `publish` / `merge` paths.
+    let summary = match summarise(&args.manifest) {
+        Ok(s) => {
+            state = transition(state, InspectEvent::ReadOk);
+            s
+        }
+        Err(e) => {
+            // Metadata succeeded but a row batch failed to decode: treat as
+            // schema-mismatch (the file claims schema "1" but doesn't have
+            // the column shape we expect).
+            eprintln!("attestrum inspect: manifest schema mismatch: {e}");
+            state = transition(state, InspectEvent::ReadSchemaMismatch);
+            return terminal_code(state);
+        }
     };
 
-    // ManifestLoaded → Summarized: build the displayable summary.
+    // ManifestLoaded → Summarized.
     state = transition(state, InspectEvent::ComputeSummary);
-    let summary = summarise(&rows);
 
     // Summarized → Exit(Ok): print and terminate.
     print_summary(&summary);
@@ -132,20 +138,33 @@ struct Summary {
     by_modality: BTreeMap<&'static str, usize>,
 }
 
-fn summarise(rows: &[ManifestEntry]) -> Summary {
-    let leaves: Vec<[u8; 32]> = rows.iter().map(|r| r.document_id).collect();
-    let merkle = merkle_root(&leaves);
-    let total_bytes = rows.iter().map(|r| r.size_bytes).sum();
+/// Stream the manifest through the constant-memory [`ManifestBatchReader`],
+/// accumulating only the document_id leaf vector (for the root), the byte
+/// total, and the per-modality histogram — never the whole `Vec<ManifestEntry>`.
+/// Output is identical to the prior full-slice computation (the leaves are
+/// collected in the same on-disk order; byte/modality sums are
+/// order-independent). Errors surface as strings (the caller maps them to the
+/// `ReadSchemaMismatch` transition).
+fn summarise(path: &Path) -> Result<Summary, String> {
+    let reader = ManifestBatchReader::open(path).map_err(|e| e.to_string())?;
+    let mut leaves: Vec<[u8; 32]> = Vec::new();
+    let mut total_bytes: u64 = 0;
     let mut by_modality: BTreeMap<&'static str, usize> = BTreeMap::new();
-    for row in rows {
-        *by_modality.entry(modality_label(row.modality)).or_insert(0) += 1;
+    for batch in reader {
+        for row in batch.map_err(|e| e.to_string())? {
+            leaves.push(row.document_id);
+            total_bytes += row.size_bytes;
+            *by_modality.entry(modality_label(row.modality)).or_insert(0) += 1;
+        }
     }
-    Summary {
+    let leaf_count = leaves.len();
+    let merkle = merkle_root(&leaves);
+    Ok(Summary {
         merkle_root: merkle,
-        leaf_count: rows.len(),
+        leaf_count,
         total_bytes,
         by_modality,
-    }
+    })
 }
 
 fn modality_label(m: Modality) -> &'static str {
